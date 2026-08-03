@@ -5,13 +5,13 @@
 
 ## 1. 基本决策
 
-| 项 | 决策 | 理由 |
-| --- | --- | --- |
-| 格式 | **TOML** | 支持注释、人类可编辑；Python 标准库 `tomllib` 原生读取；Rust 生态成熟 |
-| 文件位置 | `<userData>/config.toml`（各 OS 用户数据目录，经 Tauri path API 解析） | 不污染安装目录；macOS/Windows 权限友好 |
-| 事实源 | **sidecar 独占读写**；前端经 RPC 访问，不直接操作文件 | 避免双写竞争；配置变更事件可由 sidecar 统一广播 |
-| 校验 | pydantic 模型（`config.py`）；前端如需镜像用 zod（M1 评估） | 边界数据必须过模型（代码规范 §3） |
-| 敏感信息 | **API Key 永不落配置文件**，只存 `key_ref`（系统钥匙串条目名） | 安全红线（功能清单 7.2） |
+| 项       | 决策                                                                   | 理由                                                                  |
+| -------- | ---------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| 格式     | **TOML**                                                               | 支持注释、人类可编辑；Python 标准库 `tomllib` 原生读取；Rust 生态成熟 |
+| 文件位置 | `<userData>/config.toml`（各 OS 用户数据目录，经 Tauri path API 解析） | 不污染安装目录；macOS/Windows 权限友好                                |
+| 事实源   | **sidecar 独占读写**；前端经 RPC 访问，不直接操作文件                  | 避免双写竞争；配置变更事件可由 sidecar 统一广播                       |
+| 校验     | pydantic 模型（`config.py`）；前端如需镜像用 zod（M1 评估）            | 边界数据必须过模型（代码规范 §3）                                     |
+| 敏感信息 | **API Key 永不落配置文件**，只存 `key_ref`（系统钥匙串条目名）         | 安全红线（功能清单 7.2）                                              |
 
 ## 2. 文件结构
 
@@ -31,8 +31,10 @@ config_version = 1            # schema 版本，迁移依据（§4）
 ## 3. 敏感信息处理
 
 1. `[model.providers.<id>]` 中只允许 `key_ref = "mochi:provider:<id>"`。
-2. 真实 Key 存入 OS 钥匙串：macOS Keychain / Windows Credential Manager
-   （实现候选：Rust `keyring` crate 或 tauri-plugin-stronghold，M0 选型）。
+2. 真实 Key 存入 OS 钥匙串：macOS Keychain / Windows Credential Manager。
+   M0 选型：**Python `keyring` 库（sidecar 侧直连 OS 钥匙串）**——配置事实源在
+   sidecar，且 Rust 面保持最小化；候选过的 Rust `keyring` crate /
+   tauri-plugin-stronghold 不采用。
 3. 日志、遥测、错误上报路径**禁止**序列化 provider 表原文（脱敏规则：只保留 `kind`/`model`/`key_ref`）。
 4. 「导出配置」（功能清单 7.6）时同样只导出 `key_ref`，导入端需重新授权 Key。
 
