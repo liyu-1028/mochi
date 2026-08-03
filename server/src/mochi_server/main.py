@@ -23,6 +23,8 @@ from .agent import RunManager
 from .agent.ollama_probe import probe_ollama
 from .agent.registry import ProviderRegistry
 from .agent.service import AgentService
+from .api import config_router
+from .api.security import SensitiveDataFilter
 from .config import AppConfig, load_config
 from .events import (
     EVENT_TYPES,
@@ -45,12 +47,22 @@ from .secrets import KeyStore
 logger = logging.getLogger(__name__)
 
 
+def _install_log_filter() -> None:
+    """把脱敏过滤器挂到 root logger 与其 handler（幂等）。"""
+    root = logging.getLogger()
+    targets: list[logging.Logger | logging.Handler] = [root, *root.handlers]
+    for target in targets:
+        if not any(isinstance(f, SensitiveDataFilter) for f in target.filters):
+            target.addFilter(SensitiveDataFilter())
+
+
 def _now_ms() -> int:
     return int(time.time() * 1000)
 
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    _install_log_filter()  # uvicorn 在启动期才装 handler，这里再补一次
     if app.state.registry is None and app.state.agent is None:
         probe = await probe_ollama()
         config = load_config(
@@ -82,6 +94,9 @@ def create_app(
     app = FastAPI(title="mochi-server", version=__version__, lifespan=_lifespan)
     app.state.agent = agent
     app.state.registry = ProviderRegistry(config, key_store) if config is not None else None
+    app.state.config_path = get_config_path()
+    app.include_router(config_router)
+    _install_log_filter()
 
     @app.get("/health")
     async def health() -> dict[str, str]:

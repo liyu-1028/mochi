@@ -42,6 +42,10 @@ class ProviderRegistry:
     def config(self) -> AppConfig:
         return self._config
 
+    @property
+    def key_store(self) -> KeyStore:
+        return self._key_store
+
     def update_config(self, config: AppConfig) -> None:
         """整包替换配置并使适配器缓存失效（下一回合即用新配置）。"""
         self._config = config
