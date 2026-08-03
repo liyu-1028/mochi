@@ -5,11 +5,15 @@ description = "Mochi Agent sidecar —— LangGraph 驱动的本地认知核心"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [
-    # 骨架阶段最小依赖；LangGraph 在 M0 引入（见 docs/specs/monorepo-structure.md §5）
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "pydantic>=2.8",
     "pydantic-settings[toml]>=2.4",
+    # M0-S2 模型接入层（选型理由见 docs/internal/adr/0002-model-integration.md）
+    "openai>=1.55,<2.0",     # AsyncOpenAI + base_url 覆盖，兼容 OpenAI 系与 Ollama /v1
+    "keyring>=25.0",         # API Key 存 OS 钥匙串（key_ref 规则，config-format.md §3）
+    "platformdirs>=4.2",     # 数据目录解析，与 Tauri app_data_dir 对齐
+    "tomli-w>=1.0",          # TOML 写入（标准库 tomllib 只读）
 ]
 
 [dependency-groups]
