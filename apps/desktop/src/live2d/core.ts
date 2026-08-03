@@ -56,8 +56,13 @@ export async function loadCharacterStage(
   container.appendChild(canvas);
 
   try {
-    // autoInteract 关闭：视线跟随由 gaze 驱动显式 focus，避免点击劫持
-    const model = await ModelCtor.from(modelUrl, { autoInteract: false });
+    // autoInteract 关闭：视线跟随由 gaze 驱动显式 focus，避免点击劫持；
+    // motionPreload=ALL：状态切换时动作零加载延迟（2.2 切换 ≤300ms 的前提）
+    const { MotionPreloadStrategy } = await importLive2D();
+    const model = await ModelCtor.from(modelUrl, {
+      autoInteract: false,
+      motionPreload: MotionPreloadStrategy.ALL,
+    });
     app.stage.addChild(model);
     fitModelToStage(model, app);
     return { app, model };
