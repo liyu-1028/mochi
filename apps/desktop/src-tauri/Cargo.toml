@@ -1,0 +1,27 @@
+[package]
+name = "mochi-desktop"
+version = "0.1.0"
+description = "Mochi —— 会成长的桌面智能伙伴（Tauri 桌面壳）"
+authors = ["Mochi Contributors"]
+edition = "2021"
+
+# 库目标供 Tauri 移动端/测试入口复用；桌面主入口为 main.rs
+[lib]
+name = "mochi_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+# 发布包体积优化（规范：见 docs/specs/monorepo-structure.md §6）
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

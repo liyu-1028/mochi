@@ -1,0 +1,17 @@
+{
+  "name": "@mochi/protocol",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Mochi Agent 事件协议 v0.1 —— 前端唯一事实源（规范文档：docs/protocol/agent-events-v0.1.md）",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}

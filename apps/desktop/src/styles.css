@@ -1,0 +1,26 @@
+/* 骨架占位样式；正式 UI 规范落地后替换 */
+:root {
+  color-scheme: light dark;
+  font-family:
+    "PingFang SC",
+    "Microsoft YaHei",
+    system-ui,
+    sans-serif;
+}
+
+body {
+  margin: 0;
+  /* 透明窗口：背景必须可透明 */
+  background: transparent;
+}
+
+.skeleton {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(255, 250, 245, 0.92);
+  border-radius: 16px;
+}

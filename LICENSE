@@ -1,0 +1,36 @@
+MIT License
+
+Copyright (c) 2026 Mochi Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+IMPORTANT / 重要说明:
+
+This MIT license covers the SOURCE CODE of Mochi only.
+
+Character assets under /assets (including but not limited to Live2D models,
+textures, motions and illustrations) are NOT covered by this MIT license.
+They are released under their own respective licenses. See
+LICENSE-Live2D.md and the license file bundled with each asset.
+
+本 MIT 协议仅覆盖 Mochi 的源代码。/assets 目录下的角色资产（包括但不限于
+Live2D 模型、贴图、动作与插画）不受本协议约束，遵循其各自的授权条款，
+详见 LICENSE-Live2D.md 及各资产目录内的许可文件。

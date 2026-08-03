@@ -1,0 +1,9 @@
+pnpm-lock.yaml
+dist/
+target/
+node_modules/
+.venv/
+apps/desktop/src-tauri/
+assets/
+LICENSE
+LICENSE-Live2D.md

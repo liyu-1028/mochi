@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+.venv/
+
+# Build outputs
+dist/
+target/
+*.egg-info/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Env & secrets（规范：Key 永不入库，见 docs/specs/config-format.md）
+.env
+.env.*
+
+# OS / editor / 工具本地配置
+.claude/
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Logs
+*.log
+
+# 内部过程文档（调研、决策推演等，不入库）
+docs/internal/

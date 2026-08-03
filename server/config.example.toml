@@ -1,0 +1,43 @@
+# Mochi 用户配置示例（规范：docs/specs/config-format.md）
+# 实际文件位于用户数据目录：<userData>/config.toml
+# 注意：API Key 等敏感信息【永不】写入本文件，仅存 key_ref 指向系统钥匙串。
+
+config_version = 1
+
+[general]
+language = "zh-CN"           # zh-CN | en
+launch_at_startup = false    # 开机自启（功能清单 1.6，默认关闭）
+telemetry = false            # 遥测默认关闭（功能清单 7.7）
+
+[character]
+active_skin = "default"      # 当前皮肤包 id
+
+[model]
+default_provider = "ollama"  # 必须是 [model.providers.*] 中已定义的 id
+
+[model.providers.ollama]
+kind = "ollama"              # ollama | openai_compatible | anthropic
+display_name = "Ollama (本地)"
+base_url = "http://127.0.0.1:11434"
+model = "qwen3:8b"
+
+[model.providers.my_cloud]
+kind = "openai_compatible"
+display_name = "我的云端模型"
+base_url = "https://api.example.com/v1"
+model = "example-chat"
+key_ref = "mochi:provider:my_cloud"   # 系统钥匙串条目名，非明文 Key
+
+[voice]
+tts_enabled = true
+engine = "edge"              # edge（默认免费）| local（Piper 等，M1）
+voice_id = "zh-CN-XiaoxiaoNeural"
+volume = 1.0                 # 0.0 ~ 1.0
+rate = 1.0                   # 语速倍率
+muted = false
+
+[privacy]
+local_only = false           # 隐私模式（功能清单 7.3）：true 时阻断一切云端请求
+
+[skills]
+enabled = []                 # 已启用技能 id 列表（如 "web_search"）

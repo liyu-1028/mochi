@@ -1,0 +1,17 @@
+* text=auto
+
+# Git hooks 必须在 Windows 上保持 LF，否则 husky 钩子无法执行
+.husky/** text eol=lf
+*.sh text eol=lf
+
+# 二进制资产（Live2D 模型、图片、音频）不参与 diff/merge
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.moc3 binary
+*.zip binary
+*.mp3 binary
+*.wav binary
+*.ttf binary
+*.otf binary

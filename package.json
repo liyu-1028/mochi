@@ -1,0 +1,40 @@
+{
+  "name": "mochi",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Mochi —— 会成长的桌面智能伙伴（Tauri 桌面壳 + LangGraph sidecar）",
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.8.1",
+  "scripts": {
+    "prepare": "husky",
+    "dev": "pnpm --filter @mochi/desktop dev",
+    "dev:web": "pnpm --filter @mochi/desktop dev:web",
+    "dev:server": "cd server && uv run uvicorn mochi_server.main:app --reload --port 8199",
+    "lint": "eslint . && pnpm lint:py",
+    "lint:py": "cd server && uv run ruff check",
+    "format": "prettier --write . && cd server && uv run ruff format",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,mjs,json,md,yaml,yml}": "prettier --write",
+    "*.{ts,tsx}": "eslint --fix",
+    "server/**/*.py": [
+      "uvx ruff check --fix",
+      "uvx ruff format"
+    ]
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^19.0.0",
+    "@commitlint/config-conventional": "^19.0.0",
+    "@eslint/js": "^9.0.0",
+    "eslint": "^9.0.0",
+    "husky": "^9.0.0",
+    "lint-staged": "^15.2.0",
+    "prettier": "^3.3.0",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.0.0"
+  }
+}
