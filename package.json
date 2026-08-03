@@ -10,6 +10,7 @@
   "packageManager": "pnpm@10.8.1",
   "scripts": {
     "prepare": "husky",
+    "postinstall": "node scripts/download-live2d-core.mjs",
     "dev": "pnpm --filter @mochi/desktop dev",
     "dev:web": "pnpm --filter @mochi/desktop dev:web",
     "dev:server": "cd server && uv run uvicorn mochi_server.main:app --reload --port 8199",

@@ -103,6 +103,9 @@ fi
 # 3. 前端（Vite dev server）
 # ---------------------------------------------------------------------------
 
+# Live2D Cubism Core：专有代码不入库，幂等下载（校验和一致自动跳过；失败不阻塞）
+node "${ROOT}/scripts/download-live2d-core.mjs"
+
 if port_in_use "$WEB_PORT"; then
   echo "✓ 前端已在运行：127.0.0.1:${WEB_PORT}，跳过"
 else

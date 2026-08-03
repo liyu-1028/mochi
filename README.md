@@ -29,12 +29,15 @@ Mochi 将冰冷的命令行和对话框，升级为有温度、有形象、可�
 ## 快速开始
 
 ```bash
-pnpm install                 # JS 依赖 + husky 钩子
+pnpm install                 # JS 依赖 + husky 钩子（postinstall 自动下载 Live2D Core）
 cd server && uv sync && cd .. # Python 依赖
 
 ./scripts/start.sh            # 一键启动：Ollama（如有）+ sidecar + 前端（1420）
 ./scripts/stop.sh             # 一键停止（--all 连同 Ollama）
 ```
+
+> Live2D Cubism Core 为专有代码不入库，由 `scripts/download-live2d-core.mjs`
+> 下载（SHA256 校验）。缺失时角色降级为 emoji 占位，不影响对话功能。
 
 或按需单独启动：
 
