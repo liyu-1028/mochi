@@ -55,7 +55,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      # TODO：本机安装 Rust 后将 Cargo.lock 入库，此处改为 --locked
+      # Cargo.lock 已入库（M0-S3），锁定依赖版本保证 CI 与本机一致
       - name: cargo clippy
         working-directory: apps/desktop/src-tauri
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --locked -- -D warnings
