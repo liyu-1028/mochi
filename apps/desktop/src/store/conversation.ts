@@ -24,6 +24,10 @@ export interface ConversationState {
   activeRunId: string | null;
   /** 错误/提示横幅文案（run.error、hello_error） */
   notice: string | null;
+  /** 口型驱动信号（M0-S3，功能清单 2.3）：最近 delta 时间戳/内容/说话区间 */
+  lastTextDeltaAt: number;
+  lastTextDelta: string;
+  isSpeaking: boolean;
 
   setStatus: (status: ConnectionStatus) => void;
   addUserMessage: (text: string) => void;
@@ -38,6 +42,9 @@ export const useConversation = create<ConversationState>()((set, get) => ({
   messages: [],
   activeRunId: null,
   notice: null,
+  lastTextDeltaAt: 0,
+  lastTextDelta: "",
+  isSpeaking: false,
 
   setStatus: (status) => set({ status }),
 
@@ -82,6 +89,7 @@ export const useConversation = create<ConversationState>()((set, get) => ({
             ...s.messages,
             { id: data.messageId as string, role: "assistant", text: "", streaming: true },
           ],
+          isSpeaking: true,
         }));
         break;
 
@@ -90,6 +98,8 @@ export const useConversation = create<ConversationState>()((set, get) => ({
           messages: s.messages.map((m) =>
             m.id === data.messageId ? { ...m, text: m.text + (data.delta as string) } : m,
           ),
+          lastTextDeltaAt: event.ts,
+          lastTextDelta: data.delta as string,
         }));
         break;
 
@@ -100,6 +110,7 @@ export const useConversation = create<ConversationState>()((set, get) => ({
               ? { ...m, text: (data.fullText as string) || m.text, streaming: false }
               : m,
           ),
+          isSpeaking: false,
         }));
         break;
 

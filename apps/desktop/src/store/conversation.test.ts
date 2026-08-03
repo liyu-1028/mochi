@@ -28,6 +28,9 @@ beforeEach(() => {
     messages: [],
     activeRunId: null,
     notice: null,
+    lastTextDeltaAt: 0,
+    lastTextDelta: "",
+    isSpeaking: false,
   });
 });
 
@@ -43,6 +46,25 @@ describe("文本流归约", () => {
       text: "你好，我是 Mochi",
       streaming: false,
     });
+  });
+
+  it("口型驱动信号：delta 刷新时间戳与内容，start/end 切换 isSpeaking（2.3）", () => {
+    const { applyEvent } = useConversation.getState();
+    applyEvent(ev("text.start", { runId: "r1", messageId: "m1", role: "assistant" }));
+    expect(useConversation.getState().isSpeaking).toBe(true);
+
+    applyEvent({ ...ev("text.delta", { runId: "r1", messageId: "m1", delta: "你" }), ts: 111 });
+    let s = useConversation.getState();
+    expect(s.lastTextDeltaAt).toBe(111);
+    expect(s.lastTextDelta).toBe("你");
+
+    applyEvent({ ...ev("text.delta", { runId: "r1", messageId: "m1", delta: "好呀" }), ts: 152 });
+    s = useConversation.getState();
+    expect(s.lastTextDeltaAt).toBe(152);
+    expect(s.lastTextDelta).toBe("好呀");
+
+    applyEvent(ev("text.end", { runId: "r1", messageId: "m1", fullText: "你好呀" }));
+    expect(useConversation.getState().isSpeaking).toBe(false);
   });
 
   it("流式过程中 streaming=true，text.end 后置 false", () => {
