@@ -119,6 +119,20 @@ export function CharacterStage() {
     });
   }, [ready]);
 
+  // 性能护栏（2.1 空闲 CPU≤8% / 2.6 简化）：窗口隐藏时停 ticker。
+  // 其余策略已分布就位：空闲 30fps/说话 60fps（stateMachine.tickerFps）、
+  // pixelRatio ≤2（core.ts）。电量/负载自动降帧为 2.6 完整版，推迟。
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!ready || !stage) return;
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") stage.app.ticker.stop();
+      else stage.app.ticker.start();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [ready]);
+
   if (failed) return <CharacterBadge />;
   return <div className="character-stage" ref={containerRef} />;
 }
