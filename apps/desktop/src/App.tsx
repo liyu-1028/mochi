@@ -28,7 +28,9 @@ export default function App() {
       >
         ⚙
       </button>
-      <div className="app__stage">
+      {/* data-tauri-drag-region：Tauri 声明式窗口拖拽（功能清单 1.3）；
+          浏览器环境下该属性无副作用 */}
+      <div className="app__stage" data-tauri-drag-region>
         <CharacterBadge />
       </div>
       <ChatPanel onSend={sendText} onCancel={cancelRun} />

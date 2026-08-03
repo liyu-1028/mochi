@@ -3,5 +3,10 @@
   "identifier": "default",
   "description": "角色主窗口默认能力集（最小权限原则，按需追加）",
   "windows": ["character"],
-  "permissions": ["core:default", "opener:default"]
+  "permissions": [
+    "core:default",
+    "opener:default",
+    "core:window:allow-start-dragging",
+    "window-state:default"
+  ]
 }
