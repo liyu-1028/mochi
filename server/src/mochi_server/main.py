@@ -10,6 +10,7 @@ TODO(M1)：sidecar 端口发现机制（写 <userData>/runtime.json 供桌面壳
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections.abc import AsyncIterator
@@ -40,12 +41,19 @@ from .events import (
     HelloErrorData,
     PongData,
     ServerInfo,
+    StateChangeData,
     make_frame,
 )
 from .paths import get_config_path
 from .secrets import KeyStore
 
 logger = logging.getLogger(__name__)
+
+# 休眠状态（功能清单 2.2）：5 分钟无业务帧触发。
+# 业务帧 = 握手与对话命令；ping 心跳不计——否则 30s 心跳永远重置计时，
+# 休眠永不触发（详见 ADR-0002 D9）。
+_SLEEP_THRESHOLD_S = 300.0
+_BUSINESS_FRAME_TYPES = frozenset({"hello", "chat.send", "chat.cancel", "chat.interrupt"})
 
 
 def _install_log_filter() -> None:
@@ -122,12 +130,39 @@ def create_app(
             agent_source = app.state.registry.current_agent
         else:
             raise RuntimeError("应用未初始化：lifespan 未执行（TestClient 请用 with 语法）")
-        manager = RunManager(agent_source, ws.send_json)
+        # 两个时限可经 app.state 注入（测试加速用）：error 表情停留 / 休眠阈值
+        manager = RunManager(
+            agent_source,
+            ws.send_json,
+            error_recovery_delay_s=getattr(app.state, "error_recovery_delay_s", 3.0),
+        )
+        sleep_threshold_s = getattr(app.state, "sleep_threshold_s", _SLEEP_THRESHOLD_S)
+        check_interval_s = min(30.0, sleep_threshold_s)
         handshaken = False
+        sleeping = False
+        last_activity = time.monotonic()  # 只由业务帧刷新；ping 心跳不计
         try:
             while True:
-                frame = await ws.receive_json()
-                msg_type = frame.get("type")
+                try:
+                    frame = await asyncio.wait_for(ws.receive_json(), timeout=check_interval_s)
+                except TimeoutError:
+                    frame = None  # 周期性醒来检查休眠条件
+
+                if frame is not None:
+                    msg_type = frame.get("type")
+                    if msg_type in _BUSINESS_FRAME_TYPES:
+                        last_activity = time.monotonic()
+                        if sleeping:  # 唤醒：先回 idle 再处理命令（协议状态严格对应）
+                            await ws.send_json(
+                                make_frame(
+                                    EVENT_TYPES["state.change"],
+                                    StateChangeData(state="idle"),
+                                    _now_ms(),
+                                )
+                            )
+                            sleeping = False
+                else:
+                    msg_type = None
 
                 if msg_type == "hello":
                     hello = HelloData.model_validate(frame.get("data", {}))
@@ -172,6 +207,23 @@ def create_app(
                         logger.warning("命令负载校验失败：%s %s", msg_type, frame.get("data"))
                     except KeyError:
                         logger.warning("命令缺少 data：%s", msg_type)
+
+                # 休眠检查（2.2）：已握手、无活跃回合、长时间无业务帧。
+                # ping 心跳不刷新 last_activity，否则 30s 心跳令休眠永不触发。
+                if (
+                    handshaken
+                    and not sleeping
+                    and not manager.has_active_runs
+                    and time.monotonic() - last_activity >= sleep_threshold_s
+                ):
+                    await ws.send_json(
+                        make_frame(
+                            EVENT_TYPES["state.change"],
+                            StateChangeData(state="sleeping"),
+                            _now_ms(),
+                        )
+                    )
+                    sleeping = True
 
         except WebSocketDisconnect:
             return
