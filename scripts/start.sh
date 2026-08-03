@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Mochi 本地开发一键启动：Ollama（如已安装）→ sidecar（8199）→ 前端（1420）
+# Mochi 本地开发一键启动。
 #
 # 用法：
-#   ./scripts/start.sh            # 启动全部（已运行的服务自动跳过）
-#   ./scripts/start.sh --web-only # 只启动前端（sidecar/Ollama 自行管理时用）
+#   ./scripts/start.sh            # 默认启动桌面端（Tauri 窗口 + vite + sidecar）
+#   ./scripts/start.sh --web-only # 仅启动浏览器可访问的前端 + sidecar（不开窗口）
 #
+# 桌面端 = `pnpm dev`，由 Tauri 自动拉起 vite（beforeDevCommand）和 sidecar（lib.rs）。
 # 日志输出到 logs/（已被 .gitignore 忽略）。停止见 scripts/stop.sh。
 # 注意：echo 中变量后紧跟全角字符时必须用 ${VAR} 花括号形式（bash 多字节解析坑）。
 set -uo pipefail
@@ -13,8 +14,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOG_DIR="${ROOT}/logs"
 mkdir -p "$LOG_DIR"
 
-# uv 默认安装位置可能不在 PATH
-export PATH="$HOME/.local/bin:$PATH"
+# uv / cargo 默认安装位置可能不在 PATH
+export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
 
 OLLAMA_PORT=11434
 SIDECAR_PORT=8199
@@ -49,6 +50,14 @@ command_exists() {
   command -v "$1" >/dev/null 2>&1
 }
 
+# 兜底清理上一轮可能残留的 Tauri 窗口 / vite（避免 strictPort 启动失败）
+prune_stale() {
+  pkill -f "target/debug/mochi-desktop" 2>/dev/null || true
+  pkill -f "mochi/node_modules/.pnpm/.*vite" 2>/dev/null || true
+  # 给端口释放一点时间
+  sleep 1
+}
+
 # ---------------------------------------------------------------------------
 # 前置检查
 # ---------------------------------------------------------------------------
@@ -69,42 +78,63 @@ WEB_ONLY=false
 [ "${1:-}" = "--web-only" ] && WEB_ONLY=true
 
 # ---------------------------------------------------------------------------
-# 1. Ollama（可选：未安装则走试用模式/云端 Key，不影响启动）
+# 公共：Ollama（可选）+ Live2D Core 兜底下载
 # ---------------------------------------------------------------------------
 
-if [ "$WEB_ONLY" = false ]; then
-  if command_exists ollama; then
-    if http_ok "$OLLAMA_PORT" /api/version; then
-      echo "✓ Ollama 已在运行：127.0.0.1:${OLLAMA_PORT}"
-    else
-      echo "→ 启动 Ollama…"
-      nohup ollama serve >"${LOG_DIR}/ollama.log" 2>&1 &
-      wait_http "$OLLAMA_PORT" /api/version 15 "Ollama" || true
-    fi
+if command_exists ollama; then
+  if http_ok "$OLLAMA_PORT" /api/version; then
+    echo "✓ Ollama 已在运行：127.0.0.1:${OLLAMA_PORT}"
   else
-    echo "· 未检测到 Ollama：可后续在设置面板填云端 Key，或先用试用模式"
+    echo "→ 启动 Ollama…"
+    nohup ollama serve >"${LOG_DIR}/ollama.log" 2>&1 &
+    wait_http "$OLLAMA_PORT" /api/version 15 "Ollama" || true
   fi
-
-  # -------------------------------------------------------------------------
-  # 2. Sidecar（Python Agent 服务）
-  # -------------------------------------------------------------------------
-
-  if port_in_use "$SIDECAR_PORT"; then
-    echo "✓ sidecar 已在运行：127.0.0.1:${SIDECAR_PORT}，跳过"
-  else
-    echo "→ 启动 sidecar…"
-    (cd "${ROOT}/server" && nohup uv run uvicorn mochi_server.main:app \
-      --port "$SIDECAR_PORT" >"${LOG_DIR}/sidecar.log" 2>&1 &)
-    wait_http "$SIDECAR_PORT" /health 30 "sidecar" || exit 1
-  fi
+else
+  echo "· 未检测到 Ollama：可后续在设置面板填云端 Key，或先用试用模式"
 fi
-
-# ---------------------------------------------------------------------------
-# 3. 前端（Vite dev server）
-# ---------------------------------------------------------------------------
 
 # Live2D Cubism Core：专有代码不入库，幂等下载（校验和一致自动跳过；失败不阻塞）
 node "${ROOT}/scripts/download-live2d-core.mjs"
+
+# ---------------------------------------------------------------------------
+# 模式 1：默认（桌面端）—— `pnpm dev` 自动管 vite + sidecar
+# ---------------------------------------------------------------------------
+
+if [ "$WEB_ONLY" = false ]; then
+  prune_stale
+  echo "→ 启动桌面端（pnpm dev = Tauri 窗口 + vite + sidecar）…"
+  (cd "$ROOT" && nohup pnpm dev >"${LOG_DIR}/tauri-dev.log" 2>&1 &)
+
+  # Tauri dev 会先拉 vite，再启动窗口，sidecar 由 Rust 侧自动 spawn
+  wait_http "$WEB_PORT" / 30 "前端（vite，桌面端内部）" || true
+  wait_http "$SIDECAR_PORT" /health 30 "sidecar（Tauri 自动拉起）" || true
+
+  cat <<EOF
+
+────────────────────────────────────────────
+  Mochi 桌面端已就绪 🍡
+  Tauri 窗口会自动弹出；进程在后台，关闭窗口即退出
+  vite:   http://localhost:${WEB_PORT}
+  sidecar: http://127.0.0.1:${SIDECAR_PORT}/health
+  日志:   ${LOG_DIR}/tauri-dev.log
+  停止:   ./scripts/stop.sh（--all 连同 Ollama）
+────────────────────────────────────────────
+EOF
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# 模式 2：--web-only —— 仅启动浏览器侧（无窗口）
+# ---------------------------------------------------------------------------
+
+if port_in_use "$SIDECAR_PORT"; then
+  echo "✓ sidecar 已在运行：127.0.0.1:${SIDECAR_PORT}，跳过"
+else
+  echo "→ 启动 sidecar…"
+  (cd "${ROOT}/server" && nohup uv run uvicorn mochi_server.main:app \
+    --port "$SIDECAR_PORT" >"${LOG_DIR}/sidecar.log" 2>&1 &)
+  wait_http "$SIDECAR_PORT" /health 30 "sidecar" || exit 1
+fi
 
 if port_in_use "$WEB_PORT"; then
   echo "✓ 前端已在运行：127.0.0.1:${WEB_PORT}，跳过"
@@ -117,7 +147,7 @@ fi
 cat <<EOF
 
 ────────────────────────────────────────────
-  Mochi 开发环境已就绪 🍡
+  Mochi 浏览器开发模式已就绪 🍡
   前端:    http://localhost:${WEB_PORT}
   sidecar: http://127.0.0.1:${SIDECAR_PORT}/health
   日志:    ${LOG_DIR}/

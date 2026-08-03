@@ -2,7 +2,7 @@
 # Mochi 本地开发一键停止。
 #
 # 用法：
-#   ./scripts/stop.sh        # 停止 sidecar（8199）与前端（1420）
+#   ./scripts/stop.sh        # 停止 Tauri 桌面端 + sidecar + vite（已运行则跳过）
 #   ./scripts/stop.sh --all  # 连同 Ollama 一起停止
 #
 # 注意：echo 中变量后紧跟全角字符时必须用 ${VAR} 花括号形式（bash 多字节解析坑）。
@@ -27,10 +27,14 @@ stop_port() { # stop_port <port> <名称>
   fi
 }
 
-# 兜底：清理可能残留的进程树（pnpm/uv 包装进程）
+# 1. 桌面应用（Tauri 二进制）；关闭 Tauri 会顺带让 vite/sidecar 子进程清理
+pkill -f "target/debug/mochi-desktop" 2>/dev/null && echo "✓ Tauri 桌面应用已停止" || echo "· Tauri 桌面应用未在运行"
+
+# 2. 兜底：清理可能残留的进程树（pnpm/uv 包装进程）
 pkill -f "uvicorn mochi_server.main:app" 2>/dev/null
 pkill -f "mochi/node_modules/.pnpm/.*vite" 2>/dev/null
 
+# 3. 端口兜底（处理通过端口持有但未匹配 pkill 模式的情况）
 stop_port "$WEB_PORT" "前端"
 stop_port "$SIDECAR_PORT" "sidecar"
 
