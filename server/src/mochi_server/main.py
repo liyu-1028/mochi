@@ -16,6 +16,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
 
 from . import __version__
@@ -24,7 +25,7 @@ from .agent.ollama_probe import probe_ollama
 from .agent.registry import ProviderRegistry
 from .agent.service import AgentService
 from .api import config_router
-from .api.security import SensitiveDataFilter
+from .api.security import ALLOWED_CORS_ORIGINS, SensitiveDataFilter
 from .config import AppConfig, load_config
 from .events import (
     EVENT_TYPES,
@@ -92,6 +93,15 @@ def create_app(
     - 都不传（生产路径）：lifespan 内探测 Ollama + 加载/生成配置。
     """
     app = FastAPI(title="mochi-server", version=__version__, lifespan=_lifespan)
+    # CORS：前端（1420 / Tauri 壳）与 sidecar（8199）不同源，浏览器对非简单请求
+    # 先发 OPTIONS 预检；不挂中间件时路由层回 405（测试报告 2026-08-03）。
+    # 源白名单见 security.ALLOWED_CORS_ORIGINS——不接受通配。
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=sorted(ALLOWED_CORS_ORIGINS),
+        allow_methods=["GET", "POST", "PUT", "DELETE"],
+        allow_headers=["Content-Type"],
+    )
     app.state.agent = agent
     app.state.registry = ProviderRegistry(config, key_store) if config is not None else None
     app.state.config_path = get_config_path()

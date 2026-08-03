@@ -193,6 +193,60 @@ def test_ollama_status_endpoint(client, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# CORS 跨域预检（回归：测试报告 2026-08-03 OPTIONS 405）
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "http://localhost:1420",  # Vite dev server
+        "http://127.0.0.1:1420",
+        "tauri://localhost",  # Tauri v2 macOS 桌面壳
+        "http://tauri.localhost",  # Tauri v2 Windows/Linux 桌面壳
+    ],
+)
+def test_cors_preflight_allowed_for_known_origins(client, origin):
+    resp = client.options(
+        "/config/providers",
+        headers={
+            "origin": origin,
+            "access-control-request-method": "POST",
+            "access-control-request-headers": "content-type",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.headers["access-control-allow-origin"] == origin
+    assert "POST" in resp.headers["access-control-allow-methods"]
+
+
+def test_cors_preflight_rejects_foreign_origin(client):
+    # 恶意网页的源不得通过预检（安全红线：不用通配源）
+    resp = client.options(
+        "/config/providers/trial/default",
+        headers={
+            "origin": "http://evil.example.com",
+            "access-control-request-method": "PUT",
+        },
+    )
+    assert resp.status_code == 400
+    assert "access-control-allow-origin" not in resp.headers
+
+
+def test_cors_headers_present_on_actual_get(client):
+    resp = client.get("/config/providers", headers={"origin": "http://localhost:1420"})
+    assert resp.status_code == 200
+    assert resp.headers["access-control-allow-origin"] == "http://localhost:1420"
+
+
+def test_no_cors_headers_without_origin(client):
+    # 非浏览器客户端（curl / 未来 Tauri IPC 直连）不带 Origin，行为不变
+    resp = client.get("/config/providers")
+    assert resp.status_code == 200
+    assert "access-control-allow-origin" not in resp.headers
+
+
+# ---------------------------------------------------------------------------
 # 安全守卫与日志脱敏
 # ---------------------------------------------------------------------------
 

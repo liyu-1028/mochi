@@ -12,6 +12,19 @@ from fastapi import HTTPException, Request
 _ALLOWED_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]", "testserver", "testclient"}
 _LOCAL_CLIENTS = {"127.0.0.1", "::1", "testclient"}
 
+# CORS 源白名单：只放行已知前端源（dev Vite 1420 + Tauri 桌面壳协议）。
+# 严禁 ["*"]：通配会让用户浏览器里打开的任意网页都能跨源读写本机 /config/*
+# （源校验是防恶意网页操控本地 API 的关键防线；OPTIONS 预检由中间件统一应答）。
+ALLOWED_CORS_ORIGINS = frozenset(
+    {
+        "http://localhost:1420",  # Vite dev server（strictPort）
+        "http://127.0.0.1:1420",
+        "tauri://localhost",  # Tauri v2 macOS 桌面壳
+        "http://tauri.localhost",  # Tauri v2 Windows/Linux 桌面壳
+        "https://tauri.localhost",  # 个别平台的协议变体
+    }
+)
+
 
 def localhost_only(request: Request) -> None:
     """FastAPI 依赖：仅放行本机来源（客户端地址 + Host 头双重校验）。"""
