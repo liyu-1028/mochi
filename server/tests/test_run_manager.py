@@ -1,13 +1,21 @@
-"""RunManager 会话管理测试：生命周期包裹与取消路径。"""
+"""RunManager 会话管理测试：生命周期包裹、取消路径与错误透传。"""
 
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 
 import pytest
 
-from mochi_server.agent import EchoAgentService, RunManager
-from mochi_server.events import ChatSendData
+from mochi_server.agent import (
+    AgentContext,
+    AgentError,
+    AgentEvent,
+    AgentService,
+    EchoAgentService,
+    RunManager,
+)
+from mochi_server.events import ChatSendData, ErrorCode, ErrorPayload, StateChangeData
 
 
 class FrameRecorder:
@@ -81,3 +89,54 @@ async def test_cancel_unknown_run_is_noop() -> None:
     manager = RunManager(EchoAgentService(chunk_delay=0, thinking_delay=0), recorder)
     await manager.cancel_run("not-exists")
     assert recorder.frames == []
+
+
+class _FailingAgent(AgentService):
+    """yield 部分事件后抛 AgentError（模拟模型调用中途失败）。"""
+
+    def __init__(self, payload: ErrorPayload) -> None:
+        self._payload = payload
+
+    async def run(self, ctx: AgentContext) -> AsyncIterator[AgentEvent]:
+        yield "state.change", StateChangeData(state="talking")
+        raise AgentError(self._payload)
+
+
+@pytest.mark.asyncio
+async def test_agent_error_payload_passed_through() -> None:
+    """适配层业务错误 → run.error 透传其 payload（含 hint），而非兜底 ERR_INTERNAL。"""
+    payload = ErrorPayload(
+        code=ErrorCode.MODEL_AUTH,
+        message="模型授权失败",
+        retryable=False,
+        hint="请检查 API Key 是否正确",
+    )
+    recorder = FrameRecorder()
+    manager = RunManager(_FailingAgent(payload), recorder)
+
+    await manager.start_run(_send_data())
+    await _wait_idle(manager)
+
+    types = [f["type"] for f in recorder.frames]
+    assert types[0] == "run.started"
+    assert types[-1] == "run.finished"
+    assert recorder.frames[-1]["data"]["reason"] == "error"
+
+    error_frames = [f for f in recorder.frames if f["type"] == "run.error"]
+    assert len(error_frames) == 1
+    assert error_frames[0]["data"]["error"]["code"] == "ERR_MODEL_AUTH"
+    assert error_frames[0]["data"]["error"]["hint"] == "请检查 API Key 是否正确"
+
+
+@pytest.mark.asyncio
+async def test_interrupted_run_recovers_state_to_idle() -> None:
+    """回合中途出错 → 补发 state.change(idle)，角色不卡在 talking。"""
+    payload = ErrorPayload(code=ErrorCode.NETWORK, message="断网了", retryable=True)
+    recorder = FrameRecorder()
+    manager = RunManager(_FailingAgent(payload), recorder)
+
+    await manager.start_run(_send_data())
+    await _wait_idle(manager)
+
+    state_frames = [f for f in recorder.frames if f["type"] == "state.change"]
+    assert state_frames[-1]["data"]["state"] == "idle"
