@@ -1,14 +1,33 @@
 //! Mochi 桌面壳入口。
 //!
-//! TODO(M0)：
-//! - sidecar 生命周期管理（拉起/健康检查/重启 LangGraph 服务，功能清单 1.2）
+//! TODO(M0 后续)：
 //! - 系统托盘菜单（功能清单 1.4）
 //! - 角色窗口拖拽与位置记忆（功能清单 1.3）
 
+mod sidecar;
+
+use sidecar::SidecarState;
+use tauri::{Manager, RunEvent};
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .run(tauri::generate_context!())
-        .expect("error while running Mochi desktop application");
+        .manage(SidecarState::new())
+        .setup(|app| {
+            // dev 模式尝试自动拉起 sidecar；release 打包方案见 sidecar.rs TODO(M1)
+            if cfg!(debug_assertions) {
+                let state = app.state::<SidecarState>();
+                sidecar::try_spawn_dev_sidecar(&state);
+            }
+            Ok(())
+        })
+        .build(tauri::generate_context!())
+        .expect("error while building Mochi desktop application");
+
+    app.run(|app_handle, event| {
+        if matches!(event, RunEvent::Exit) {
+            app_handle.state::<SidecarState>().kill();
+        }
+    });
 }
