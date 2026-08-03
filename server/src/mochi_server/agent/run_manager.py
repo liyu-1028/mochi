@@ -3,10 +3,11 @@
 职责：
 - runId → asyncio.Task 注册表
 - 统一包裹 run.started / run.finished 生命周期事件
-- chat.cancel → Task.cancel() → reason="cancelled"
+- chat.cancel → Task.cancel() → reason="cancelled" → state.change(idle)
 - AgentError（适配层业务错误）→ run.error 透传其 payload（含 hint）
 - 未知异常 → run.error + reason="error"（错误文案可读，功能清单 6.7）
-- 回合中断（取消/出错）后补发 state.change(idle)，避免角色卡在中间状态
+- 出错回合发 state.change(error)（功能清单 2.2 的 error 状态），
+  延迟回 idle（新回合开始时取消恢复任务，避免与 thinking 冲突）
 """
 
 from __future__ import annotations
@@ -50,23 +51,61 @@ class RunManager:
     """
 
     def __init__(
-        self, agent: AgentService | Callable[[], AgentService], send_frame: SendFrame
+        self,
+        agent: AgentService | Callable[[], AgentService],
+        send_frame: SendFrame,
+        *,
+        error_recovery_delay_s: float = 3.0,
     ) -> None:
         self._agent_source = agent if callable(agent) else lambda: agent
         self._send = send_frame
         self._runs: dict[str, asyncio.Task[None]] = {}
+        # error 状态停留时长：足够用户看到出错表情，又不至于卡住（2.2）
+        self._error_recovery_delay_s = error_recovery_delay_s
+        self._error_recovery_task: asyncio.Task[None] | None = None
+
+    @property
+    def has_active_runs(self) -> bool:
+        """是否有进行中的回合（休眠判定用，见 main.py ws_endpoint）。"""
+        return any(not task.done() for task in self._runs.values())
 
     async def start_run(self, data: ChatSendData) -> None:
         existing = self._runs.get(data.run_id)
         if existing and not existing.done():
             logger.warning("重复的 runId，忽略：%s", data.run_id)
             return
+        self._cancel_error_recovery()  # 新回合开始，error 表情让位给 thinking
         self._runs[data.run_id] = asyncio.create_task(self._run_loop(data))
 
     async def cancel_run(self, run_id: str) -> None:
         task = self._runs.get(run_id)
         if task and not task.done():
             task.cancel()
+
+    async def _send_state(self, state: str) -> None:
+        with contextlib.suppress(Exception):
+            await self._send(
+                make_frame(
+                    EVENT_TYPES["state.change"],
+                    StateChangeData(state=state),
+                    _now_ms(),
+                )
+            )
+
+    def _cancel_error_recovery(self) -> None:
+        if self._error_recovery_task is not None and not self._error_recovery_task.done():
+            self._error_recovery_task.cancel()
+        self._error_recovery_task = None
+
+    def _schedule_error_recovery(self) -> None:
+        """延迟把角色从 error 拉回 idle；单槽，重复出错只保留最新恢复任务。"""
+        self._cancel_error_recovery()
+
+        async def _recover() -> None:
+            await asyncio.sleep(self._error_recovery_delay_s)
+            await self._send_state("idle")
+
+        self._error_recovery_task = asyncio.create_task(_recover())
 
     async def _send_run_error(self, run_id: str, error: ErrorPayload) -> None:
         with contextlib.suppress(Exception):
@@ -89,23 +128,23 @@ class RunManager:
         )
 
         reason = "complete"
-        interrupted = False
         try:
             # 解析在 try 内：构造期错误（缺 Key、未实现的 provider）也走 run.error
             agent = self._agent_source()
             async for event_type, payload in agent.run(ctx):
                 await self._send(make_frame(event_type, payload, _now_ms()))
         except asyncio.CancelledError:
+            # 用户主动停止：不算错误，直接回待机（2.2：error 状态只留给真出错）
             reason = "cancelled"
-            interrupted = True
+            await self._send_state("idle")
         except AgentError as exc:
             reason = "error"
-            interrupted = True
             logger.warning("Agent 业务错误：run_id=%s code=%s", ctx.run_id, exc.payload.code)
             await self._send_run_error(ctx.run_id, exc.payload)
+            await self._send_state("error")
+            self._schedule_error_recovery()
         except Exception:
             reason = "error"
-            interrupted = True
             logger.exception("Agent 回合异常：run_id=%s", ctx.run_id)
             await self._send_run_error(
                 ctx.run_id,
@@ -115,17 +154,8 @@ class RunManager:
                     retryable=True,
                 ),
             )
-
-        if interrupted:
-            # 回合未走完（取消/出错）：把角色状态拉回待机，避免卡在 thinking/talking
-            with contextlib.suppress(Exception):
-                await self._send(
-                    make_frame(
-                        EVENT_TYPES["state.change"],
-                        StateChangeData(state="idle"),
-                        _now_ms(),
-                    )
-                )
+            await self._send_state("error")
+            self._schedule_error_recovery()
 
         with contextlib.suppress(Exception):
             await self._send(

@@ -36,6 +36,13 @@ async def _wait_idle(manager: RunManager, timeout: float = 5) -> None:
         await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout)
 
 
+async def _wait_error_recovery(manager: RunManager, timeout: float = 5) -> None:
+    """等 error → idle 的延迟恢复任务完成（测试内部断言，访问私有任务）。"""
+    task = manager._error_recovery_task
+    if task is not None:
+        await asyncio.wait_for(task, timeout)
+
+
 @pytest.mark.asyncio
 async def test_run_lifecycle_frames() -> None:
     """正常回合：run.started 开头、run.finished(complete) 结尾。"""
@@ -112,7 +119,8 @@ async def test_agent_error_payload_passed_through() -> None:
         hint="请检查 API Key 是否正确",
     )
     recorder = FrameRecorder()
-    manager = RunManager(_FailingAgent(payload), recorder)
+    # 恢复延迟调大：本用例只断言错误透传，避免恢复帧干扰
+    manager = RunManager(_FailingAgent(payload), recorder, error_recovery_delay_s=60)
 
     await manager.start_run(_send_data())
     await _wait_idle(manager)
@@ -129,14 +137,79 @@ async def test_agent_error_payload_passed_through() -> None:
 
 
 @pytest.mark.asyncio
-async def test_interrupted_run_recovers_state_to_idle() -> None:
-    """回合中途出错 → 补发 state.change(idle)，角色不卡在 talking。"""
+async def test_error_turn_emits_error_state_then_recovers_to_idle() -> None:
+    """出错回合（2.2）：state.change(error) 呈现错误表情，延迟后回 idle。"""
     payload = ErrorPayload(code=ErrorCode.NETWORK, message="断网了", retryable=True)
     recorder = FrameRecorder()
-    manager = RunManager(_FailingAgent(payload), recorder)
+    manager = RunManager(_FailingAgent(payload), recorder, error_recovery_delay_s=0.02)
 
     await manager.start_run(_send_data())
     await _wait_idle(manager)
+    await _wait_error_recovery(manager)
 
-    state_frames = [f for f in recorder.frames if f["type"] == "state.change"]
-    assert state_frames[-1]["data"]["state"] == "idle"
+    states = [f["data"]["state"] for f in recorder.frames if f["type"] == "state.change"]
+    # _FailingAgent 先 yield talking，然后出错 → error，延迟恢复 → idle
+    assert states == ["talking", "error", "idle"]
+    # 时序：run.error 先于 state.change(error)（前端先看到文案再切换表情）
+    run_error_idx = next(i for i, f in enumerate(recorder.frames) if f["type"] == "run.error")
+    error_state_idx = next(
+        i
+        for i, f in enumerate(recorder.frames)
+        if f["type"] == "state.change" and f["data"]["state"] == "error"
+    )
+    assert run_error_idx < error_state_idx
+
+
+@pytest.mark.asyncio
+async def test_cancel_does_not_emit_error_state() -> None:
+    """用户主动取消不是错误：直接回 idle，不发 error 状态。"""
+    recorder = FrameRecorder()
+    manager = RunManager(
+        EchoAgentService(chunk_delay=0.05, thinking_delay=0.05),
+        recorder,
+        error_recovery_delay_s=0.02,
+    )
+
+    await manager.start_run(_send_data())
+    await asyncio.sleep(0.02)
+    await manager.cancel_run("r-1")
+    await _wait_idle(manager)
+    await asyncio.sleep(0.05)  # 留出（不应存在的）恢复窗口
+
+    states = [f["data"]["state"] for f in recorder.frames if f["type"] == "state.change"]
+    assert "error" not in states
+    assert states[-1] == "idle"
+
+
+@pytest.mark.asyncio
+async def test_new_run_cancels_pending_error_recovery() -> None:
+    """错误恢复任务在下一回合开始时取消，避免 idle 帧插进新回合的 thinking。"""
+    payload = ErrorPayload(code=ErrorCode.NETWORK, message="断网了", retryable=True)
+    recorder = FrameRecorder()
+    manager = RunManager(lambda: _FailingAgent(payload), recorder, error_recovery_delay_s=0.15)
+
+    await manager.start_run(_send_data())
+    await _wait_idle(manager)
+    # 立刻发起新回合：echo 桩不会失败
+    manager._agent_source = lambda: EchoAgentService(chunk_delay=0, thinking_delay=0)
+    await manager.start_run(ChatSendData(run_id="r-2", session_id="s-1", text="再来"))
+    await _wait_idle(manager)
+    await asyncio.sleep(0.2)  # 超过恢复延迟，确认没有迟到的 idle
+
+    states = [f["data"]["state"] for f in recorder.frames if f["type"] == "state.change"]
+    assert states.count("error") == 1
+    error_idx = states.index("error")
+    # error 之后紧跟的是新回合的 thinking，而不是恢复出来的 idle
+    assert states[error_idx + 1] == "thinking"
+
+
+@pytest.mark.asyncio
+async def test_has_active_runs_lifecycle() -> None:
+    recorder = FrameRecorder()
+    manager = RunManager(EchoAgentService(chunk_delay=0.02, thinking_delay=0.02), recorder)
+    assert manager.has_active_runs is False
+
+    await manager.start_run(_send_data())
+    assert manager.has_active_runs is True
+    await _wait_idle(manager)
+    assert manager.has_active_runs is False
