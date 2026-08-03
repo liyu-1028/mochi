@@ -56,6 +56,5 @@ Python 侧钩子依赖 `uvx`（随 uv 安装），无需全局安装 ruff。
 
 ## 6. CI 预告（M0 落地）
 
-GitHub Actions 每 PR 执行：`pnpm lint` + `pnpm typecheck` + `uv run ruff check`
-
-- `cargo clippy`。发布流水线见 docs/specs/monorepo-structure.md §7（M1 专项调研）。
+GitHub Actions 每 PR 执行：`pnpm lint` + `pnpm typecheck` + `uv run ruff check` + `cargo clippy`。
+发布流水线见 docs/specs/monorepo-structure.md §7（M1 专项调研）。

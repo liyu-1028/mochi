@@ -14,7 +14,9 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "httpx2>=0.1",
     "pytest>=8.3",
+    "pytest-asyncio>=0.24",
     "ruff>=0.6",
 ]
 
@@ -63,3 +65,5 @@ indent-style = "space"
 # ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
