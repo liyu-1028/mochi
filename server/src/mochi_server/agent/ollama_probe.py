@@ -43,7 +43,13 @@ async def probe_ollama(
         return OllamaProbeResult(available=False, error_hint=_OLLAMA_NOT_RUNNING_HINT)
 
     try:
-        models = [str(m["name"]) for m in resp.json().get("models", [])]
+        models = [
+            str(m["name"])
+            for m in resp.json().get("models", [])
+            # 过滤 embedding-only 模型（如 bge-m3）：不能对话，进默认配置会误导用户。
+            # 旧版 Ollama 无 capabilities 字段 → 保守保留。
+            if m.get("capabilities") is None or "completion" in m["capabilities"]
+        ]
     except (ValueError, KeyError, TypeError) as exc:
         logger.warning("Ollama /api/tags 响应异常：%s", exc)
         return OllamaProbeResult(available=False, error_hint="Ollama 响应格式异常，请检查其版本")

@@ -23,6 +23,26 @@ async def test_probe_success_lists_models() -> None:
 
 
 @pytest.mark.asyncio
+async def test_probe_filters_embedding_only_models() -> None:
+    """bge-m3 这类 embedding 模型不能对话，不应进入默认配置候选。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "models": [
+                    {"name": "bge-m3:latest", "capabilities": ["embedding"]},
+                    {"name": "qwen2.5:1.5b", "capabilities": ["completion", "tools"]},
+                    {"name": "legacy:7b"},  # 旧版 Ollama 无 capabilities 字段 → 保守保留
+                ]
+            },
+        )
+
+    result = await probe_ollama(_BASE, transport=httpx.MockTransport(handler))
+    assert result.models == ["qwen2.5:1.5b", "legacy:7b"]
+
+
+@pytest.mark.asyncio
 async def test_probe_connection_refused() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused")
