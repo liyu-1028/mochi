@@ -33,11 +33,11 @@ export default function App() {
       </button>
 
       {/* data-tauri-drag-region：Tauri 声明式窗口拖拽（功能清单 1.3）；
-          浏览器环境下该属性无副作用 */}
+          浏览器环境下该属性无副作用。气泡区放在拖拽区外，避免点击气泡误触发拖动 */}
       <div className="app__stage" data-tauri-drag-region>
-        <SpeechBubbleArea />
         <CharacterStage />
       </div>
+      <SpeechBubbleArea />
 
       <ChatToggle onSend={sendText} onCancel={cancelRun} />
 

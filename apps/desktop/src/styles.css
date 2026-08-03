@@ -142,19 +142,18 @@ body {
 }
 
 /* ---- 对话气泡（角色左上角，CSS 三角指向角色） ----
-   宽度按 Hiyori 占位估算（约 38% 舞台宽 ≈ Hiyori 1/3 视觉宽度，落在画面上方
-   不与角色重叠）；渐进淡出 + 悬停激活：所有气泡始终存在，按"距最新"层数
-   逐渐变淡变小；鼠标移上 .bubbles 区域时全部全亮 + 正常大小。*/
+   自动隐藏 + 悬停保持：每条气泡按字符数估算阅读延迟，超时 display: none；
+   鼠标悬停 .bubbles 区域时所有气泡重新显示并暂停定时器。
+   容器放在 .app__stage 之外（避免点击气泡误触发 Tauri 窗口拖动）。*/
 .bubbles {
   position: absolute;
   left: 8px;
-  top: 12px;
+  top: 36px; /* 给右上角设置按钮（top:10px + 24px 直径）留位 */
   width: 38%;
   max-width: 150px;
   display: flex;
-  flex-direction: column; /* 自然顺序：旧消息在上，新消息在下 */
+  flex-direction: column;
   gap: 6px;
-  pointer-events: none; /* 不拦截拖拽 */
   z-index: 5;
 }
 
@@ -171,35 +170,23 @@ body {
   border: 1px solid rgba(243, 227, 231, 0.6);
   box-shadow: 0 2px 8px rgba(74, 63, 68, 0.12);
   color: var(--ink);
-  /* 入场初始状态；bubble--entered 触发后过渡到 age 样式或 hover 全亮 */
-  opacity: 0;
-  transform: translateY(-8px);
-  transition: opacity 0.3s ease, transform 0.3s ease;
+  animation: bubble-enter 0.25s ease-out;
 }
 
-.bubble--entered {
-  opacity: 1;
-  transform: translateY(0) scale(1);
+/* 阅读超时后从布局中移除；下次 hover 重新触发 mount 流程（keyframe 入场） */
+.bubble--hidden {
+  display: none;
 }
 
-/* 按"距最新消息"层数衰减（最近的最显眼） */
-.bubble--age-1.bubble--entered {
-  opacity: 0.62;
-  transform: translateY(0) scale(0.93);
-}
-.bubble--age-2.bubble--entered {
-  opacity: 0.42;
-  transform: translateY(0) scale(0.87);
-}
-.bubble--age-3.bubble--entered {
-  opacity: 0.28;
-  transform: translateY(0) scale(0.82);
-}
-
-/* 悬停激活：全部回到全亮 + 正常尺寸（CSS 特异性 0,0,2,1 > 0,0,2,0） */
-.bubbles:hover .bubble--entered {
-  opacity: 1;
-  transform: translateY(0) scale(1);
+@keyframes bubble-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 /* 气泡右下三角——指向角色（角色偏画面下中部，气泡在左上） */
