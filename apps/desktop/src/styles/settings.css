@@ -1,0 +1,195 @@
+/* M0-S2 设置面板与引导向导 —— 纯 CSS + BEM（code-style.md：骨架期不引 UI 库） */
+
+.app__settings-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  border: none;
+  background: rgba(255, 255, 255, 0.75);
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  font-size: 15px;
+  cursor: pointer;
+  color: #8a7580;
+  box-shadow: 0 2px 8px rgba(74, 63, 68, 0.12);
+}
+
+.app__settings-btn:hover {
+  color: var(--ink);
+}
+
+/* ---- 模态遮罩与卡片 ---- */
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(74, 63, 68, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+
+.settings {
+  width: min(420px, 92vw);
+  max-height: 84vh;
+  overflow-y: auto;
+  background: var(--card-bg);
+  border-radius: 16px;
+  box-shadow: 0 12px 40px rgba(74, 63, 68, 0.25);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.settings__header h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.settings__close {
+  border: none;
+  background: transparent;
+  font-size: 20px;
+  cursor: pointer;
+  color: #8a7580;
+}
+
+.settings__feedback {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #f0f7f0;
+  color: #4a7a4a;
+  font-size: 12px;
+}
+
+.settings__error {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fff0f0;
+  color: #b04a4a;
+  font-size: 12px;
+}
+
+/* ---- provider 列表 ---- */
+.settings__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #f3e3e7;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.settings__item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settings__item-sub {
+  font-size: 12px;
+  color: #8a7580;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings__item-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.settings__item-actions .btn {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+.settings__tag {
+  font-size: 12px;
+  color: #4a7a4a;
+  background: #eef6ee;
+  padding: 3px 8px;
+  border-radius: 8px;
+}
+
+.settings__danger {
+  color: #b04a4a;
+  border-color: #eecaca;
+}
+
+/* ---- 表单 ---- */
+.settings__form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 1px solid #f3e3e7;
+  padding-top: 12px;
+}
+
+.settings__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: #8a7580;
+}
+
+.settings__field input,
+.settings__field select {
+  border: 1px solid #eed7dc;
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 13px;
+  outline: none;
+  background: #fff;
+  color: var(--ink);
+}
+
+.settings__field input:focus,
+.settings__field select:focus {
+  border-color: var(--mochi-pink-deep);
+}
+
+.settings__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ---- 引导向导 ---- */
+.settings--wizard {
+  text-align: center;
+}
+
+.settings__wizard-main {
+  width: 100%;
+  padding: 12px;
+}
+
+.settings--wizard .settings__actions {
+  justify-content: center;
+}

@@ -89,15 +89,28 @@ describe("回合与错误", () => {
   });
 
   it("run.error 写入可读提示", () => {
-    useConversation
-      .getState()
-      .applyEvent(
-        ev("run.error", {
-          runId: "r9",
-          error: { code: "ERR_INTERNAL", message: "出了点状况", retryable: true },
-        }),
-      );
+    useConversation.getState().applyEvent(
+      ev("run.error", {
+        runId: "r9",
+        error: { code: "ERR_INTERNAL", message: "出了点状况", retryable: true },
+      }),
+    );
     expect(useConversation.getState().notice).toBe("出了点状况");
+  });
+
+  it("run.error 有 hint 时优先展示引导文案（6.7）", () => {
+    useConversation.getState().applyEvent(
+      ev("run.error", {
+        runId: "r9",
+        error: {
+          code: "ERR_MODEL_AUTH",
+          message: "模型授权失败",
+          retryable: false,
+          hint: "请检查 API Key 是否正确",
+        },
+      }),
+    );
+    expect(useConversation.getState().notice).toBe("请检查 API Key 是否正确");
   });
 
   it("未知事件类型忽略（前向兼容）", () => {

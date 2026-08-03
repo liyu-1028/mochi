@@ -64,8 +64,9 @@ export const useConversation = create<ConversationState>()((set, get) => ({
         break;
 
       case EVENT_TYPES.RunError: {
-        const error = data.error as { message?: string } | undefined;
-        set({ notice: error?.message ?? "出了点问题，请重试" });
+        const error = data.error as { message?: string; hint?: string } | undefined;
+        // hint 优先：适配层针对 Key/网络/限流的引导文案（功能清单 6.7）
+        set({ notice: error?.hint ?? error?.message ?? "出了点问题，请重试" });
         break;
       }
 
