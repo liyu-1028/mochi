@@ -8,8 +8,11 @@
   <body>
     <div id="root"></div>
     <!-- Live2D Cubism Core（专有，脚本下载不入库；缺失时 window.Live2D 为 undefined，
-         前端降级回 emoji 占位）。必须在应用模块之前加载。 -->
+         前端降级回 emoji 占位）。必须在应用模块之前加载。
+         注：Core 5.2 UMD 在浏览器下把 API 挂到 window.Live2DCubismCore；
+         pixi-live2d-display 仍期望 window.Live2D，所以下面一行做命名桥接。 -->
     <script src="/live2d/live2d.min.js"></script>
+    <script>window.Live2D = window.Live2DCubismCore;</script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

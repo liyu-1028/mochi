@@ -1,17 +1,20 @@
+/**
+ * M0-S3 UI 重构：移除底部聊天面板，对话以浮动气泡呈现。
+ *
+ * 布局：
+ * - 角色舞台（拖拽区）容纳 Live2D + 左侧气泡区
+ * - 底部浮动聊天气泡按钮，点击展开紧凑输入框
+ */
 import { useState } from "react";
 import { CharacterStage } from "./components/CharacterStage";
-import { ChatPanel } from "./components/ChatPanel";
+import { ChatToggle } from "./components/ChatToggle";
 import { OnboardingWizard } from "./components/OnboardingWizard";
 import { SettingsPanel } from "./components/SettingsPanel";
+import { SpeechBubbleArea } from "./components/SpeechBubbleArea";
 import { resolveWsUrl, useMochiConnection } from "./hooks/useMochiConnection";
 import { useConversation } from "./store/conversation";
 import "./styles/settings.css";
 
-/**
- * M0-S3：Live2D 角色渲染。
- * 上半区为 CharacterStage（Live2D，失败降级 emoji 占位），下半区为对话面板；
- * 右上齿轮进入模型设置；首次运行无 provider 时展示引导向导。
- */
 export default function App() {
   const { sendText, cancelRun } = useMochiConnection(resolveWsUrl());
   const status = useConversation((s) => s.status);
@@ -28,12 +31,16 @@ export default function App() {
       >
         ⚙
       </button>
+
       {/* data-tauri-drag-region：Tauri 声明式窗口拖拽（功能清单 1.3）；
           浏览器环境下该属性无副作用 */}
       <div className="app__stage" data-tauri-drag-region>
+        <SpeechBubbleArea />
         <CharacterStage />
       </div>
-      <ChatPanel onSend={sendText} onCancel={cancelRun} />
+
+      <ChatToggle onSend={sendText} onCancel={cancelRun} />
+
       <footer className={`app__status app__status--${status}`}>
         {status === "connected" ? "已连接 sidecar" : status === "connecting" ? "连接中…" : "未连接"}
       </footer>

@@ -12,6 +12,7 @@ import { useConversation } from "../store/conversation";
 import {
   DEFAULT_MODEL_URL,
   disposeStage,
+  isCubismCoreReady,
   loadCharacterStage,
   type StageHandle,
 } from "../live2d/core";
@@ -19,6 +20,40 @@ import { createDriver, type CharacterDriver } from "../live2d/driver";
 import { lerpGaze, normalizeGaze, type GazeTarget } from "../live2d/gaze";
 import { MOUTH_CLOSED, onDelta, stepMouth, type MouthState } from "../live2d/mouth";
 import { HIYORI_PROFILE, resolveAnimation, type AnimationPlan } from "../live2d/stateMachine";
+
+/** 临时调试角标（持续 1 个冲刺用于定位渲染问题，修复后撤掉） */
+function DebugBanner({
+  status,
+  size,
+  error,
+}: {
+  status: string;
+  size: string;
+  error: string | null;
+}) {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        top: 4,
+        left: 4,
+        font: "11px/1.2 ui-monospace, monospace",
+        color: "#fff",
+        background: "rgba(0,0,0,0.55)",
+        padding: "4px 6px",
+        borderRadius: 4,
+        pointerEvents: "none",
+        zIndex: 99,
+        whiteSpace: "pre",
+      }}
+    >
+      live2d: {status}
+      {"\n"}core: {isCubismCoreReady() ? "ready" : "MISSING"}
+      {"\n"}stage: {size}
+      {error ? `\nerror: ${error}` : ""}
+    </div>
+  );
+}
 
 export function CharacterStage() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -30,6 +65,9 @@ export function CharacterStage() {
   const gazeCurrentRef = useRef<GazeTarget>({ x: 0, y: 0 });
   const [failed, setFailed] = useState(false);
   const [ready, setReady] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState("init");
+  const [size, setSize] = useState("?");
 
   const characterState = useConversation((s) => s.characterState);
   const emotion = useConversation((s) => s.emotion);
@@ -38,12 +76,23 @@ export function CharacterStage() {
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) return;
+    if (!container) {
+      setStatus("no-container");
+      return;
+    }
+    setStatus("loading-core");
+    if (!isCubismCoreReady()) {
+      setError("window.Live2D 未就绪");
+      setFailed(true);
+      setStatus("core-missing");
+      return;
+    }
+    setSize(`${Math.round(container.clientWidth)}×${Math.round(container.clientHeight)}`);
     let cancelled = false;
 
+    setStatus("loading-model");
     loadCharacterStage(container, DEFAULT_MODEL_URL)
       .then((loaded) => {
-        // StrictMode 双挂载：卸载后才完成的加载立即销毁
         if (cancelled) {
           disposeStage(loaded);
           return;
@@ -51,10 +100,17 @@ export function CharacterStage() {
         stageRef.current = loaded;
         driverRef.current = createDriver(loaded);
         setReady(true);
+        setStatus(
+          `ready (${Math.round(container.clientWidth)}×${Math.round(container.clientHeight)})`,
+        );
       })
       .catch((err) => {
         console.error("[CharacterStage] Live2D 加载失败，降级为占位形象：", err);
-        if (!cancelled) setFailed(true);
+        if (!cancelled) {
+          setError(String(err?.message ?? err));
+          setFailed(true);
+          setStatus("load-failed");
+        }
       });
 
     return () => {
@@ -133,6 +189,22 @@ export function CharacterStage() {
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [ready]);
 
-  if (failed) return <CharacterBadge />;
-  return <div className="character-stage" ref={containerRef} />;
+  if (failed) {
+    return (
+      <>
+        <CharacterBadge />
+        <DebugBanner status={status} size={size} error={error} />
+      </>
+    );
+  }
+  return (
+    <div style={{ position: "relative", width: "100%", height: "100%", minHeight: 200 }}>
+      <div
+        className="character-stage"
+        ref={containerRef}
+        style={{ width: "100%", height: "100%" }}
+      />
+      <DebugBanner status={status} size={size} error={error} />
+    </div>
+  );
 }
