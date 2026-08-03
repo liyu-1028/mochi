@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CharacterBadge } from "./components/CharacterBadge";
+import { CharacterStage } from "./components/CharacterStage";
 import { ChatPanel } from "./components/ChatPanel";
 import { OnboardingWizard } from "./components/OnboardingWizard";
 import { SettingsPanel } from "./components/SettingsPanel";
@@ -8,8 +8,8 @@ import { useConversation } from "./store/conversation";
 import "./styles/settings.css";
 
 /**
- * M0-S2：真实模型接入。
- * 上半区为角色占位表现（S3 替换为 Live2D），下半区为对话面板；
+ * M0-S3：Live2D 角色渲染。
+ * 上半区为 CharacterStage（Live2D，失败降级 emoji 占位），下半区为对话面板；
  * 右上齿轮进入模型设置；首次运行无 provider 时展示引导向导。
  */
 export default function App() {
@@ -31,7 +31,7 @@ export default function App() {
       {/* data-tauri-drag-region：Tauri 声明式窗口拖拽（功能清单 1.3）；
           浏览器环境下该属性无副作用 */}
       <div className="app__stage" data-tauri-drag-region>
-        <CharacterBadge />
+        <CharacterStage />
       </div>
       <ChatPanel onSend={sendText} onCancel={cancelRun} />
       <footer className={`app__status app__status--${status}`}>
