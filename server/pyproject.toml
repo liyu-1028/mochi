@@ -45,7 +45,10 @@ select = [
     "RUF", # ruff 专有规则
 ]
 ignore = [
-    "E501", # 行长度交给 formatter
+    "E501",   # 行长度交给 formatter
+    "RUF001", # 中文项目的注释/文档字符串天然含全角标点，豁免 ambiguous-unicode 系列
+    "RUF002",
+    "RUF003",
 ]
 
 [tool.ruff.lint.isort]

@@ -10,11 +10,11 @@
 
 ## 2. TypeScript / React
 
-| 项 | 配置 | 文件 |
-| --- | --- | --- |
-| Lint | ESLint 9 flat config：`@eslint/js` recommended + `typescript-eslint` recommended | `eslint.config.js` |
-| Format | Prettier：printWidth 100 / 双引号 / 分号 / 尾逗号 all | `.prettierrc.json` |
-| 严格度 | `strict: true` + `noUnusedLocals` + `noUnusedParameters` | 各包 `tsconfig.json` |
+| 项     | 配置                                                                             | 文件                 |
+| ------ | -------------------------------------------------------------------------------- | -------------------- |
+| Lint   | ESLint 9 flat config：`@eslint/js` recommended + `typescript-eslint` recommended | `eslint.config.js`   |
+| Format | Prettier：printWidth 100 / 双引号 / 分号 / 尾逗号 all                            | `.prettierrc.json`   |
+| 严格度 | `strict: true` + `noUnusedLocals` + `noUnusedParameters`                         | 各包 `tsconfig.json` |
 
 约定：
 
@@ -25,11 +25,11 @@
 
 ## 3. Python
 
-| 项 | 配置 | 位置 |
-| --- | --- | --- |
-| Lint | Ruff：E/W/F/I/UP/B/SIM/RUF，line-length 100，target py311 | `server/pyproject.toml [tool.ruff]` |
-| Format | Ruff format（双引号、空格缩进） | 同上 |
-| 导入排序 | isort 规则内置于 Ruff，`mochi_server` 为 first-party | 同上 |
+| 项       | 配置                                                                                                 | 位置                                |
+| -------- | ---------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| Lint     | Ruff：E/W/F/I/UP/B/SIM/RUF，line-length 100，target py311；豁免 RUF001–003（中文注释天然含全角标点） | `server/pyproject.toml [tool.ruff]` |
+| Format   | Ruff format（双引号、空格缩进）                                                                      | 同上                                |
+| 导入排序 | isort 规则内置于 Ruff，`mochi_server` 为 first-party                                                 | 同上                                |
 
 约定：
 
@@ -40,11 +40,11 @@
 
 ## 4. 提交钩子（husky + lint-staged）
 
-| 钩子 | 动作 | 涉及文件 |
-| --- | --- | --- |
-| `pre-commit` | lint-staged：Prettier 格式化 → ESLint 修复 | `*.{ts,tsx,js,mjs,json,md,yaml,yml}` |
-| `pre-commit` | lint-staged：`uvx ruff check --fix` + `ruff format` | `server/**/*.py` |
-| `commit-msg` | commitlint 校验 Conventional Commits | 提交信息 |
+| 钩子         | 动作                                                | 涉及文件                             |
+| ------------ | --------------------------------------------------- | ------------------------------------ |
+| `pre-commit` | lint-staged：Prettier 格式化 → ESLint 修复          | `*.{ts,tsx,js,mjs,json,md,yaml,yml}` |
+| `pre-commit` | lint-staged：`uvx ruff check --fix` + `ruff format` | `server/**/*.py`                     |
+| `commit-msg` | commitlint 校验 Conventional Commits                | 提交信息                             |
 
 首次生效前提：`pnpm install`（自动执行 `prepare: husky`）。
 Python 侧钩子依赖 `uvx`（随 uv 安装），无需全局安装 ruff。
@@ -57,4 +57,5 @@ Python 侧钩子依赖 `uvx`（随 uv 安装），无需全局安装 ruff。
 ## 6. CI 预告（M0 落地）
 
 GitHub Actions 每 PR 执行：`pnpm lint` + `pnpm typecheck` + `uv run ruff check`
-+ `cargo clippy`。发布流水线见 docs/specs/monorepo-structure.md §7（M1 专项调研）。
+
+- `cargo clippy`。发布流水线见 docs/specs/monorepo-structure.md §7（M1 专项调研）。

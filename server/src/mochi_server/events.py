@@ -5,6 +5,9 @@
 
 ⚠️ 本文件必须与 TS 定义保持逐字段一致。0.x 阶段人工同步；
 一致性黄金样例：packages/protocol/testdata/turn-with-tool-call.jsonl
+
+序列化约定：协议负载一律 camelCase。数据模型继承 CamelModel，
+snake_case 字段经 alias_generator 自动映射 camelCase（双向）。
 """
 
 from __future__ import annotations
@@ -13,10 +16,17 @@ from enum import StrEnum
 from typing import Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+from pydantic.alias_generators import to_camel
 
 PROTOCOL_VERSION = "0.1"
 SERVER_NAME = "mochi-server"
+
+
+class CamelModel(BaseModel):
+    """协议负载基类：Python 用 snake_case 构造，线上格式为 camelCase。"""
+
+    model_config = ConfigDict(populate_by_name=True, alias_generator=to_camel)
 
 
 # ---------------------------------------------------------------------------
@@ -65,14 +75,10 @@ ToolCallStatus = Literal["success", "error", "denied"]
 
 
 # ---------------------------------------------------------------------------
-# 信封与负载
+# 信封与公共结构
 # ---------------------------------------------------------------------------
 class Envelope(BaseModel):
-    """通用信封：所有 WebSocket JSON 帧共享的外层结构。
-
-    序列化使用 camelCase（与 TS 侧一致）：pydantic v2 通过
-    model_config / alias 生成时统一转换。
-    """
+    """通用信封：所有 WebSocket JSON 帧共享的外层结构（字段本身即 camelCase 安全）。"""
 
     v: str = PROTOCOL_VERSION
     type: str
@@ -81,117 +87,168 @@ class Envelope(BaseModel):
     data: dict[str, Any] = Field(default_factory=dict)
 
 
-class ErrorPayload(BaseModel):
+class ErrorPayload(CamelModel):
     code: str
     message: str  # 用户可读文案，禁止裸露堆栈（功能清单 6.7）
     retryable: bool = False
     hint: str | None = None
 
 
-# --- 客户端 → 服务端命令负载 ---
-class HelloData(BaseModel):
-    versions: list[str]
-    client: dict[str, str]
+class ClientInfo(CamelModel):
+    """hello 命令中的客户端标识。"""
 
-
-class ChatSendData(BaseModel):
-    run_id: str = Field(serialization_alias="runId")
-    session_id: str = Field(serialization_alias="sessionId")
-    text: str
-    attachments: list[dict[str, str]] | None = None
-
-
-class ChatCancelData(BaseModel):
-    run_id: str = Field(serialization_alias="runId")
-
-
-class ChatInterruptData(BaseModel):
-    run_id: str = Field(serialization_alias="runId")
-
-
-# --- 服务端 → 客户端事件负载 ---
-class HelloAckData(BaseModel):
+    name: str
     version: str
-    server: dict[str, str]
 
 
-class RunStartedData(BaseModel):
-    run_id: str = Field(serialization_alias="runId")
-    session_id: str = Field(serialization_alias="sessionId")
+class ServerInfo(CamelModel):
+    """hello_ack 事件中的服务端标识。"""
+
+    name: str
+    version: str
 
 
-class RunFinishedData(BaseModel):
-    run_id: str = Field(serialization_alias="runId")
-    reason: RunFinishReason
-    usage: dict[str, int] | None = None
+class UsageInfo(CamelModel):
+    """run.finished 的 token 用量（可选）。"""
+
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
 
 
-class RunErrorData(BaseModel):
-    run_id: str = Field(serialization_alias="runId")
+def make_frame(event_type: str, data: CamelModel | dict[str, Any], ts: int) -> dict[str, Any]:
+    """构建可直接 send_json 的完整帧（负载模型自动转 camelCase dict）。"""
+    payload = (
+        data.model_dump(by_alias=True, exclude_none=True) if isinstance(data, BaseModel) else data
+    )
+    return Envelope(type=event_type, ts=ts, data=payload).model_dump()
+
+
+# ---------------------------------------------------------------------------
+# 客户端 → 服务端命令负载
+# ---------------------------------------------------------------------------
+class HelloData(CamelModel):
+    versions: list[str]
+    client: ClientInfo
+
+
+class PingData(CamelModel):
+    token: str | None = None
+
+
+class Attachment(CamelModel):
+    kind: Literal["image", "file"]
+    path: str
+    name: str
+
+
+class ChatSendData(CamelModel):
+    run_id: str
+    session_id: str
+    text: str
+    attachments: list[Attachment] | None = None
+
+
+class ChatCancelData(CamelModel):
+    run_id: str
+
+
+class ChatInterruptData(CamelModel):
+    run_id: str
+
+
+# ---------------------------------------------------------------------------
+# 服务端 → 客户端事件负载
+# ---------------------------------------------------------------------------
+class HelloAckData(CamelModel):
+    version: str
+    server: ServerInfo
+
+
+class HelloErrorData(CamelModel):
     error: ErrorPayload
 
 
-class TextStartData(BaseModel):
-    run_id: str = Field(serialization_alias="runId")
-    message_id: str = Field(serialization_alias="messageId")
+class PongData(CamelModel):
+    token: str | None = None
+
+
+class RunStartedData(CamelModel):
+    run_id: str
+    session_id: str
+
+
+class RunFinishedData(CamelModel):
+    run_id: str
+    reason: RunFinishReason
+    usage: UsageInfo | None = None
+
+
+class RunErrorData(CamelModel):
+    run_id: str
+    error: ErrorPayload
+
+
+class TextStartData(CamelModel):
+    run_id: str
+    message_id: str
     role: Literal["assistant"] = "assistant"
 
 
-class TextDeltaData(BaseModel):
-    run_id: str = Field(serialization_alias="runId")
-    message_id: str = Field(serialization_alias="messageId")
+class TextDeltaData(CamelModel):
+    run_id: str
+    message_id: str
     delta: str
 
 
-class TextEndData(BaseModel):
-    run_id: str = Field(serialization_alias="runId")
-    message_id: str = Field(serialization_alias="messageId")
-    full_text: str = Field(serialization_alias="fullText")
+class TextEndData(CamelModel):
+    run_id: str
+    message_id: str
+    full_text: str
 
 
-class ThinkingStartData(BaseModel):
-    run_id: str = Field(serialization_alias="runId")
-    message_id: str = Field(serialization_alias="messageId")
+class ThinkingStartData(CamelModel):
+    run_id: str
+    message_id: str
 
 
-class ThinkingDeltaData(BaseModel):
-    run_id: str = Field(serialization_alias="runId")
-    message_id: str = Field(serialization_alias="messageId")
+class ThinkingDeltaData(CamelModel):
+    run_id: str
+    message_id: str
     delta: str
 
 
-class ThinkingEndData(BaseModel):
-    run_id: str = Field(serialization_alias="runId")
-    message_id: str = Field(serialization_alias="messageId")
+class ThinkingEndData(CamelModel):
+    run_id: str
+    message_id: str
 
 
-class ToolCallStartData(BaseModel):
-    run_id: str = Field(serialization_alias="runId")
-    tool_call_id: str = Field(serialization_alias="toolCallId")
+class ToolCallStartData(CamelModel):
+    run_id: str
+    tool_call_id: str
     name: str
-    args: dict[str, Any] = Field(default_factory=dict)
+    args: dict[str, Any]  # 必填（与 TS 侧对齐：工具调用总是携带 args，可为空对象）
 
 
-class ToolCallEndData(BaseModel):
-    run_id: str = Field(serialization_alias="runId")
-    tool_call_id: str = Field(serialization_alias="toolCallId")
+class ToolCallEndData(CamelModel):
+    run_id: str
+    tool_call_id: str
     status: ToolCallStatus
     result: Any | None = None
     error: ErrorPayload | None = None
 
 
-class EmotionData(BaseModel):
-    run_id: str | None = Field(default=None, serialization_alias="runId")
+class EmotionData(CamelModel):
+    run_id: str | None = None
     emotion: Emotion
     intensity: float = Field(ge=0.0, le=1.0)
 
 
-class StateChangeData(BaseModel):
+class StateChangeData(CamelModel):
     state: CharacterState
 
 
 # ---------------------------------------------------------------------------
-# 事件类型常量（与 TS 侧 EVENT_TYPES / COMMAND_TYPES 一致）
+# 事件类型常量与负载注册表（与 TS 侧 EVENT_TYPES / COMMAND_TYPES 一致）
 # ---------------------------------------------------------------------------
 COMMAND_TYPES = {
     "hello": "hello",
@@ -218,4 +275,31 @@ EVENT_TYPES = {
     "tool.call.end": "tool.call.end",
     "emotion": "emotion",
     "state.change": "state.change",
+}
+
+COMMAND_DATA_MODELS: dict[str, type[CamelModel]] = {
+    "hello": HelloData,
+    "ping": PingData,
+    "chat.send": ChatSendData,
+    "chat.cancel": ChatCancelData,
+    "chat.interrupt": ChatInterruptData,
+}
+
+EVENT_DATA_MODELS: dict[str, type[CamelModel]] = {
+    "hello_ack": HelloAckData,
+    "hello_error": HelloErrorData,
+    "pong": PongData,
+    "run.started": RunStartedData,
+    "run.finished": RunFinishedData,
+    "run.error": RunErrorData,
+    "text.start": TextStartData,
+    "text.delta": TextDeltaData,
+    "text.end": TextEndData,
+    "thinking.start": ThinkingStartData,
+    "thinking.delta": ThinkingDeltaData,
+    "thinking.end": ThinkingEndData,
+    "tool.call.start": ToolCallStartData,
+    "tool.call.end": ToolCallEndData,
+    "emotion": EmotionData,
+    "state.change": StateChangeData,
 }

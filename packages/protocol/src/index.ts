@@ -43,10 +43,22 @@ export const COMMAND_TYPES = {
 
 export type CommandType = (typeof COMMAND_TYPES)[keyof typeof COMMAND_TYPES];
 
+/** 客户端标识（hello 命令） */
+export interface ClientInfo {
+  name: string;
+  version: string;
+}
+
+/** 服务端标识（hello_ack 事件） */
+export interface ServerInfo {
+  name: string;
+  version: string;
+}
+
 /** 握手：声明客户端支持的协议版本（按偏好降序） */
 export interface HelloData {
   versions: string[];
-  client: { name: string; version: string };
+  client: ClientInfo;
 }
 
 export interface PingData {
@@ -153,7 +165,7 @@ export type ToolCallStatus = (typeof TOOL_CALL_STATUSES)[keyof typeof TOOL_CALL_
 export interface HelloAckData {
   /** 协商选定的协议版本 */
   version: string;
-  server: { name: string; version: string };
+  server: ServerInfo;
 }
 
 export interface HelloErrorData {
@@ -169,10 +181,16 @@ export interface RunStartedData {
   sessionId: string;
 }
 
+/** run.finished 的 token 用量（可选） */
+export interface UsageInfo {
+  promptTokens?: number;
+  completionTokens?: number;
+}
+
 export interface RunFinishedData {
   runId: string;
   reason: RunFinishReason;
-  usage?: { promptTokens?: number; completionTokens?: number };
+  usage?: UsageInfo;
 }
 
 export interface RunErrorData {

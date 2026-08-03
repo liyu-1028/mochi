@@ -1,12 +1,12 @@
 # Mochi Agent 事件协议规范 v0.1
 
-| 字段 | 值 |
-| --- | --- |
-| 协议版本 | `0.1` |
-| 状态 | **冻结（M0 基线）** —— 变更须走本文档 §9 兼容性流程 |
-| 传输层 | 本地 WebSocket（`ws://127.0.0.1:<port>/ws`），JSON 文本帧 |
-| 事实源 | 前端：`packages/protocol/src/index.ts`；后端镜像：`server/src/mochi_server/events.py` |
-| 黄金样例 | `packages/protocol/testdata/turn-with-tool-call.jsonl` |
+| 字段     | 值                                                                                    |
+| -------- | ------------------------------------------------------------------------------------- |
+| 协议版本 | `0.1`                                                                                 |
+| 状态     | **冻结（M0 基线）** —— 变更须走本文档 §9 兼容性流程                                   |
+| 传输层   | 本地 WebSocket（`ws://127.0.0.1:<port>/ws`），JSON 文本帧                             |
+| 事实源   | 前端：`packages/protocol/src/index.ts`；后端镜像：`server/src/mochi_server/events.py` |
+| 黄金样例 | `packages/protocol/testdata/turn-with-tool-call.jsonl`                                |
 
 ## 1. 设计原则
 
@@ -56,13 +56,13 @@
 
 ## 4. 客户端 → 服务端：命令
 
-| type | 说明 | data 字段 |
-| --- | --- | --- |
-| `hello` | 握手 | `versions: string[]`，`client: {name, version}` |
-| `ping` | 保活/RTT | `token?: string`（原样回传） |
-| `chat.send` | 发起对话回合 | `runId`（客户端生成 UUID），`sessionId`，`text`，`attachments?` |
-| `chat.cancel` | 取消生成，丢弃后续输出 | `runId` |
-| `chat.interrupt` | 打断播报（停 TTS/展示，保留已生成内容；语音 barge-in 场景） | `runId` |
+| type             | 说明                                                        | data 字段                                                       |
+| ---------------- | ----------------------------------------------------------- | --------------------------------------------------------------- |
+| `hello`          | 握手                                                        | `versions: string[]`，`client: {name, version}`                 |
+| `ping`           | 保活/RTT                                                    | `token?: string`（原样回传）                                    |
+| `chat.send`      | 发起对话回合                                                | `runId`（客户端生成 UUID），`sessionId`，`text`，`attachments?` |
+| `chat.cancel`    | 取消生成，丢弃后续输出                                      | `runId`                                                         |
+| `chat.interrupt` | 打断播报（停 TTS/展示，保留已生成内容；语音 barge-in 场景） | `runId`                                                         |
 
 `chat.cancel` 与 `chat.interrupt` 的语义区别（功能清单 4.2 / 5.3）：
 
@@ -73,59 +73,59 @@
 
 ### 5.1 连接管理
 
-| type | data |
-| --- | --- |
-| `hello_ack` | `version`（协商结果），`server: {name, version}` |
-| `hello_error` | `error: ErrorPayload` |
-| `pong` | `token?` |
+| type          | data                                             |
+| ------------- | ------------------------------------------------ |
+| `hello_ack`   | `version`（协商结果），`server: {name, version}` |
+| `hello_error` | `error: ErrorPayload`                            |
+| `pong`        | `token?`                                         |
 
 ### 5.2 回合生命周期（Lifecycle）
 
-| type | data | 说明 |
-| --- | --- | --- |
-| `run.started` | `runId`，`sessionId` | 回合开始，首个事件 |
-| `run.finished` | `runId`，`reason`，`usage?` | 回合结束，末个事件 |
-| `run.error` | `runId`，`error` | 回合级错误（其后仍应有 `run.finished`，`reason: "error"`） |
+| type           | data                        | 说明                                                       |
+| -------------- | --------------------------- | ---------------------------------------------------------- |
+| `run.started`  | `runId`，`sessionId`        | 回合开始，首个事件                                         |
+| `run.finished` | `runId`，`reason`，`usage?` | 回合结束，末个事件                                         |
+| `run.error`    | `runId`，`error`            | 回合级错误（其后仍应有 `run.finished`，`reason: "error"`） |
 
 `reason ∈ complete | cancelled | interrupted | error`。
 
 ### 5.3 文本流（Text）—— start/delta/end 生命周期
 
-| type | data |
-| --- | --- |
+| type         | data                                      |
+| ------------ | ----------------------------------------- |
 | `text.start` | `runId`，`messageId`，`role: "assistant"` |
-| `text.delta` | `runId`，`messageId`，`delta: string` |
-| `text.end` | `runId`，`messageId`，`fullText: string` |
+| `text.delta` | `runId`，`messageId`，`delta: string`     |
+| `text.end`   | `runId`，`messageId`，`fullText: string`  |
 
 前端在 `text.start`→`text.end` 期间驱动角色「说话」状态与嘴部动画（功能清单 2.3）。
 
 ### 5.4 思考流（Thinking）—— Mochi 扩展
 
-| type | data |
-| --- | --- |
-| `thinking.start` | `runId`，`messageId` |
+| type             | data                                  |
+| ---------------- | ------------------------------------- |
+| `thinking.start` | `runId`，`messageId`                  |
 | `thinking.delta` | `runId`，`messageId`，`delta: string` |
-| `thinking.end` | `runId`，`messageId` |
+| `thinking.end`   | `runId`，`messageId`                  |
 
 对应 AG-UI 概念中的 Custom Event。用于展示推理过程并驱动「思考」动画；
 UI 可选择折叠展示，但动画状态必须响应。
 
 ### 5.5 工具调用（Tool）
 
-| type | data |
-| --- | --- |
-| `tool.call.start` | `runId`，`toolCallId`，`name`，`args: object` |
-| `tool.call.end` | `runId`，`toolCallId`，`status`，`result?`，`error?` |
+| type              | data                                                 |
+| ----------------- | ---------------------------------------------------- |
+| `tool.call.start` | `runId`，`toolCallId`，`name`，`args: object`        |
+| `tool.call.end`   | `runId`，`toolCallId`，`status`，`result?`，`error?` |
 
 `status ∈ success | error | denied`。`denied` 表示用户在危险操作确认框中拒绝
 （功能清单 6.5）。工具执行期间服务端应发送 `state.change → working`。
 
 ### 5.6 角色表现（Mochi 扩展）
 
-| type | data | 说明 |
-| --- | --- | --- |
-| `emotion` | `runId?`，`emotion`，`intensity: 0~1` | 情绪标签 → 表情映射（功能清单 2.5） |
-| `state.change` | `state` | 动画状态机切换（功能清单 2.2） |
+| type           | data                                  | 说明                                |
+| -------------- | ------------------------------------- | ----------------------------------- |
+| `emotion`      | `runId?`，`emotion`，`intensity: 0~1` | 情绪标签 → 表情映射（功能清单 2.5） |
+| `state.change` | `state`                               | 动画状态机切换（功能清单 2.2）      |
 
 枚举定义：
 
@@ -138,27 +138,27 @@ state   ∈ idle | talking | thinking | working | error | sleeping
 
 ```jsonc
 {
-  "code": "ERR_MODEL_AUTH",     // §7 标准错误码，或扩展自定义码
-  "message": "模型密钥无效，请检查设置",   // 用户可读文案
+  "code": "ERR_MODEL_AUTH", // §7 标准错误码，或扩展自定义码
+  "message": "模型密钥无效，请检查设置", // 用户可读文案
   "retryable": false,
-  "hint": "打开 设置 → 模型 重新填写 Key"  // 可选排查建议
+  "hint": "打开 设置 → 模型 重新填写 Key", // 可选排查建议
 }
 ```
 
 ## 7. 标准错误码
 
-| code | 含义 | retryable 建议 |
-| --- | --- | --- |
-| `ERR_VERSION_MISMATCH` | 协议版本不兼容 | false |
-| `ERR_MODEL_AUTH` | Key 无效/过期 | false |
-| `ERR_MODEL_UNAVAILABLE` | 模型服务不可达（含 Ollama 未启动） | true |
-| `ERR_MODEL_RATE_LIMIT` | 限流 | true |
-| `ERR_NETWORK` | 一般网络错误 | true |
-| `ERR_CONTEXT_OVERFLOW` | 上下文超限（应自动摘要，兜底才报此错） | false |
-| `ERR_TOOL_DENIED` | 用户拒绝危险操作授权 | false |
-| `ERR_TOOL_FAILED` | 工具执行失败 | 视工具而定 |
-| `ERR_CANCELLED` | 用户取消 | false |
-| `ERR_INTERNAL` | 未分类内部错误 | false |
+| code                    | 含义                                   | retryable 建议 |
+| ----------------------- | -------------------------------------- | -------------- |
+| `ERR_VERSION_MISMATCH`  | 协议版本不兼容                         | false          |
+| `ERR_MODEL_AUTH`        | Key 无效/过期                          | false          |
+| `ERR_MODEL_UNAVAILABLE` | 模型服务不可达（含 Ollama 未启动）     | true           |
+| `ERR_MODEL_RATE_LIMIT`  | 限流                                   | true           |
+| `ERR_NETWORK`           | 一般网络错误                           | true           |
+| `ERR_CONTEXT_OVERFLOW`  | 上下文超限（应自动摘要，兜底才报此错） | false          |
+| `ERR_TOOL_DENIED`       | 用户拒绝危险操作授权                   | false          |
+| `ERR_TOOL_FAILED`       | 工具执行失败                           | 视工具而定     |
+| `ERR_CANCELLED`         | 用户取消                               | false          |
+| `ERR_INTERNAL`          | 未分类内部错误                         | false          |
 
 ## 8. 典型时序
 
@@ -203,6 +203,7 @@ run.finished(reason: "cancelled")   ← 已输出的 delta 前端保留展示
 
 ## 变更记录
 
-| 版本 | 日期 | 变更 |
-| --- | --- | --- |
-| 0.1 | 2026-08-03 | 初版冻结：信封、握手、5 类命令、16 类事件、错误码表 |
+| 版本 | 日期       | 变更                                                                                                                               |
+| ---- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| 0.1  | 2026-08-03 | 初版冻结：信封、握手、5 类命令、16 类事件、错误码表                                                                                |
+| 0.1  | 2026-08-03 | 类型收窄（线上格式不变）：`usage`/`client`/`server` 结构化为 UsageInfo/ClientInfo/ServerInfo；`tool.call.start` 的 `args` 双端必填 |

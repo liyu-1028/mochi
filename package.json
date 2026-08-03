@@ -13,6 +13,7 @@
     "dev": "pnpm --filter @mochi/desktop dev",
     "dev:web": "pnpm --filter @mochi/desktop dev:web",
     "dev:server": "cd server && uv run uvicorn mochi_server.main:app --reload --port 8199",
+    "test": "pnpm --filter @mochi/protocol test && cd server && uv run pytest -q",
     "lint": "eslint . && pnpm lint:py",
     "lint:py": "cd server && uv run ruff check",
     "format": "prettier --write . && cd server && uv run ruff format",
