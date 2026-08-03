@@ -141,7 +141,9 @@ body {
   }
 }
 
-/* ---- 对话气泡（角色左侧，CSS 三角指向角色） ---- */
+/* ---- 对话气泡（角色左侧，CSS 三角指向角色） ----
+   渐进淡出 + 悬停激活：所有气泡始终存在，按"距最新"层数逐渐变淡变小；
+   鼠标移上 .bubbles 区域时全部全亮 + 正常大小。*/
 .bubbles {
   position: absolute;
   left: 8px;
@@ -150,7 +152,7 @@ body {
   width: 56%;
   max-width: 220px;
   display: flex;
-  flex-direction: column-reverse; /* 新消息在底（旧消息在顶） */
+  flex-direction: column; /* 自然顺序：旧消息在上，新消息在下 */
   gap: 6px;
   pointer-events: none; /* 不拦截拖拽 */
   z-index: 5;
@@ -169,17 +171,38 @@ body {
   border: 1px solid rgba(243, 227, 231, 0.6);
   box-shadow: 0 2px 8px rgba(74, 63, 68, 0.12);
   color: var(--ink);
+  /* 入场初始状态；bubble--entered 触发后过渡到 age 样式或 hover 全亮 */
   opacity: 0;
-  transform: translateY(-6px);
-  transition: opacity 0.25s ease, transform 0.25s ease;
+  transform: translateY(-8px);
+  transition: opacity 0.3s ease, transform 0.3s ease;
 }
 
-.bubble--enter {
+.bubble--entered {
   opacity: 1;
-  transform: translateY(0);
+  transform: translateY(0) scale(1);
 }
 
-/* 气泡右侧三角——指向角色（设计假设角色在画面右侧；不影响单侧布局） */
+/* 按"距最新消息"层数衰减（最近的最显眼） */
+.bubble--age-1.bubble--entered {
+  opacity: 0.62;
+  transform: translateY(0) scale(0.93);
+}
+.bubble--age-2.bubble--entered {
+  opacity: 0.42;
+  transform: translateY(0) scale(0.87);
+}
+.bubble--age-3.bubble--entered {
+  opacity: 0.28;
+  transform: translateY(0) scale(0.82);
+}
+
+/* 悬停激活：全部回到全亮 + 正常尺寸（CSS 特异性 0,0,2,1 > 0,0,2,0） */
+.bubbles:hover .bubble--entered {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+/* 气泡右侧三角——指向角色（设计假设角色在画面右侧） */
 .bubble::after {
   content: "";
   position: absolute;
