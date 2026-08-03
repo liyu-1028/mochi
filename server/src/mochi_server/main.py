@@ -1,22 +1,29 @@
-"""FastAPI 入口：/health + /ws（协议 v0.1 事件流）。
+"""FastAPI 入口：/health + /ws（协议 v0.1 事件流）+ /config（REST 管理端点）。
 
-TODO(M0-S2)：
-- 接入 LangGraph 认知核心（对话节点、工具调用框架）；
-- 配置读写 RPC（HTTP 端点）；
-- sidecar 端口发现机制（写 <userData>/runtime.json 供桌面壳读取）。
+启动流程（Zero Config，config-format.md §6）：
+1. lifespan 探测本地 Ollama（1.5s 硬超时）
+2. load_config：首启生成默认配置（探测到 Ollama → 预填默认 provider；否则试用模式）
+3. ProviderRegistry 就绪，/ws 与 /config 端点可用
+
+TODO(M1)：sidecar 端口发现机制（写 <userData>/runtime.json 供桌面壳读取）。
 """
 
 from __future__ import annotations
 
 import logging
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
 from . import __version__
-from .agent import EchoAgentService, RunManager
+from .agent import RunManager
+from .agent.ollama_probe import probe_ollama
+from .agent.registry import ProviderRegistry
 from .agent.service import AgentService
+from .config import AppConfig, load_config
 from .events import (
     EVENT_TYPES,
     PROTOCOL_VERSION,
@@ -32,6 +39,8 @@ from .events import (
     ServerInfo,
     make_frame,
 )
+from .paths import get_config_path
+from .secrets import KeyStore
 
 logger = logging.getLogger(__name__)
 
@@ -40,10 +49,39 @@ def _now_ms() -> int:
     return int(time.time() * 1000)
 
 
-def create_app(agent: AgentService | None = None) -> FastAPI:
-    """应用工厂：agent 可注入（测试用零延迟桩；默认 echo 桩带拟真延迟）。"""
-    app = FastAPI(title="mochi-server", version=__version__)
-    app.state.agent = agent or EchoAgentService()
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    if app.state.registry is None and app.state.agent is None:
+        probe = await probe_ollama()
+        config = load_config(
+            get_config_path(),
+            ollama_available=probe.available,
+            ollama_model=probe.models[0] if probe.models else None,
+        )
+        app.state.registry = ProviderRegistry(config, KeyStore())
+        logger.info(
+            "配置就绪：default_provider=%s（Ollama %s）",
+            config.model.default_provider,
+            "已发现" if probe.available else "未发现",
+        )
+    yield
+
+
+def create_app(
+    agent: AgentService | None = None,
+    *,
+    config: AppConfig | None = None,
+    key_store: KeyStore | None = None,
+) -> FastAPI:
+    """应用工厂。
+
+    - ``agent`` 显式注入（S1 兼容路径）：跳过配置/registry，直接使用该 agent；
+    - ``config`` 显式注入：跳过 lifespan 的探测与文件读写，直接构建 registry；
+    - 都不传（生产路径）：lifespan 内探测 Ollama + 加载/生成配置。
+    """
+    app = FastAPI(title="mochi-server", version=__version__, lifespan=_lifespan)
+    app.state.agent = agent
+    app.state.registry = ProviderRegistry(config, key_store) if config is not None else None
 
     @app.get("/health")
     async def health() -> dict[str, str]:
@@ -52,7 +90,14 @@ def create_app(agent: AgentService | None = None) -> FastAPI:
     @app.websocket("/ws")
     async def ws_endpoint(ws: WebSocket) -> None:
         await ws.accept()
-        manager = RunManager(app.state.agent, ws.send_json)
+        # 显式 agent 优先；否则按回合从 registry 解析（支持热切换）
+        if app.state.agent is not None:
+            agent_source = app.state.agent
+        elif app.state.registry is not None:
+            agent_source = app.state.registry.current_agent
+        else:
+            raise RuntimeError("应用未初始化：lifespan 未执行（TestClient 请用 with 语法）")
+        manager = RunManager(agent_source, ws.send_json)
         handshaken = False
         try:
             while True:
@@ -95,7 +140,7 @@ def create_app(agent: AgentService | None = None) -> FastAPI:
                         if msg_type == "chat.send":
                             await manager.start_run(ChatSendData.model_validate(frame["data"]))
                         else:
-                            # TODO(S2)：interrupt 与 cancel 语义分离（停止播报 vs 丢弃生成）
+                            # TODO(M1)：interrupt 与 cancel 语义分离（停止播报 vs 丢弃生成）
                             payload = ChatCancelData.model_validate(frame["data"])
                             await manager.cancel_run(payload.run_id)
                     except ValidationError:

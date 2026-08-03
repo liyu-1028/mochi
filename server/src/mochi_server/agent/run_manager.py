@@ -42,10 +42,17 @@ def _now_ms() -> int:
 
 
 class RunManager:
-    """每个 WebSocket 连接持有一个实例（M0 单客户端）。"""
+    """每个 WebSocket 连接持有一个实例（M0 单客户端）。
 
-    def __init__(self, agent: AgentService, send_frame: SendFrame) -> None:
-        self._agent = agent
+    agent 参数支持两种形态：
+    - AgentService 实例（S1 兼容路径：注入即用）
+    - 零参可调用（如 ProviderRegistry.current_agent）：每回合解析，支持模型热切换
+    """
+
+    def __init__(
+        self, agent: AgentService | Callable[[], AgentService], send_frame: SendFrame
+    ) -> None:
+        self._agent_source = agent if callable(agent) else lambda: agent
         self._send = send_frame
         self._runs: dict[str, asyncio.Task[None]] = {}
 
@@ -84,7 +91,9 @@ class RunManager:
         reason = "complete"
         interrupted = False
         try:
-            async for event_type, payload in self._agent.run(ctx):
+            # 解析在 try 内：构造期错误（缺 Key、未实现的 provider）也走 run.error
+            agent = self._agent_source()
+            async for event_type, payload in agent.run(ctx):
                 await self._send(make_frame(event_type, payload, _now_ms()))
         except asyncio.CancelledError:
             reason = "cancelled"

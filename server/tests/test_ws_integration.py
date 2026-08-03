@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from mochi_server.agent import EchoAgentService
+from mochi_server.config import AppConfig, ModelConfig, ModelProviderConfig
 from mochi_server.events import PROTOCOL_VERSION
 from mochi_server.main import create_app
 
@@ -112,3 +113,48 @@ def test_cancel_via_ws() -> None:
         )
         frames = _drain_until_finished(ws)
         assert frames[-1]["data"]["reason"] == "cancelled"
+
+
+def test_registry_driven_turn_via_config_injection() -> None:
+    """S2 生产装配路径：config 注入 → registry 按回合解析 agent（此例为试用模式）。"""
+    app = create_app(config=AppConfig())  # 默认 default_provider=trial
+    assert app.state.registry is not None
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        ws.send_json(_hello())
+        assert ws.receive_json()["type"] == "hello_ack"
+
+        ws.send_json(_chat_send())
+        frames = _drain_until_finished(ws)
+        assert frames[-1]["data"]["reason"] == "complete"
+        assert any(f["type"] == "text.end" for f in frames)
+
+
+def test_registry_missing_key_surfaces_run_error() -> None:
+    """default provider 缺 Key：不崩溃，run.error 带引导文案。"""
+    config = AppConfig(
+        model=ModelConfig(
+            default_provider="cloud",
+            providers={
+                "cloud": ModelProviderConfig(
+                    kind="openai_compatible",
+                    display_name="云端",
+                    base_url="https://api.example.com/v1",
+                    model="m",
+                )
+            },
+        )
+    )
+    with TestClient(create_app(config=config)) as client, client.websocket_connect("/ws") as ws:
+        ws.send_json(_hello())
+        assert ws.receive_json()["type"] == "hello_ack"
+
+        ws.send_json(_chat_send())
+        frames = _drain_until_finished(ws)
+
+        error_frames = [f for f in frames if f["type"] == "run.error"]
+        assert len(error_frames) == 1
+        assert error_frames[0]["data"]["error"]["code"] == "ERR_MODEL_AUTH"
+        assert frames[-1]["data"]["reason"] == "error"
+        # 角色状态恢复：末尾有 state.change(idle)
+        state_frames = [f for f in frames if f["type"] == "state.change"]
+        assert state_frames[-1]["data"]["state"] == "idle"
