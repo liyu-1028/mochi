@@ -18,6 +18,11 @@
     "format": "prettier --write . && cd server && uv run ruff format",
     "typecheck": "pnpm -r typecheck"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
   "lint-staged": {
     "*.{ts,tsx,js,mjs,json,md,yaml,yml}": "prettier --write",
     "*.{ts,tsx}": "eslint --fix",
