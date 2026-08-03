@@ -1,17 +1,25 @@
-import { PROTOCOL_VERSION } from "@mochi/protocol";
+import { CharacterBadge } from "./components/CharacterBadge";
+import { ChatPanel } from "./components/ChatPanel";
+import { resolveWsUrl, useMochiConnection } from "./hooks/useMochiConnection";
+import { useConversation } from "./store/conversation";
 
 /**
- * M0 垂直原型前的骨架占位页。
- * 角色渲染（Live2D/pixi）、透明窗口命中测试、对话面板在此之上迭代。
+ * M0-S1：端到端流式对话垂直切片。
+ * 上半区为角色占位表现（S3 替换为 Live2D），下半区为对话面板。
  */
 export default function App() {
+  const { sendText, cancelRun } = useMochiConnection(resolveWsUrl());
+  const status = useConversation((s) => s.status);
+
   return (
-    <main className="skeleton">
-      <h1>Mochi</h1>
-      <p>会成长的桌面智能伙伴 · 骨架已就绪</p>
-      <p>
-        <code>protocol v{PROTOCOL_VERSION}</code>
-      </p>
+    <main className="app">
+      <div className="app__stage">
+        <CharacterBadge />
+      </div>
+      <ChatPanel onSend={sendText} onCancel={cancelRun} />
+      <footer className={`app__status app__status--${status}`}>
+        {status === "connected" ? "已连接 sidecar" : status === "connecting" ? "连接中…" : "未连接"}
+      </footer>
     </main>
   );
 }

@@ -126,7 +126,7 @@ export const EMOTIONS = [
   "embarrassed",
   "angry",
 ] as const;
-export type Emotion = (typeof EMOTIONS)[keyof typeof EMOTIONS];
+export type Emotion = (typeof EMOTIONS)[number];
 
 /** Mochi 扩展：角色动画状态机状态（功能清单 2.2，6 状态） */
 export const CHARACTER_STATES = [
@@ -137,7 +137,7 @@ export const CHARACTER_STATES = [
   "error",
   "sleeping",
 ] as const;
-export type CharacterState = (typeof CHARACTER_STATES)[keyof typeof CHARACTER_STATES];
+export type CharacterState = (typeof CHARACTER_STATES)[number];
 
 /** 标准化错误码（规范文档 §7） */
 export const ERROR_CODES = {
@@ -155,10 +155,10 @@ export const ERROR_CODES = {
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];
 
 export const RUN_FINISH_REASONS = ["complete", "cancelled", "interrupted", "error"] as const;
-export type RunFinishReason = (typeof RUN_FINISH_REASONS)[keyof typeof RUN_FINISH_REASONS];
+export type RunFinishReason = (typeof RUN_FINISH_REASONS)[number];
 
 export const TOOL_CALL_STATUSES = ["success", "error", "denied"] as const;
-export type ToolCallStatus = (typeof TOOL_CALL_STATUSES)[keyof typeof TOOL_CALL_STATUSES];
+export type ToolCallStatus = (typeof TOOL_CALL_STATUSES)[number];
 
 // --- 事件负载 ---
 
@@ -278,6 +278,17 @@ export type ClientCommand =
   | Envelope<ChatSendData>
   | Envelope<ChatCancelData>
   | Envelope<ChatInterruptData>;
+
+/** 构建客户端命令帧（统一填充 v/id/ts，消费方无需手写信封）。 */
+export function createCommand<T>(type: CommandType, data: T): Envelope<T> {
+  return {
+    v: PROTOCOL_VERSION,
+    type,
+    id: crypto.randomUUID(),
+    ts: Date.now(),
+    data,
+  };
+}
 
 export type ServerEvent =
   | Envelope<HelloAckData>
