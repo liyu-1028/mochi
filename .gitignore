@@ -27,6 +27,8 @@ Thumbs.db
 
 # Logs
 *.log
+logs/
 
-# 内部过程文档（调研、决策推演等，不入库）
+# 内部过程文档（调研、决策推演、测试报告等，不入库）
 docs/internal/
+docs/test-reports/
