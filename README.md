@@ -10,21 +10,21 @@ Mochi 将冰冷的命令行和对话框，升级为有温度、有形象、可�
 
 ## 技术栈
 
-| 层 | 选型 |
-| --- | --- |
-| 桌面壳 | Tauri v2（Rust） |
-| 前端 | React 19 + TypeScript + Vite |
-| Agent 后端 | Python sidecar（FastAPI + LangGraph） |
+| 层         | 选型                                                                 |
+| ---------- | -------------------------------------------------------------------- |
+| 桌面壳     | Tauri v2（Rust）                                                     |
+| 前端       | React 19 + TypeScript + Vite                                         |
+| Agent 后端 | Python sidecar（FastAPI + LangGraph）                                |
 | 前后端通信 | 本地 WebSocket · [事件协议 v0.1](docs/protocol/agent-events-v0.1.md) |
 
 ## 开发环境准备
 
-| 工具 | 要求 | 安装 |
-| --- | --- | --- |
-| Node.js | ≥20 | `nvm use`（仓库含 .nvmrc） |
-| pnpm | 10.x | `npm i -g pnpm` |
-| Rust | stable | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh`，另需 [Tauri 平台依赖](https://v2.tauri.app/start/prerequisites/) |
-| uv | 最新 | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
+| 工具    | 要求   | 安装                                                                                                                                |
+| ------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Node.js | ≥20    | `nvm use`（仓库含 .nvmrc）                                                                                                          |
+| pnpm    | 10.x   | `npm i -g pnpm`                                                                                                                     |
+| Rust    | stable | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh`，另需 [Tauri 平台依赖](https://v2.tauri.app/start/prerequisites/) |
+| uv      | 最新   | `curl -LsSf https://astral.sh/uv/install.sh \| sh`                                                                                  |
 
 ## 快速开始
 
@@ -32,23 +32,30 @@ Mochi 将冰冷的命令行和对话框，升级为有温度、有形象、可�
 pnpm install                 # JS 依赖 + husky 钩子
 cd server && uv sync && cd .. # Python 依赖
 
-# 三个终端，或按需单独启动：
+./scripts/start.sh            # 一键启动：Ollama（如有）+ sidecar + 前端（1420）
+./scripts/stop.sh             # 一键停止（--all 连同 Ollama）
+```
+
+或按需单独启动：
+
+```bash
 pnpm dev:server              # sidecar（http://127.0.0.1:8199/health）
-pnpm dev                     # Tauri 桌面应用（开发模式）
+pnpm dev:web                 # 前端（http://localhost:1420）
+pnpm dev                     # Tauri 桌面应用（开发模式，需 Rust 环境）
 ```
 
 代码检查：`pnpm lint` · `pnpm typecheck` · `pnpm format`
 
 ## 文档索引
 
-| 文档 | 内容 |
-| --- | --- |
-| [docs/feature-list.md](docs/feature-list.md) | 功能清单（模块 × 优先级 × 验收标准） |
-| [docs/protocol/agent-events-v0.1.md](docs/protocol/agent-events-v0.1.md) | Agent 事件协议 v0.1 |
-| [docs/specs/monorepo-structure.md](docs/specs/monorepo-structure.md) | 仓库结构与工作区规则 |
-| [docs/specs/code-style.md](docs/specs/code-style.md) | 代码规范与提交钩子 |
-| [docs/specs/commit-convention.md](docs/specs/commit-convention.md) | Git 与 Commit 规范 |
-| [docs/specs/config-format.md](docs/specs/config-format.md) | 用户配置格式规范 |
+| 文档                                                                     | 内容                                 |
+| ------------------------------------------------------------------------ | ------------------------------------ |
+| [docs/feature-list.md](docs/feature-list.md)                             | 功能清单（模块 × 优先级 × 验收标准） |
+| [docs/protocol/agent-events-v0.1.md](docs/protocol/agent-events-v0.1.md) | Agent 事件协议 v0.1                  |
+| [docs/specs/monorepo-structure.md](docs/specs/monorepo-structure.md)     | 仓库结构与工作区规则                 |
+| [docs/specs/code-style.md](docs/specs/code-style.md)                     | 代码规范与提交钩子                   |
+| [docs/specs/commit-convention.md](docs/specs/commit-convention.md)       | Git 与 Commit 规范                   |
+| [docs/specs/config-format.md](docs/specs/config-format.md)               | 用户配置格式规范                     |
 
 ## 许可证
 
