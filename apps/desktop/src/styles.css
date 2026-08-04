@@ -1,11 +1,7 @@
 /* M0-S1 骨架 UI —— 透明窗口友好（背景可透明），正式视觉规范 M1 再定 */
 :root {
   color-scheme: light dark;
-  font-family:
-    "PingFang SC",
-    "Microsoft YaHei",
-    system-ui,
-    sans-serif;
+  font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   --mochi-pink: #ffdae0;
   --mochi-pink-deep: #ffb7c5;
   --ink: #4a3f44;
@@ -274,6 +270,23 @@ body {
     opacity: 1;
     transform: translateY(0) scale(1);
   }
+}
+
+/* 关闭动画（idle 超时 / Esc / 点击外部 / × 统一走这条路径）；
+   与 panel-pop 严格反向，180ms 内播完，期间 ChatToggle 卸载面板 */
+@keyframes panel-pop-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(6px) scale(0.96);
+  }
+}
+
+.chat-toggle__panel--closing {
+  animation: panel-pop-out 0.18s ease-in forwards;
 }
 
 .chat-toggle__input {
