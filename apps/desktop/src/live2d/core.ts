@@ -72,10 +72,11 @@ export async function loadCharacterStage(
   }
 }
 
-/** 等比缩放模型铺满舞台（留 8% 边距），水平居中、底边对齐。 */
+/** 等比缩放模型至舞台下方（高度占比 72%，留 8% 水平边距），水平居中、底边对齐。
+ * 顶部约 28% 留给对话气泡——气泡悬于角色头顶、尾三角指向头部（styles.css .bubbles）。 */
 function fitModelToStage(model: Live2DModel, app: PIXI.Application): void {
   const { width, height } = app.screen;
-  const scale = Math.min((width * 0.92) / model.width, (height * 0.92) / model.height);
+  const scale = Math.min((width * 0.92) / model.width, (height * 0.72) / model.height);
   model.scale.set(scale);
   model.anchor.set(0.5, 0.5);
   model.x = width / 2;

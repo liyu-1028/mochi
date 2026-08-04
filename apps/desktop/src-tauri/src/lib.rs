@@ -17,6 +17,14 @@ pub fn run() {
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(SidecarState::new())
         .setup(|app| {
+            // 窗口尺寸以 tauri.conf.json 为唯一事实源：tauri-plugin-window-state
+            // 会恢复旧版本保存的尺寸，布局改版后需强制覆盖（位置记忆保留，
+            // min/max 约束同时兜底），保证气泡/角色布局对齐。
+            if let Some(window) = app.get_webview_window("character") {
+                if let Some(cfg) = app.config().app.windows.first() {
+                    let _ = window.set_size(tauri::LogicalSize::new(cfg.width, cfg.height));
+                }
+            }
             // dev：尝试拉起 uv + uvicorn；release：拉起打包产物并监督重启（1.2）
             if cfg!(debug_assertions) {
                 let state = app.state::<SidecarState>();

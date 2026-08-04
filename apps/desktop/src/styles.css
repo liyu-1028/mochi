@@ -141,18 +141,21 @@ body {
   }
 }
 
-/* ---- 对话气泡（角色左上角，CSS 三角指向角色） ----
+/* ---- 对话气泡（角色头顶上方，尾三角指向头部） ----
+   角色占舞台下方 72%（core.ts fitModelToStage），顶部约 28% 为气泡区；
+   气泡水平居中对齐头部，明确表达「这是 Mochi 说的话」。
    自动隐藏 + 悬停保持：每条气泡按字符数估算阅读延迟，超时 display: none；
    鼠标悬停 .bubbles 区域时所有气泡重新显示并暂停定时器。
    容器放在 .app__stage 之外（避免点击气泡误触发 Tauri 窗口拖动）。*/
 .bubbles {
   position: absolute;
-  left: 8px;
-  top: 36px; /* 设置按钮虽暂时隐藏，仍为其复出（M1 评估）预留顶部位 */
-  width: 45%;
-  max-width: 190px; /* 左侧气泡加宽：回复更可读，尾巴仍指向角色头部 */
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(88%, 250px);
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 6px;
   z-index: 5;
 }
@@ -189,14 +192,16 @@ body {
   }
 }
 
-/* 气泡右下三角——指向角色（角色偏画面下中部，气泡在左上） */
-.bubble::after {
+/* 尾三角：仅挂在最后一条（最靠近头部）气泡的底边中点，垂直指向角色头部，
+   避免多条气泡堆叠时每条都长尾巴 */
+.bubble:last-child::after {
   content: "";
   position: absolute;
-  right: -6px;
-  bottom: 12px;
+  left: 50%;
+  bottom: -7px;
+  transform: translateX(-50%);
   border-style: solid;
-  border-width: 6px 6px 0 0;
+  border-width: 7px 6px 0 6px;
   border-color: rgba(255, 250, 247, 0.92) transparent transparent transparent;
 }
 
