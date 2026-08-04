@@ -20,7 +20,12 @@ import { lerpGaze, normalizeGaze, type GazeTarget } from "../live2d/gaze";
 import { MOUTH_CLOSED, onDelta, stepMouth, type MouthState } from "../live2d/mouth";
 import { HIYORI_PROFILE, resolveAnimation, type AnimationPlan } from "../live2d/stateMachine";
 
-export function CharacterStage() {
+interface CharacterStageProps {
+  /** 点击角色时触发（唤起输入框，open 状态由 App 持有） */
+  onActivate?: () => void;
+}
+
+export function CharacterStage({ onActivate }: CharacterStageProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<StageHandle | null>(null);
   const driverRef = useRef<CharacterDriver | null>(null);
@@ -136,6 +141,11 @@ export function CharacterStage() {
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [ready]);
 
-  if (failed) return <CharacterBadge />;
-  return <div className="character-stage" ref={containerRef} />;
+  if (failed)
+    return (
+      <div className="character-stage" onClick={onActivate}>
+        <CharacterBadge />
+      </div>
+    );
+  return <div className="character-stage" ref={containerRef} onClick={onActivate} />;
 }

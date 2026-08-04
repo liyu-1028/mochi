@@ -23,6 +23,8 @@ export default function App() {
   const sidecarHint = useSidecarStatus();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [onboardingDone, setOnboardingDone] = useState(false);
+  // 输入框开关上提到 App：点击角色唤起（CharacterStage.onActivate）
+  const [chatOpen, setChatOpen] = useState(false);
 
   return (
     <main className="app">
@@ -38,18 +40,23 @@ export default function App() {
       {/* data-tauri-drag-region：Tauri 声明式窗口拖拽（功能清单 1.3）；
           浏览器环境下该属性无副作用。气泡区放在拖拽区外，避免点击气泡误触发拖动 */}
       <div className="app__stage" data-tauri-drag-region>
-        <CharacterStage />
+        <CharacterStage onActivate={() => setChatOpen(true)} />
       </div>
       <SpeechBubbleArea />
 
-      <ChatToggle onSend={sendText} onCancel={cancelRun} />
+      <ChatToggle
+        open={chatOpen}
+        onOpenChange={setChatOpen}
+        onSend={sendText}
+        onCancel={cancelRun}
+      />
 
       <footer
         className={`app__status ${sidecarHint ? "app__status--error" : `app__status--${status}`}`}
       >
         {sidecarHint ??
           (status === "connected"
-            ? "已连接 sidecar"
+            ? "已连接 · 点击 Mochi 聊天"
             : status === "connecting"
               ? "连接中…"
               : "未连接")}

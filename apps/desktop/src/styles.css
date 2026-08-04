@@ -42,11 +42,13 @@ body {
   min-height: 0;
 }
 
-/* Live2D 画布容器：铺满舞台供 PIXI resizeTo（M0-S3） */
+/* Live2D 画布容器：铺满舞台供 PIXI resizeTo（M0-S3）；
+   点击角色唤起输入框（App.tsx chatOpen），手型提示可点击 */
 .character-stage {
   width: 100%;
   height: 100%;
   min-height: 200px;
+  cursor: pointer;
 }
 
 .character {
@@ -141,23 +143,31 @@ body {
   }
 }
 
-/* ---- 对话气泡（角色头顶上方，尾三角指向头部） ----
-   角色占舞台下方 72%（core.ts fitModelToStage），顶部约 28% 为气泡区；
-   气泡水平居中对齐头部，明确表达「这是 Mochi 说的话」。
+/* ---- 对话气泡（角色头部两侧，尾三角指向头部） ----
+   出现在头部左侧或右侧，由 useBubbleSide 按窗口在屏幕的位置自动选
+   空间更充足的一（左缘→右侧，右缘→左侧），明确表达「Mochi 说的话」。
+   头部纵向位置：角色头顶约在窗口 top 28% 处（core.ts fitModelToStage）。
    自动隐藏 + 悬停保持：每条气泡按字符数估算阅读延迟，超时 display: none；
    鼠标悬停 .bubbles 区域时所有气泡重新显示并暂停定时器。
    容器放在 .app__stage 之外（避免点击气泡误触发 Tauri 窗口拖动）。*/
 .bubbles {
   position: absolute;
-  top: 10px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(88%, 250px);
+  top: 92px; /* 与角色头部纵向对齐 */
+  width: min(44%, 140px);
   display: flex;
   flex-direction: column;
-  align-items: center;
   gap: 6px;
   z-index: 5;
+}
+
+.bubbles--left {
+  left: 6px;
+  align-items: flex-end; /* 气泡向右贴紧头部 */
+}
+
+.bubbles--right {
+  right: 6px;
+  align-items: flex-start; /* 气泡向左贴紧头部 */
 }
 
 .bubble {
@@ -192,17 +202,28 @@ body {
   }
 }
 
-/* 尾三角：仅挂在最后一条（最靠近头部）气泡的底边中点，垂直指向角色头部，
-   避免多条气泡堆叠时每条都长尾巴 */
-.bubble:last-child::after {
+/* 尾三角：仅挂在最后一条（最靠近头部）气泡，从朝向头部的一侧边缘水平
+   指向头部，避免多条气泡堆叠时每条都长尾巴 */
+.bubbles--left .bubble:last-child::after {
   content: "";
   position: absolute;
-  left: 50%;
-  bottom: -7px;
-  transform: translateX(-50%);
+  left: 100%;
+  top: 50%;
+  transform: translateY(-50%);
   border-style: solid;
-  border-width: 7px 6px 0 6px;
-  border-color: rgba(255, 250, 247, 0.92) transparent transparent transparent;
+  border-width: 5px 0 5px 7px;
+  border-color: transparent transparent transparent rgba(255, 250, 247, 0.92);
+}
+
+.bubbles--right .bubble:last-child::after {
+  content: "";
+  position: absolute;
+  right: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  border-style: solid;
+  border-width: 5px 7px 5px 0;
+  border-color: transparent rgba(255, 250, 247, 0.92) transparent transparent;
 }
 
 .bubble__cursor {
@@ -231,33 +252,16 @@ body {
   left: 12px;
 }
 
-.chat-toggle__trigger {
-  width: 44px;
-  height: 44px;
-  border: none;
-  border-radius: 50%;
-  background: var(--mochi-pink-deep);
-  font-size: 20px;
-  cursor: pointer;
-  box-shadow: 0 4px 12px rgba(255, 183, 197, 0.5);
-  transition: transform 0.15s ease, background 0.15s ease;
-}
-
-.chat-toggle__trigger:hover {
-  transform: scale(1.06);
-  background: #ffa3b6;
-}
-
 .chat-toggle__panel {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: rgba(255, 250, 247, 0.96);
+  background: rgba(255, 250, 247, 0.82); /* 轻微透明，融入桌面（唤起方式：点击角色） */
   border: 1px solid #f3e3e7;
   border-radius: 22px;
   padding: 4px 6px 4px 12px;
   box-shadow: 0 6px 20px rgba(74, 63, 68, 0.18);
-  backdrop-filter: blur(6px);
+  backdrop-filter: blur(8px); /* 透明度提高后加重模糊保证可读性 */
   animation: panel-pop 0.18s ease-out;
 }
 

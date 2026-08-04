@@ -1,5 +1,8 @@
 /**
- * SpeechBubbleArea —— 角色旁边浮动对话气泡（M0-S3 UI 重构）。
+ * SpeechBubbleArea —— 角色头部两侧的浮动对话气泡。
+ *
+ * 位置：出现在头部左侧或右侧（useBubbleSide 按窗口在屏幕上的位置
+ * 自动选空间更充足的一），尾三角水平指向头部，表示「Mochi 说的话」。
  *
  * 自动隐藏 + 悬停保持方案：
  * - 每条气泡按消息字符数计算"阅读延迟"（base + 150ms/字），超时自动隐藏
@@ -10,6 +13,7 @@
  * 提示：容器放在 .app__stage 之外，避免气泡点击误触发 Tauri 窗口拖动。
  */
 import { useEffect, useRef, useState } from "react";
+import { useBubbleSide } from "../hooks/useBubbleSide";
 import { useConversation } from "../store/conversation";
 import type { ChatMessage } from "../store/conversation";
 
@@ -25,10 +29,11 @@ export function SpeechBubbleArea() {
   const messages = useConversation((s) => s.messages);
   const assistantMessages = messages.filter((m) => m.role === "assistant");
   const [hover, setHover] = useState(false);
+  const side = useBubbleSide();
 
   return (
     <div
-      className="bubbles"
+      className={`bubbles bubbles--${side}`}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
     >

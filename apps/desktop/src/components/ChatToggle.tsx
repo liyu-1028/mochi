@@ -1,20 +1,21 @@
 /**
- * ChatToggle —— 底部浮动聊天气泡按钮，点击展开简洁输入框（M0-S3 UI 重构）。
+ * ChatToggle —— 底部浮动输入条。
  *
- * - 收起态：右下角 💬 圆按钮
- * - 展开态：紧凑输入框（输入 + 发送/停止），Esc 或点击外部收起
+ * - 唤起方式：点击 Mochi 角色（CharacterStage.onActivate，open 由 App 持有）
+ * - 展开态：半透明输入条（输入 + 发送/停止），Esc 或点击外部收起
  * - 输入框不进入窗口拖拽区（独立于 .app__stage）
  */
 import { useEffect, useRef, useState } from "react";
 import { useConversation } from "../store/conversation";
 
 interface ChatToggleProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onSend: (text: string) => void;
   onCancel: (runId: string) => void;
 }
 
-export function ChatToggle({ onSend, onCancel }: ChatToggleProps) {
-  const [open, setOpen] = useState(false);
+export function ChatToggle({ open, onOpenChange, onSend, onCancel }: ChatToggleProps) {
   const [text, setText] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -33,12 +34,12 @@ export function ChatToggle({ onSend, onCancel }: ChatToggleProps) {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        setOpen(false);
+        onOpenChange(false);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open]);
+  }, [open, onOpenChange]);
 
   // 点击外部收起
   useEffect(() => {
@@ -46,12 +47,12 @@ export function ChatToggle({ onSend, onCancel }: ChatToggleProps) {
     const onDown = (e: MouseEvent) => {
       const node = containerRef.current;
       if (node && !node.contains(e.target as Node)) {
-        setOpen(false);
+        onOpenChange(false);
       }
     };
     window.addEventListener("mousedown", onDown);
     return () => window.removeEventListener("mousedown", onDown);
-  }, [open]);
+  }, [open, onOpenChange]);
 
   const submit = () => {
     const value = text.trim();
@@ -107,24 +108,14 @@ export function ChatToggle({ onSend, onCancel }: ChatToggleProps) {
           <button
             className="chat-toggle__close"
             type="button"
-            onClick={() => setOpen(false)}
+            onClick={() => onOpenChange(false)}
             title="收起（Esc）"
             aria-label="收起"
           >
             ×
           </button>
         </div>
-      ) : (
-        <button
-          className="chat-toggle__trigger"
-          type="button"
-          onClick={() => setOpen(true)}
-          title="和 Mochi 聊天"
-          aria-label="和 Mochi 聊天"
-        >
-          💬
-        </button>
-      )}
+      ) : null}
     </div>
   );
 }
