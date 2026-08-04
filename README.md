@@ -69,6 +69,10 @@ pnpm dev                     # Tauri 桌面应用（开发模式，需 Rust 环�
 自行构建安装包：
 
 ```bash
+# macOS 一条龙：打包 dmg → 安装到 /Applications → 启动（--app 跳过 dmg 更快）
+./scripts/build-install-run.sh
+
+# 或手动分步：
 pnpm install && (cd server && uv sync)
 pnpm --filter @mochi/desktop build      # tsc + tauri build，自动打包 sidecar
 # 产物：apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg（macOS）
