@@ -126,7 +126,22 @@ else
   BUNDLES="dmg"
   echo "→ 打包 dmg（首次 release 构建较慢，之后增量会快）…"
 fi
-(cd "$ROOT" && pnpm --filter @mochi/desktop exec tauri build --bundles "$BUNDLES")
+
+run_tauri_build() {
+  (cd "$ROOT" && pnpm --filter @mochi/desktop exec tauri build --bundles "$BUNDLES")
+}
+
+if ! run_tauri_build; then
+  # bundle_dmg.sh 偶发被 Finder 竞态击败（hdiutil/AppleScript 时序），残留
+  # 挂载的临时 rw 镜像会让后续构建继续失败——清理残留后重试一次
+  # （cargo release 产物已生成，重试成本只剩 dmg 制作）
+  echo "  ! 打包失败，清理 bundle_dmg 残留挂载后重试…"
+  hdiutil info | grep 'image-path.*bundle/macos/rw\.' | awk -F': ' '{print $2}' | while read -r img; do
+    hdiutil detach "$img" -force -quiet 2>/dev/null || true
+  done
+  rm -f "$BUNDLE_DIR"/macos/rw.*.dmg
+  run_tauri_build
+fi
 
 # ---------------------------------------------------------------------------
 # 第 3 步：安装到 /Applications
