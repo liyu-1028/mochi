@@ -50,6 +50,9 @@ export function CharacterStage() {
         }
         stageRef.current = loaded;
         driverRef.current = createDriver(loaded);
+        // 启动里程碑打点（performance.now 相对页面 timeOrigin）：
+        // 1.1 冷启动验收 / 2.6 性能回归排查用，release 下经 macOS 统一日志可见
+        console.info(`[mochi] character-ready +${Math.round(performance.now())}ms`);
         setReady(true);
       })
       .catch((err) => {
