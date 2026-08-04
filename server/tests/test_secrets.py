@@ -62,12 +62,55 @@ def test_dev_env_provider_id_normalized(store, monkeypatch):
 
 
 def test_keystore_error_wraps_backend_failure(monkeypatch):
+    """native 与 CLI 兜底都失败时，才抛 KeyStoreError（不触碰真实钥匙串）。"""
+    import subprocess
+
     from keyring.errors import KeyringError
 
     class BrokenKeyring:
         def set_password(self, service, username, password):
             raise KeyringError("钥匙串被锁定")
 
+    def _fail_cli(service, username, secret):
+        raise subprocess.CalledProcessError(1, "security")
+
     monkeypatch.setattr("mochi_server.secrets.keyring.get_keyring", lambda: BrokenKeyring())
+    monkeypatch.setattr("mochi_server.secrets._on_macos", lambda: True)
+    monkeypatch.setattr("mochi_server.secrets._cli_set", _fail_cli)
     with pytest.raises(KeyStoreError, match="钥匙串写入失败"):
         KeyStore().set_key("p1", "secret")
+
+
+def test_set_key_falls_back_to_cli_on_macos(monkeypatch):
+    """native 因跨身份 ACL 失败时，macOS 走 security CLI 兜底成功写入。"""
+    from keyring.errors import KeyringError
+
+    captured = {}
+
+    class BrokenKeyring:
+        def set_password(self, service, username, password):
+            raise KeyringError("(-25244, 'Unknown Error')")
+
+    def _fake_cli_set(service, username, secret):
+        captured["service"] = service
+        captured["secret"] = secret
+
+    monkeypatch.setattr("mochi_server.secrets.keyring.get_keyring", lambda: BrokenKeyring())
+    monkeypatch.setattr("mochi_server.secrets._on_macos", lambda: True)
+    monkeypatch.setattr("mochi_server.secrets._cli_set", _fake_cli_set)
+    ref = KeyStore().set_key("deepseek", "sk-real")
+    assert ref == "mochi:provider:deepseek"
+    assert captured == {"service": "mochi:provider:deepseek", "secret": "sk-real"}
+
+
+def test_get_key_falls_back_to_cli_when_native_denied(monkeypatch):
+    from keyring.errors import KeyringError
+
+    class BrokenKeyring:
+        def get_password(self, service, username):
+            raise KeyringError("ACL 拒绝")
+
+    monkeypatch.setattr("mochi_server.secrets.keyring.get_keyring", lambda: BrokenKeyring())
+    monkeypatch.setattr("mochi_server.secrets._on_macos", lambda: True)
+    monkeypatch.setattr("mochi_server.secrets._cli_get", lambda service, username: "cli-value")
+    assert KeyStore().get_key("p1") == "cli-value"

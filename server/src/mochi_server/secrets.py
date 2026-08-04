@@ -5,25 +5,68 @@
 - 测试/CI 注入 :class:`InMemoryKeyring` 隔离真实钥匙串；
 - dev 覆盖：仅当 ``MOCHI_DEV_KEYS=1`` 时读取 ``MOCHI_API_KEY_<ID>`` 环境变量，
   生产路径永不读环境变量（ADR-0002 D2）。
+
+macOS 兜底（M1-CTX）：native keyring 条目 ACL 绑定创建进程的代码签名身份，
+PyInstaller 每次重建 sidecar 都改变身份，旧条目对新进程不可写（set_password
+报 -25244，前端表现为添加模型失败）。native 失败时改用 ``/usr/bin/security``
+CLI——它以登录用户身份访问钥匙串、与调用方二进制身份无关，可跨重建读写。
 """
 
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
+import subprocess
+import sys
 
 import keyring
 from keyring.backend import KeyringBackend
 from keyring.errors import KeyringError
 
+logger = logging.getLogger(__name__)
+
 KEY_REF_PREFIX = "mochi:provider"
 _USERNAME = "api_key"
 _DEV_KEYS_ENV = "MOCHI_DEV_KEYS"
 _DEV_KEY_PREFIX = "MOCHI_API_KEY_"
+_SECURITY_CLI = "/usr/bin/security"
+
+
+def _on_macos() -> bool:
+    return sys.platform == "darwin"
+
+
+def _cli_set(service: str, username: str, secret: str) -> None:
+    """macOS `security` CLI 写入/更新条目（-U：已存在则更新）。"""
+    subprocess.run(
+        [_SECURITY_CLI, "add-generic-password", "-U", "-s", service, "-a", username, "-w", secret],
+        check=True,
+        capture_output=True,
+    )
+
+
+def _cli_get(service: str, username: str) -> str | None:
+    """读取条目明文（经 stdout 捕获，不进 argv/日志）。不存在返回 None。"""
+    result = subprocess.run(
+        [_SECURITY_CLI, "find-generic-password", "-s", service, "-a", username, "-w"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout.rstrip("\n")
+
+
+def _cli_delete(service: str, username: str) -> None:
+    subprocess.run(
+        [_SECURITY_CLI, "delete-generic-password", "-s", service, "-a", username],
+        capture_output=True,
+    )
 
 
 def key_ref_for(provider_id: str) -> str:
-    """provider id → 钥匙串条目名（即配置文件中的 key_ref 值）。"""
+    """provider id → 钥匙串条目名（即配置文件中的 key_ref）。"""
     return f"{KEY_REF_PREFIX}:{provider_id}"
 
 
@@ -56,28 +99,45 @@ class KeyStore:
     """钥匙串访问封装。所有 Key 读写必须经过本类。"""
 
     def set_key(self, provider_id: str, secret: str) -> str:
-        """写入 Key，返回 key_ref。"""
+        """写入 Key，返回 key_ref。native 失败（跨身份 ACL）时 CLI 兜底。"""
         ref = key_ref_for(provider_id)
         try:
             keyring.get_keyring().set_password(ref, _USERNAME, secret)
+            return ref
         except KeyringError as exc:
+            if _on_macos():
+                logger.warning("native 钥匙串写入失败（%s），改用 security CLI 兜底", exc)
+                try:
+                    _cli_set(ref, _USERNAME, secret)
+                    return ref
+                except (subprocess.CalledProcessError, OSError) as cli_exc:
+                    raise KeyStoreError(f"钥匙串写入失败：{cli_exc}") from cli_exc
             raise KeyStoreError(f"钥匙串写入失败：{exc}") from exc
-        return ref
 
     def get_key(self, provider_id: str) -> str | None:
         """读取 Key；不存在返回 None。dev 环境变量覆盖见模块文档。"""
         override = _dev_env_key(provider_id)
         if override is not None:
             return override
+        ref = key_ref_for(provider_id)
         try:
-            return keyring.get_keyring().get_password(key_ref_for(provider_id), _USERNAME)
+            return keyring.get_keyring().get_password(ref, _USERNAME)
         except KeyringError:
+            # native 被 ACL 拒绝时经 CLI 兜底；仅异常路径触发，无额外开销
+            if _on_macos():
+                with contextlib.suppress(OSError):
+                    return _cli_get(ref, _USERNAME)
             return None
 
     def delete_key(self, provider_id: str) -> None:
-        """删除 Key；条目不存在时静默（幂等）。"""
-        with contextlib.suppress(KeyringError):
-            keyring.get_keyring().delete_password(key_ref_for(provider_id), _USERNAME)
+        """删除条目；条目不存在时静默（幂等）。"""
+        ref = key_ref_for(provider_id)
+        try:
+            keyring.get_keyring().delete_password(ref, _USERNAME)
+        except KeyringError:
+            if _on_macos():
+                with contextlib.suppress(OSError):
+                    _cli_delete(ref, _USERNAME)
 
     @staticmethod
     def mask(secret: str) -> str:

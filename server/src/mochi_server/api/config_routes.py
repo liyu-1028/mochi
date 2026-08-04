@@ -25,7 +25,7 @@ from ..config import (
     save_config,
 )
 from ..events import CamelModel
-from ..secrets import KeyStore, key_ref_for
+from ..secrets import KeyStore, KeyStoreError, key_ref_for
 from .security import localhost_only
 
 logger = logging.getLogger(__name__)
@@ -171,7 +171,15 @@ async def create_provider(body: ProviderCreate, request: Request) -> dict:
 
     key_ref = None
     if body.api_key:
-        key_ref = registry.key_store.set_key(provider_id, body.api_key)
+        try:
+            key_ref = registry.key_store.set_key(provider_id, body.api_key)
+        except KeyStoreError as exc:
+            # 钥匙串写入失败：返回可读错误（经正常响应路径，带 CORS 头），
+            # 避免未处理异常 → 500 无 CORS 头 → 前端表现为 "Load failed"
+            raise HTTPException(
+                status_code=500,
+                detail=f"API Key 存入系统钥匙串失败：{exc}",
+            ) from exc
 
     def mutate(config: AppConfig) -> None:
         config.model.providers[provider_id] = ModelProviderConfig(
@@ -200,7 +208,13 @@ async def update_provider(provider_id: str, body: ProviderUpdate, request: Reque
         raise HTTPException(status_code=404, detail=f"提供方 {provider_id} 不存在")
 
     if body.api_key:
-        registry.key_store.set_key(provider_id, body.api_key)
+        try:
+            registry.key_store.set_key(provider_id, body.api_key)
+        except KeyStoreError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"API Key 存入系统钥匙串失败：{exc}",
+            ) from exc
 
     def mutate(config: AppConfig) -> None:
         cfg = config.model.providers[provider_id]
