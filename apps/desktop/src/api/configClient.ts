@@ -4,8 +4,16 @@
  * Key 只在 create/update 时单向提交，服务端落钥匙串；
  * 响应中永无明文 Key，只有 keyRef + maskedKey。
  */
+import type { Language } from "../i18n/strings";
 
 export type ProviderKind = "ollama" | "openai_compatible" | "anthropic";
+
+/** [general] 设置视图（config-format.md）；界面语言为 M1-CTX 设置项。 */
+export interface GeneralSettings {
+  language: Language;
+  launchAtStartup: boolean;
+  telemetry: boolean;
+}
 
 export interface ProviderSummary {
   id: string;
@@ -66,6 +74,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const configApi = {
+  /** 完整配置（含 general.language）；此处只声明前端关心的 general 段。 */
+  getConfig: (): Promise<{ general: GeneralSettings }> => request("/config"),
+
+  /** 部分更新 [general]（界面语言），返回更新后的 general。 */
+  updateGeneral: (body: { language?: Language }): Promise<GeneralSettings> =>
+    request("/config/general", { method: "PUT", body: JSON.stringify(body) }),
+
   listProviders: (): Promise<ProviderSummary[]> => request("/config/providers"),
 
   createProvider: (body: ProviderCreateInput): Promise<ProviderSummary> =>

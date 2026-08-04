@@ -6,7 +6,7 @@
  * 加载失败（Core 缺失/模型 404/解析错）降级回 CharacterBadge，
  * 对话功能不受影响（ADR-0003 D2）。
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { CharacterBadge } from "./CharacterBadge";
 import { useConversation } from "../store/conversation";
 import {
@@ -21,11 +21,13 @@ import { MOUTH_CLOSED, onDelta, stepMouth, type MouthState } from "../live2d/mou
 import { HIYORI_PROFILE, resolveAnimation, type AnimationPlan } from "../live2d/stateMachine";
 
 interface CharacterStageProps {
-  /** 点击角色时触发（唤起输入框，open 状态由 App 持有） */
+  /** 左键点击角色时触发（唤起输入框，open 状态由 App 持有） */
   onActivate?: () => void;
+  /** 右键角色时触发（弹出上下文菜单），回传光标视口坐标供定位 */
+  onContextMenu?: (x: number, y: number) => void;
 }
 
-export function CharacterStage({ onActivate }: CharacterStageProps) {
+export function CharacterStage({ onActivate, onContextMenu }: CharacterStageProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<StageHandle | null>(null);
   const driverRef = useRef<CharacterDriver | null>(null);
@@ -141,11 +143,27 @@ export function CharacterStage({ onActivate }: CharacterStageProps) {
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [ready]);
 
+  // 左键唤起输入框；右键弹上下文菜单。guard e.button 防止右键误触发 click。
+  const handleClick = (e: ReactMouseEvent) => {
+    if (e.button === 0) onActivate?.();
+  };
+  const handleContextMenu = (e: ReactMouseEvent) => {
+    e.preventDefault();
+    onContextMenu?.(e.clientX, e.clientY);
+  };
+
   if (failed)
     return (
-      <div className="character-stage" onClick={onActivate}>
+      <div className="character-stage" onClick={handleClick} onContextMenu={handleContextMenu}>
         <CharacterBadge />
       </div>
     );
-  return <div className="character-stage" ref={containerRef} onClick={onActivate} />;
+  return (
+    <div
+      className="character-stage"
+      ref={containerRef}
+      onClick={handleClick}
+      onContextMenu={handleContextMenu}
+    />
+  );
 }

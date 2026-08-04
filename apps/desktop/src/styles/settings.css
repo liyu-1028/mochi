@@ -1,24 +1,5 @@
-/* M0-S2 设置面板与引导向导 —— 纯 CSS + BEM（code-style.md：骨架期不引 UI 库） */
-
-.app__settings-btn {
-  display: none; /* 临时隐藏齿轮按钮；设置面板入口改由其他方式触发（M1 评估） */
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  border: none;
-  background: rgba(255, 255, 255, 0.75);
-  border-radius: 50%;
-  width: 30px;
-  height: 30px;
-  font-size: 15px;
-  cursor: pointer;
-  color: #8a7580;
-  box-shadow: 0 2px 8px rgba(74, 63, 68, 0.12);
-}
-
-.app__settings-btn:hover {
-  color: var(--ink);
-}
+/* M0-S2 设置面板与引导向导 —— 纯 CSS + BEM（code-style.md：骨架期不引 UI 库）
+   M1-CTX：齿轮按钮移除，设置入口改由右键上下文菜单提供（App.tsx）。 */
 
 /* ---- 模态遮罩与卡片 ---- */
 .settings-overlay {
@@ -53,6 +34,22 @@
 .settings__header h2 {
   margin: 0;
   font-size: 16px;
+}
+
+/* 分组标题（通用 / 模型，M1-CTX） */
+.settings__section {
+  margin: 4px 0 -4px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #8a7580;
+  border-top: 1px solid #f3e3e7;
+  padding-top: 10px;
+}
+
+.settings__section:first-of-type {
+  border-top: none;
+  padding-top: 0;
 }
 
 .settings__close {
@@ -179,6 +176,114 @@
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+/* ---- 聊天回忆面板（M1-CTX） ---- */
+.history__empty {
+  text-align: center;
+  padding: 16px 0;
+}
+
+.history__back {
+  border: none;
+  background: transparent;
+  color: var(--mochi-pink-deep);
+  font-size: 13px;
+  cursor: pointer;
+  margin-right: 6px;
+  padding: 0;
+}
+
+/* 会话条目主体改成可点按钮 */
+.history__session {
+  flex: 1;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.history__thread {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.history__delete {
+  align-self: flex-end;
+}
+
+.history__confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #fff0f0;
+  color: #b04a4a;
+  font-size: 12px;
+}
+
+.history__msg {
+  max-width: 85%;
+  padding: 7px 11px;
+  border-radius: 12px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.history__msg--user {
+  align-self: flex-end;
+  background: var(--user-bubble);
+  color: var(--ink);
+}
+
+.history__msg--assistant {
+  align-self: flex-start;
+  background: rgba(255, 250, 247, 0.92);
+  border: 1px solid rgba(243, 227, 231, 0.6);
+  color: var(--ink);
+}
+
+/* 回忆气泡内的 Markdown 沿用气泡样式（bubble__pre/code/link） */
+.history__msg--assistant > *:first-child {
+  margin-top: 0;
+}
+.history__msg--assistant > *:last-child {
+  margin-bottom: 0;
+}
+.history__msg--assistant p {
+  margin: 0 0 4px;
+}
+
+/* ---- 衣橱预告面板（M1-CTX） ---- */
+.skins__credits {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 10px;
+  margin: 0;
+  font-size: 12px;
+}
+
+.skins__credits dt {
+  color: #8a7580;
+}
+
+.skins__credits dd {
+  margin: 0;
+  color: var(--ink);
+}
+
+.skins__license {
+  color: #8a7580;
+  line-height: 1.4;
+}
+
+.skins__soon {
+  text-align: center;
 }
 
 /* ---- 引导向导 ---- */

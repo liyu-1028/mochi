@@ -12,12 +12,11 @@
  *
  * 提示：容器放在 .app__stage 之外，避免气泡点击误触发 Tauri 窗口拖动。
  */
-import { useEffect, useRef, useState, type ComponentPropsWithoutRef } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { useEffect, useRef, useState } from "react";
 import { useBubbleSide } from "../hooks/useBubbleSide";
 import { useConversation } from "../store/conversation";
 import type { ChatMessage } from "../store/conversation";
+import { MarkdownBody } from "./MarkdownBody";
 
 /** 阅读延迟估算（中文 ~5–7 字/秒 + 起始缓冲 + 上限封顶） */
 export function computeHideDelay(text: string): number {
@@ -25,32 +24,6 @@ export function computeHideDelay(text: string): number {
   const perChar = 150;
   const max = 15000;
   return Math.min(base + text.length * perChar, max);
-}
-
-/**
- * 气泡内轻量 Markdown 渲染（M1-S1，功能清单 4.1）：
- * - react-markdown + remark-gfm 支持加粗/列表/行内代码/表格等常见语法；
- * - 代码块降级为纯 <pre>（不引入高亮库），控制窗口内的渲染开销；
- * - 链接降级为纯文本，避免点击导致 Tauri webview 跳转。
- */
-const MARKDOWN_COMPONENTS = {
-  pre: ({ children }: ComponentPropsWithoutRef<"pre">) => (
-    <pre className="bubble__pre">{children}</pre>
-  ),
-  code: ({ children }: ComponentPropsWithoutRef<"code">) => (
-    <code className="bubble__code">{children}</code>
-  ),
-  a: ({ children }: ComponentPropsWithoutRef<"a">) => (
-    <span className="bubble__link">{children}</span>
-  ),
-};
-
-function MarkdownBody({ text }: { text: string }) {
-  return (
-    <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
-      {text}
-    </ReactMarkdown>
-  );
 }
 
 export function SpeechBubbleArea() {

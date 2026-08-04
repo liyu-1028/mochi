@@ -3,6 +3,7 @@
  */
 import { useState, type FormEvent } from "react";
 import type { ProviderCreateInput, ProviderKind } from "../api/configClient";
+import { useI18n } from "../i18n";
 
 interface ProviderFormProps {
   onSubmit: (input: ProviderCreateInput) => Promise<void>;
@@ -12,6 +13,7 @@ interface ProviderFormProps {
 const ID_PATTERN = /^[a-z0-9][a-z0-9_-]*$/;
 
 export function ProviderForm({ onSubmit, onCancel }: ProviderFormProps) {
+  const { t } = useI18n();
   const [kind, setKind] = useState<ProviderKind>("openai_compatible");
   const [id, setId] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -28,11 +30,11 @@ export function ProviderForm({ onSubmit, onCancel }: ProviderFormProps) {
     setError(null);
 
     if (!ID_PATTERN.test(id)) {
-      setError("ID 仅限小写字母/数字/下划线/连字符，且以字母数字开头");
+      setError(t("providerForm.errId"));
       return;
     }
     if (!model.trim()) {
-      setError("请填写模型名称");
+      setError(t("providerForm.errModel"));
       return;
     }
 
@@ -47,7 +49,7 @@ export function ProviderForm({ onSubmit, onCancel }: ProviderFormProps) {
         apiKey: isOllama ? undefined : apiKey.trim() || undefined,
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "保存失败");
+      setError(err instanceof Error ? err.message : t("providerForm.errSave"));
       setBusy(false);
     }
   }
@@ -55,27 +57,31 @@ export function ProviderForm({ onSubmit, onCancel }: ProviderFormProps) {
   return (
     <form className="settings__form" onSubmit={handleSubmit}>
       <label className="settings__field">
-        <span>类型</span>
+        <span>{t("providerForm.kind")}</span>
         <select value={kind} onChange={(e) => setKind(e.target.value as ProviderKind)}>
-          <option value="openai_compatible">OpenAI 兼容接口</option>
-          <option value="ollama">Ollama（本地）</option>
-          <option value="anthropic">Anthropic（M1 支持）</option>
+          <option value="openai_compatible">{t("providerForm.kindOpenAi")}</option>
+          <option value="ollama">{t("providerForm.kindOllama")}</option>
+          <option value="anthropic">{t("providerForm.kindAnthropic")}</option>
         </select>
       </label>
       <label className="settings__field">
-        <span>ID（唯一标识）</span>
-        <input value={id} onChange={(e) => setId(e.target.value)} placeholder="如 deepseek" />
-      </label>
-      <label className="settings__field">
-        <span>显示名称</span>
+        <span>{t("providerForm.id")}</span>
         <input
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
-          placeholder="如 我的云端模型"
+          value={id}
+          onChange={(e) => setId(e.target.value)}
+          placeholder={t("providerForm.idPlaceholder")}
         />
       </label>
       <label className="settings__field">
-        <span>{isOllama ? "服务地址（默认 127.0.0.1:11434）" : "Base URL"}</span>
+        <span>{t("providerForm.displayName")}</span>
+        <input
+          value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+          placeholder={t("providerForm.displayNamePlaceholder")}
+        />
+      </label>
+      <label className="settings__field">
+        <span>{isOllama ? t("providerForm.ollamaBaseUrl") : t("providerForm.baseUrl")}</span>
         <input
           value={baseUrl}
           onChange={(e) => setBaseUrl(e.target.value)}
@@ -83,16 +89,20 @@ export function ProviderForm({ onSubmit, onCancel }: ProviderFormProps) {
         />
       </label>
       <label className="settings__field">
-        <span>模型</span>
+        <span>{t("providerForm.model")}</span>
         <input
           value={model}
           onChange={(e) => setModel(e.target.value)}
-          placeholder={isOllama ? "如 qwen3:8b" : "如 gpt-4o-mini"}
+          placeholder={
+            isOllama
+              ? t("providerForm.modelPlaceholderOllama")
+              : t("providerForm.modelPlaceholderOpenAi")
+          }
         />
       </label>
       {!isOllama ? (
         <label className="settings__field">
-          <span>API Key（存入系统钥匙串，不落文件）</span>
+          <span>{t("providerForm.apiKey")}</span>
           <input
             type="password"
             value={apiKey}
@@ -104,10 +114,10 @@ export function ProviderForm({ onSubmit, onCancel }: ProviderFormProps) {
       {error ? <p className="settings__error">{error}</p> : null}
       <div className="settings__actions">
         <button type="button" className="btn btn--ghost" onClick={onCancel}>
-          取消
+          {t("common.cancel")}
         </button>
         <button type="submit" className="btn" disabled={busy}>
-          {busy ? "保存中…" : "保存"}
+          {busy ? t("providerForm.saving") : t("common.save")}
         </button>
       </div>
     </form>

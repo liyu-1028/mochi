@@ -10,6 +10,7 @@
  * - 输入框不进入窗口拖拽区（独立于 .app__stage）
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useI18n } from "../i18n";
 import { useConversation } from "../store/conversation";
 import {
   IDLE_TIMEOUT_MS,
@@ -28,6 +29,7 @@ interface ChatToggleProps {
 const CLOSE_ANIM_MS = 180;
 
 export function ChatToggle({ open, onOpenChange, onSend, onCancel }: ChatToggleProps) {
+  const { t } = useI18n();
   const [text, setText] = useState("");
   const [hovered, setHovered] = useState(false);
   const [closing, setClosing] = useState(false);
@@ -141,7 +143,9 @@ export function ChatToggle({ open, onOpenChange, onSend, onCancel }: ChatToggleP
             ref={inputRef}
             type="text"
             className="chat-toggle__input"
-            placeholder={status === "connected" ? "和 Mochi 说点什么…" : "连接中…"}
+            placeholder={
+              status === "connected" ? t("chat.placeholder") : t("chat.placeholderConnecting")
+            }
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={handleKey}
@@ -152,8 +156,8 @@ export function ChatToggle({ open, onOpenChange, onSend, onCancel }: ChatToggleP
               className="chat-toggle__btn chat-toggle__btn--stop"
               type="button"
               onClick={() => activeRunId && onCancel(activeRunId)}
-              title="停止生成"
-              aria-label="停止生成"
+              title={t("chat.stop")}
+              aria-label={t("chat.stop")}
             >
               ⏹
             </button>
@@ -163,8 +167,8 @@ export function ChatToggle({ open, onOpenChange, onSend, onCancel }: ChatToggleP
               type="button"
               onClick={submit}
               disabled={text.trim().length === 0 || status !== "connected"}
-              title="发送（Enter）"
-              aria-label="发送"
+              title={t("chat.sendTitle")}
+              aria-label={t("chat.sendAria")}
             >
               ➤
             </button>
@@ -173,8 +177,8 @@ export function ChatToggle({ open, onOpenChange, onSend, onCancel }: ChatToggleP
             className="chat-toggle__close"
             type="button"
             onClick={handleClose}
-            title="收起（Esc）"
-            aria-label="收起"
+            title={t("chat.collapseTitle")}
+            aria-label={t("chat.collapseAria")}
           >
             ×
           </button>

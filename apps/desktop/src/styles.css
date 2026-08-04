@@ -409,6 +409,56 @@ body {
   background: #f7e8eb;
 }
 
+/* ---- 右键上下文菜单（M1-CTX）----
+   webview 自绘，风格对齐输入条卡片；尺寸与 CharacterMenu 的
+   MENU_WIDTH/MENU_HEIGHT clamp 常量保持一致。 */
+.character-menu {
+  position: fixed;
+  z-index: 60;
+  min-width: 176px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  background: rgba(255, 250, 247, 0.92);
+  border: 1px solid #f3e3e7;
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgba(74, 63, 68, 0.2);
+  backdrop-filter: blur(8px);
+  outline: none;
+  animation: panel-pop 0.14s ease-out;
+}
+
+.character-menu__divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: #f3e3e7;
+}
+
+.character-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  font-size: 13px;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.character-menu__item:hover,
+.character-menu__item--focused {
+  background: #f7e8eb;
+}
+
+.character-menu__icon {
+  width: 18px;
+  text-align: center;
+}
+
 /* ---- 连接状态 ---- */
 .app__status {
   font-size: 11px;

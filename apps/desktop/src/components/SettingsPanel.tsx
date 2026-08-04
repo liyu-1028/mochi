@@ -1,8 +1,10 @@
 /**
- * SettingsPanel —— 模型设置模态面板（M0-S2，功能清单 6.3/7.2 的最小可用入口）。
+ * SettingsPanel —— 设置模态面板（M0-S2 模型管理 + M1-CTX 通用分组）。
  *
- * 能力：provider 列表 / 新增 / 连通性测试 / 设为默认 / 删除 / 试用模式切换。
- * 切换默认即热生效（sidecar registry 按回合解析），无需重启。
+ * 分组：
+ * - 通用：界面语言（事实源在 sidecar config，切换即生效并持久化）；
+ * - 模型：provider 列表 / 新增 / 连通性测试 / 设为默认 / 删除 / 试用模式。
+ * 切换默认模型即热生效（sidecar registry 按回合解析），无需重启。
  */
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -11,24 +13,30 @@ import {
   type ProviderCreateInput,
   type ProviderSummary,
 } from "../api/configClient";
+import { useI18n } from "../i18n";
+import { useSettings } from "../store/settings";
+import type { Language } from "../i18n/strings";
 import { ProviderForm } from "./ProviderForm";
 
 interface SettingsPanelProps {
   onClose: () => void;
 }
 
-const KIND_LABEL: Record<string, string> = {
-  ollama: "Ollama 本地",
-  openai_compatible: "OpenAI 兼容",
-  anthropic: "Anthropic",
-};
-
 export function SettingsPanel({ onClose }: SettingsPanelProps) {
+  const { t } = useI18n();
+  const language = useSettings((s) => s.language);
+  const setLanguage = useSettings((s) => s.setLanguage);
   const [providers, setProviders] = useState<ProviderSummary[]>([]);
   const [defaultId, setDefaultId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+
+  const kindLabel: Record<string, string> = {
+    ollama: t("settings.kindOllama"),
+    openai_compatible: t("settings.kindOpenAiCompat"),
+    anthropic: t("settings.kindAnthropic"),
+  };
 
   const refresh = useCallback(async () => {
     try {
@@ -36,9 +44,9 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
       setProviders(list);
       setDefaultId(list.find((p) => p.isDefault)?.id ?? null);
     } catch {
-      setFeedback("无法连接 sidecar 配置服务，请确认它正在运行");
+      setFeedback(t("settings.feedbackUnreachable"));
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void refresh();
@@ -47,7 +55,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
   async function handleCreate(input: ProviderCreateInput) {
     await configApi.createProvider(input);
     setShowForm(false);
-    setFeedback(`已添加「${input.displayName}」`);
+    setFeedback(t("settings.addedFeedback", { name: input.displayName }));
     await refresh();
   }
 
@@ -57,10 +65,12 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
     try {
       const result = await configApi.testProvider(id);
       setFeedback(
-        result.ok ? `「${id}」连接成功 ✓` : `「${id}」暂不可用：${result.hint ?? "未知原因"}`,
+        result.ok
+          ? t("settings.testOk", { id })
+          : t("settings.testFail", { id, hint: result.hint ?? t("settings.unknownReason") }),
       );
     } catch (err) {
-      setFeedback(err instanceof Error ? err.message : "测试失败");
+      setFeedback(err instanceof Error ? err.message : t("settings.testError"));
     } finally {
       setBusyId(null);
     }
@@ -68,13 +78,13 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
 
   async function handleSetDefault(id: string) {
     await configApi.setDefault(id);
-    setFeedback(`已切换到「${id}」，立即生效`);
+    setFeedback(t("settings.switchedFeedback", { id }));
     await refresh();
   }
 
   async function handleDelete(id: string) {
     await configApi.deleteProvider(id);
-    setFeedback(`已删除「${id}」`);
+    setFeedback(t("settings.deletedFeedback", { id }));
     await refresh();
   }
 
@@ -82,28 +92,44 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
     <div className="settings-overlay" onClick={onClose}>
       <div className="settings" onClick={(e) => e.stopPropagation()}>
         <header className="settings__header">
-          <h2>模型设置</h2>
-          <button className="settings__close" onClick={onClose} aria-label="关闭">
+          <h2>{t("settings.title")}</h2>
+          <button className="settings__close" onClick={onClose} aria-label={t("common.close")}>
             ×
           </button>
         </header>
 
         {feedback ? <p className="settings__feedback">{feedback}</p> : null}
 
+        {/* 通用分组 */}
+        <h3 className="settings__section">{t("settings.sectionGeneral")}</h3>
+        <label className="settings__field">
+          <span>{t("settings.language")}</span>
+          <select
+            value={language}
+            onChange={(e) => setLanguage(e.target.value as Language)}
+            aria-label={t("settings.language")}
+          >
+            <option value="zh-CN">{t("settings.languageZh")}</option>
+            <option value="en">{t("settings.languageEn")}</option>
+          </select>
+        </label>
+
+        {/* 模型分组 */}
+        <h3 className="settings__section">{t("settings.sectionModel")}</h3>
         <ul className="settings__list">
           <li className="settings__item">
             <div className="settings__item-main">
-              <strong>试用模式</strong>
-              <span className="settings__item-sub">内置 echo 桩，无需任何 Key</span>
+              <strong>{t("settings.trialMode")}</strong>
+              <span className="settings__item-sub">{t("settings.trialDesc")}</span>
             </div>
             {defaultId === TRIAL_PROVIDER_ID ? (
-              <span className="settings__tag">使用中</span>
+              <span className="settings__tag">{t("settings.inUse")}</span>
             ) : (
               <button
                 className="btn btn--ghost"
                 onClick={() => handleSetDefault(TRIAL_PROVIDER_ID)}
               >
-                设为默认
+                {t("settings.setDefault")}
               </button>
             )}
           </li>
@@ -112,7 +138,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
               <div className="settings__item-main">
                 <strong>{p.displayName}</strong>
                 <span className="settings__item-sub">
-                  {KIND_LABEL[p.kind] ?? p.kind} · {p.model}
+                  {kindLabel[p.kind] ?? p.kind} · {p.model}
                   {p.maskedKey ? ` · Key ${p.maskedKey}` : ""}
                 </span>
               </div>
@@ -122,20 +148,20 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                   disabled={busyId === p.id}
                   onClick={() => handleTest(p.id)}
                 >
-                  {busyId === p.id ? "测试中…" : "测试"}
+                  {busyId === p.id ? t("settings.testing") : t("settings.test")}
                 </button>
                 {p.isDefault ? (
-                  <span className="settings__tag">使用中</span>
+                  <span className="settings__tag">{t("settings.inUse")}</span>
                 ) : (
                   <button className="btn btn--ghost" onClick={() => handleSetDefault(p.id)}>
-                    设为默认
+                    {t("settings.setDefault")}
                   </button>
                 )}
                 <button
                   className="btn btn--ghost settings__danger"
                   onClick={() => handleDelete(p.id)}
                 >
-                  删除
+                  {t("common.delete")}
                 </button>
               </div>
             </li>
@@ -146,7 +172,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
           <ProviderForm onSubmit={handleCreate} onCancel={() => setShowForm(false)} />
         ) : (
           <button className="btn" onClick={() => setShowForm(true)}>
-            + 添加模型提供方
+            {t("settings.addProvider")}
           </button>
         )}
       </div>

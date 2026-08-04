@@ -8,6 +8,7 @@
  */
 import { useEffect, useState } from "react";
 import { configApi, type OllamaStatus } from "../api/configClient";
+import { useI18n } from "../i18n";
 
 interface OnboardingWizardProps {
   onDone: () => void;
@@ -15,6 +16,7 @@ interface OnboardingWizardProps {
 }
 
 export function OnboardingWizard({ onDone, onOpenSettings }: OnboardingWizardProps) {
+  const { t } = useI18n();
   const [ollama, setOllama] = useState<OllamaStatus | null>(null);
   const [checking, setChecking] = useState(true);
   const [enabling, setEnabling] = useState(false);
@@ -64,10 +66,10 @@ export function OnboardingWizard({ onDone, onOpenSettings }: OnboardingWizardPro
     <div className="settings-overlay">
       <div className="settings settings--wizard">
         <header className="settings__header">
-          <h2>欢迎来到 Mochi 🍡</h2>
+          <h2>{t("onboarding.welcome")}</h2>
         </header>
         {checking ? (
-          <p className="settings__feedback">正在寻找可用的模型…</p>
+          <p className="settings__feedback">{t("onboarding.searching")}</p>
         ) : (
           <>
             {ollama?.available && ollama.models.length > 0 ? (
@@ -76,12 +78,12 @@ export function OnboardingWizard({ onDone, onOpenSettings }: OnboardingWizardPro
                 onClick={enableOllama}
                 disabled={enabling}
               >
-                {enabling ? "启用中…" : `发现本地 Ollama（${ollama.models[0]}），一键启用`}
+                {enabling
+                  ? t("onboarding.enabling")
+                  : t("onboarding.enableOllama", { model: ollama.models[0] })}
               </button>
             ) : (
-              <p className="settings__item-sub">
-                {ollama?.errorHint ?? "未检测到本地 Ollama。你可以填入自己的模型 Key，或先试用。"}
-              </p>
+              <p className="settings__item-sub">{ollama?.errorHint ?? t("onboarding.noOllama")}</p>
             )}
             <div className="settings__actions">
               <button
@@ -91,10 +93,10 @@ export function OnboardingWizard({ onDone, onOpenSettings }: OnboardingWizardPro
                   onDone();
                 }}
               >
-                填入 Key
+                {t("onboarding.fillKey")}
               </button>
               <button className="btn btn--ghost" onClick={onDone}>
-                先用试用模式
+                {t("onboarding.useTrial")}
               </button>
             </div>
           </>
