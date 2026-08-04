@@ -82,3 +82,30 @@ export const configApi = {
 
   ollamaStatus: (): Promise<OllamaStatus> => request("/config/providers/ollama-status"),
 };
+
+// ---------------------------------------------------------------------------
+// 会话历史（M1-S1，功能清单 4.3 回看面）
+// ---------------------------------------------------------------------------
+
+export interface SessionSummary {
+  id: string;
+  title?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface HistoryMessage {
+  role: "user" | "assistant";
+  content: string;
+  ts: number;
+}
+
+export const sessionApi = {
+  listSessions: (): Promise<SessionSummary[]> => request("/sessions"),
+
+  getMessages: (sessionId: string): Promise<HistoryMessage[]> =>
+    request(`/sessions/${encodeURIComponent(sessionId)}/messages`),
+
+  deleteSession: (sessionId: string): Promise<void> =>
+    request(`/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" }),
+};

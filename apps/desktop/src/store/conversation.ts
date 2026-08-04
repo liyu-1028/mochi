@@ -15,6 +15,31 @@ export interface ChatMessage {
   streaming: boolean;
 }
 
+/** 内存中保留的消息上限（M1-S1）：超出裁掉最旧，历史事实源在 sidecar SQLite。 */
+export const MAX_IN_MEMORY_MESSAGES = 40;
+
+/** 纯函数：追加一条消息并裁剪到最近 max 条（保持时间正序）。 */
+export function appendCapped(
+  messages: ChatMessage[],
+  next: ChatMessage,
+  max: number,
+): ChatMessage[] {
+  const appended = [...messages, next];
+  return appended.length > max ? appended.slice(appended.length - max) : appended;
+}
+
+/** 纯函数：把后端历史消息映射为 UI 消息（用于重启后回显）。 */
+export function historyToMessages(
+  history: ReadonlyArray<{ role: "user" | "assistant"; content: string; ts: number }>,
+): ChatMessage[] {
+  return history.map((h, i) => ({
+    id: `h-${h.ts}-${i}`,
+    role: h.role,
+    text: h.content,
+    streaming: false,
+  }));
+}
+
 export interface ConversationState {
   status: ConnectionStatus;
   characterState: CharacterState;
@@ -33,6 +58,8 @@ export interface ConversationState {
   addUserMessage: (text: string) => void;
   applyEvent: (event: ServerEvent) => void;
   clearNotice: () => void;
+  /** 重启后从 sidecar 拉取历史回显（仅当当前无消息时生效，避免重连重复）。 */
+  hydrateHistory: (messages: ChatMessage[]) => void;
 }
 
 export const useConversation = create<ConversationState>()((set, get) => ({
@@ -50,13 +77,25 @@ export const useConversation = create<ConversationState>()((set, get) => ({
 
   addUserMessage: (text) =>
     set((s) => ({
-      messages: [
-        ...s.messages,
+      messages: appendCapped(
+        s.messages,
         { id: `u-${crypto.randomUUID()}`, role: "user", text, streaming: false },
-      ],
+        MAX_IN_MEMORY_MESSAGES,
+      ),
     })),
 
   clearNotice: () => set({ notice: null }),
+
+  hydrateHistory: (incoming) =>
+    set((s) => {
+      // 已有消息（重连/本轮已对话）则不覆盖；仅在空白时回显历史
+      if (s.messages.length > 0) return {};
+      const capped =
+        incoming.length > MAX_IN_MEMORY_MESSAGES
+          ? incoming.slice(incoming.length - MAX_IN_MEMORY_MESSAGES)
+          : incoming;
+      return { messages: capped };
+    }),
 
   applyEvent: (event) => {
     const data = event.data as Record<string, unknown>;
@@ -85,10 +124,11 @@ export const useConversation = create<ConversationState>()((set, get) => ({
 
       case EVENT_TYPES.TextStart:
         set((s) => ({
-          messages: [
-            ...s.messages,
+          messages: appendCapped(
+            s.messages,
             { id: data.messageId as string, role: "assistant", text: "", streaming: true },
-          ],
+            MAX_IN_MEMORY_MESSAGES,
+          ),
           isSpeaking: true,
         }));
         break;

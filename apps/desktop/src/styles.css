@@ -234,6 +234,74 @@ body {
   }
 }
 
+/* ---- 气泡内轻量 Markdown（M1-S1，功能清单 4.1）----
+   小窗口内渲染，全部收紧默认外边距，保持气泡紧凑。 */
+.bubble__body > *:first-child {
+  margin-top: 0;
+}
+.bubble__body > *:last-child {
+  margin-bottom: 0;
+}
+.bubble__body p {
+  margin: 0 0 4px;
+}
+.bubble__body ul,
+.bubble__body ol {
+  margin: 0 0 4px;
+  padding-left: 18px;
+}
+.bubble__body li {
+  margin: 1px 0;
+}
+.bubble__body h1,
+.bubble__body h2,
+.bubble__body h3,
+.bubble__body h4 {
+  margin: 0 0 4px;
+  font-size: inherit; /* 标题不放大，避免撑破小气泡 */
+  font-weight: 600;
+}
+.bubble__body blockquote {
+  margin: 0 0 4px;
+  padding-left: 8px;
+  border-left: 2px solid var(--mochi-pink-deep);
+  color: #8a7580;
+}
+.bubble__code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(74, 63, 68, 0.08);
+  font-family: "SF Mono", ui-monospace, monospace;
+  font-size: 0.92em;
+}
+.bubble__pre {
+  margin: 4px 0;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(74, 63, 68, 0.08);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.bubble__pre .bubble__code {
+  padding: 0;
+  background: transparent;
+}
+.bubble__link {
+  color: var(--mochi-pink-deep);
+  text-decoration: underline; /* 链接降级为纯文本，仅保留视觉提示，不可跳转 */
+}
+.bubble__body table {
+  border-collapse: collapse;
+  margin: 4px 0;
+  font-size: 0.92em;
+}
+.bubble__body th,
+.bubble__body td {
+  padding: 2px 6px;
+  border: 1px solid rgba(243, 227, 231, 0.8);
+}
+
 /* ---- 底部 dock 槽位：状态文案与输入条共享同一位置、互斥显示 ----
    dock 参与流式布局且固定高度，角色舞台止于其上——输入条永不遮挡 Mochi；
    展开输入条时不渲染状态文案，反之亦然（App.tsx app__dock 条件渲染）。 */

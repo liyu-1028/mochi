@@ -3,7 +3,13 @@
  */
 import type { ServerEvent } from "@mochi/protocol";
 import { beforeEach, describe, expect, it } from "vitest";
-import { useConversation } from "./conversation";
+import {
+  MAX_IN_MEMORY_MESSAGES,
+  appendCapped,
+  historyToMessages,
+  useConversation,
+} from "./conversation";
+import type { ChatMessage } from "./conversation";
 
 function ev(type: string, data: Record<string, unknown>): ServerEvent {
   return { v: "0.1", type, id: "t", ts: 0, data } as unknown as ServerEvent;
@@ -142,5 +148,63 @@ describe("回合与错误", () => {
     expect(after.messages).toEqual(before.messages);
     expect(after.characterState).toBe(before.characterState);
     expect(after.activeRunId).toBe(before.activeRunId);
+  });
+});
+
+describe("内存上限（M1-S1，4.3/4.4）", () => {
+  const msg = (id: string): ChatMessage => ({ id, role: "user", text: id, streaming: false });
+
+  it("appendCapped 未超上限时全量保留", () => {
+    const result = appendCapped([msg("a"), msg("b")], msg("c"), 5);
+    expect(result.map((m) => m.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("appendCapped 超上限时裁掉最旧、保留最近", () => {
+    const result = appendCapped([msg("a"), msg("b"), msg("c")], msg("d"), 3);
+    expect(result.map((m) => m.id)).toEqual(["b", "c", "d"]);
+  });
+
+  it("addUserMessage 累积超过上限后自动裁剪", () => {
+    const { addUserMessage } = useConversation.getState();
+    for (let i = 0; i < MAX_IN_MEMORY_MESSAGES + 5; i++) {
+      useConversation.getState().addUserMessage(`第 ${i} 句`);
+    }
+    const { messages } = useConversation.getState();
+    expect(messages).toHaveLength(MAX_IN_MEMORY_MESSAGES);
+    expect(messages[0].text).toBe(`第 5 句`); // 最旧 5 条被裁掉
+    expect(messages[messages.length - 1].text).toBe(`第 ${MAX_IN_MEMORY_MESSAGES + 4} 句`);
+    void addUserMessage;
+  });
+});
+
+describe("历史回显（M1-S1，4.3）", () => {
+  it("historyToMessages 映射后端历史为 UI 消息", () => {
+    const history = [
+      { role: "user" as const, content: "你好", ts: 100 },
+      { role: "assistant" as const, content: "嗨", ts: 101 },
+    ];
+    const mapped = historyToMessages(history);
+    expect(mapped).toHaveLength(2);
+    expect(mapped[0]).toMatchObject({ role: "user", text: "你好", streaming: false });
+    expect(mapped[1]).toMatchObject({ role: "assistant", text: "嗨", streaming: false });
+    expect(mapped[0].id).not.toEqual(mapped[1].id);
+  });
+
+  it("hydrateHistory 在空白时回显历史", () => {
+    useConversation
+      .getState()
+      .hydrateHistory(historyToMessages([{ role: "user", content: "上一轮的话", ts: 1 }]));
+    expect(useConversation.getState().messages).toHaveLength(1);
+    expect(useConversation.getState().messages[0].text).toBe("上一轮的话");
+  });
+
+  it("hydrateHistory 已有消息时不覆盖（重连不重复）", () => {
+    useConversation.getState().addUserMessage("本轮消息");
+    useConversation
+      .getState()
+      .hydrateHistory(historyToMessages([{ role: "user", content: "历史", ts: 1 }]));
+    const { messages } = useConversation.getState();
+    expect(messages).toHaveLength(1);
+    expect(messages[0].text).toBe("本轮消息");
   });
 });
