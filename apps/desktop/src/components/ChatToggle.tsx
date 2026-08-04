@@ -69,7 +69,7 @@ export function ChatToggle({ onSend, onCancel }: ChatToggleProps) {
   };
 
   return (
-    <div className="chat-toggle" ref={containerRef}>
+    <div className={`chat-toggle${open ? " chat-toggle--open" : ""}`} ref={containerRef}>
       {open ? (
         <div className="chat-toggle__panel">
           <input
