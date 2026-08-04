@@ -5,7 +5,7 @@
  * - 展开态：半透明输入条（输入 + 发送/停止）
  * - 关闭路径统一：Esc / 点击外部 / × 按钮 / idle 超时，全部走 handleClose
  *   先播 panel-pop-out 反向动画（180ms），再通知 App 卸载面板
- * - 自动隐藏：打开后 5s 未悬停/未聚焦/无草稿/无活跃回合，自动收起
+ * - 自动隐藏：打开后 5s 未悬停/无草稿/无活跃回合，自动收起
  *   （暂停信号聚合由 shouldKeepPanelOpen 承担，详见 useIdlePanelTimer）
  * - 输入框不进入窗口拖拽区（独立于 .app__stage）
  */
@@ -30,7 +30,6 @@ const CLOSE_ANIM_MS = 180;
 export function ChatToggle({ open, onOpenChange, onSend, onCancel }: ChatToggleProps) {
   const [text, setText] = useState("");
   const [hovered, setHovered] = useState(false);
-  const [focused, setFocused] = useState(false);
   const [closing, setClosing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -76,14 +75,14 @@ export function ChatToggle({ open, onOpenChange, onSend, onCancel }: ChatToggleP
     }, CLOSE_ANIM_MS);
   }, [closing, onOpenChange]);
 
-  // idle 自动隐藏：未悬停/未聚焦/无草稿/无活跃回合时计时，超时触发 handleClose
-  // shouldKeepPanelOpen 任一信号为真即暂停；外加 !open / closing 作为整体开关
+  // idle 自动隐藏：未悬停/无草稿/无活跃回合时计时，超时触发 handleClose
+  // 故意不把 input 焦点当暂停信号——打开后输入框自动聚焦，焦点会一直挂着，
+  // 若纳入暂停条件会导致计时器永远跑不起来（参见 useIdlePanelTimer 注释）
   const paused =
     !open ||
     closing ||
     shouldKeepPanelOpen({
       isHovered: hovered,
-      isFocused: focused,
       hasPendingInput: text.length > 0,
       hasActiveRun: isStreaming,
     });
@@ -145,8 +144,6 @@ export function ChatToggle({ open, onOpenChange, onSend, onCancel }: ChatToggleP
             placeholder={status === "connected" ? "和 Mochi 说点什么…" : "连接中…"}
             value={text}
             onChange={(e) => setText(e.target.value)}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
             onKeyDown={handleKey}
             disabled={status !== "connected"}
           />

@@ -24,18 +24,21 @@ export const IDLE_TIMEOUT_MS = 5000; // 默认 idle 超时（毫秒）
 
 export type PanelActivity = {
   isHovered: boolean;
-  isFocused: boolean;
   hasPendingInput: boolean;
   hasActiveRun: boolean;
 };
 
 /**
  * 任一"用户在交互或正在接收回复"信号为真，计时器应暂停。
+ *
+ * 故意不包含 isFocused：输入框自动聚焦后只要用户不再操作，
+ * 焦点会一直挂着——把焦点当暂停信号会导致计时器永远跑不起来
+ * （用户原始诉求是"鼠标不悬停就隐藏"，焦点不在此列）。
  * 纯函数便于 vitest 直接覆盖（hooks 目录测试基础设施是 node 环境，
  * 不挂 React 渲染）。
  */
 export function shouldKeepPanelOpen(a: PanelActivity): boolean {
-  return a.isHovered || a.isFocused || a.hasPendingInput || a.hasActiveRun;
+  return a.isHovered || a.hasPendingInput || a.hasActiveRun;
 }
 
 interface UseIdlePanelTimerOptions {
