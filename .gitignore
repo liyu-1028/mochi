@@ -6,6 +6,7 @@ node_modules/
 dist/
 target/
 *.egg-info/
+server/build/   # PyInstaller 构建工作目录
 
 # Python
 __pycache__/
@@ -31,6 +32,9 @@ logs/
 
 # Live2D Cubism Core（专有代码，脚本下载，见 scripts/download-live2d-core.mjs）
 apps/desktop/public/live2d/
+
+# sidecar 生产二进制（PyInstaller 构建后落位，Tauri externalBin 读取；见 scripts/package-sidecar.sh）
+apps/desktop/src-tauri/binaries/
 
 # 内部过程文档（调研、决策推演、测试报告等，不入库）
 docs/internal/
