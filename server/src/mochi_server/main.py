@@ -16,9 +16,10 @@ import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from . import __version__
 from .agent import RunManager
@@ -81,9 +82,45 @@ def _now_ms() -> int:
     return int(time.time() * 1000)
 
 
+def _setup_file_logging() -> None:
+    """把日志落盘到 <userData>/mochi-server.log（幂等）。
+
+    release 下 sidecar 的 stdout/stderr 被桌面壳丢弃（sidecar.rs Stdio::null），
+    不落盘则任何运行期问题（含 CORS 预检/请求到达情况）都无从排查（功能清单 1.8 铺垫）。
+    """
+    from .paths import get_data_dir
+
+    root = logging.getLogger()
+    if any(isinstance(h, logging.FileHandler) for h in root.handlers):
+        return  # 已装过（多次 create_app / 测试复用）
+    try:
+        log_path = get_data_dir() / "mochi-server.log"
+        handler = logging.FileHandler(log_path, encoding="utf-8")
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        handler.addFilter(SensitiveDataFilter())
+        root.addHandler(handler)
+        root.setLevel(logging.INFO)
+    except OSError:
+        # 落盘失败不阻断启动（控制台/丢弃日志仍可工作）
+        pass
+
+
+class RequestLogMiddleware(BaseHTTPMiddleware):
+    """记录每个 HTTP 请求的 method/path/Origin，用于排查 CORS 与连通问题。"""
+
+    async def dispatch(self, request: Request, call_next):
+        origin = request.headers.get("origin", "-")
+        client = request.client.host if request.client else "-"
+        logger.info(
+            "HTTP %s %s origin=%s client=%s", request.method, request.url.path, origin, client
+        )
+        return await call_next(request)
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     _install_log_filter()  # uvicorn 在启动期才装 handler，这里再补一次
+    _setup_file_logging()  # 日志落盘，release 下可查请求/CORS 到达情况
     if app.state.registry is None and app.state.agent is None:
         probe = await probe_ollama()
         config = load_config(
@@ -126,6 +163,8 @@ def create_app(
         allow_methods=["GET", "POST", "PUT", "DELETE"],
         allow_headers=["Content-Type"],
     )
+    # 后加 → 最外层：先于 CORS 记录每个请求（含预检 OPTIONS）的 Origin
+    app.add_middleware(RequestLogMiddleware)
     app.state.agent = agent
     # 会话持久化（M1-S1）：全局共享一个 SessionStore，Agent 与 REST 路由同源
     app.state.store = SessionStore()
