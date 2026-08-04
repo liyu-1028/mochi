@@ -57,8 +57,19 @@ _BUSINESS_FRAME_TYPES = frozenset({"hello", "chat.send", "chat.cancel", "chat.in
 
 
 def _install_log_filter() -> None:
-    """把脱敏过滤器挂到 root logger 与其 handler（幂等）。"""
+    """把脱敏过滤器挂到 root logger 与其 handler（幂等）。
+
+    uvicorn 默认日志配置只给 uvicorn.* logger 装 handler，root 无 handler 时
+    mochi_server.* 的日志会被静默丢弃——补一个带时间戳的 stderr handler
+    （仅当 root 无任何 handler；uvicorn 自有 logger 均 propagate=False，不重复）。
+    """
     root = logging.getLogger()
+    if not root.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(
+            logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s", "%H:%M:%S")
+        )
+        root.addHandler(handler)
     targets: list[logging.Logger | logging.Handler] = [root, *root.handlers]
     for target in targets:
         if not any(isinstance(f, SensitiveDataFilter) for f in target.filters):
@@ -123,6 +134,7 @@ def create_app(
     @app.websocket("/ws")
     async def ws_endpoint(ws: WebSocket) -> None:
         await ws.accept()
+        logger.info("WS 客户端已连接")
         # 显式 agent 优先；否则按回合从 registry 解析（支持热切换）
         if app.state.agent is not None:
             agent_source = app.state.agent
