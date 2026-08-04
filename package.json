@@ -29,8 +29,8 @@
     "*.{ts,tsx,js,mjs,json,md,yaml,yml}": "prettier --write",
     "*.{ts,tsx}": "eslint --fix",
     "server/**/*.py": [
-      "uvx ruff check --fix",
-      "uvx ruff format"
+      "uv run --project server ruff check --fix",
+      "uv run --project server ruff format"
     ]
   },
   "devDependencies": {

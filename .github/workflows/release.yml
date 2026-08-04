@@ -43,9 +43,12 @@ jobs:
 
       - name: Python 工具链（uv 托管，供 PyInstaller 使用）
         uses: astral-sh/setup-uv@v4
-      - run: uv python install 3.12
+        with:
+          version: "0.12.1" # uv 版本固定，与生成 uv.lock 的版本一致
+      - run: uv python install 3.12 # 与 server/.python-version 一致
 
-      - uses: dtolnay/rust-toolchain@stable
+      # 版本与根目录 rust-toolchain.toml 一致（升级时两处同改）
+      - uses: dtolnay/rust-toolchain@1.97.1
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "apps/desktop/src-tauri -> target"

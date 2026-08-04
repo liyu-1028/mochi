@@ -6,14 +6,14 @@
 
 ## 1. 技术栈基线
 
-| 层            | 选型                                                             | 版本基线            |
-| ------------- | ---------------------------------------------------------------- | ------------------- |
-| 桌面壳        | Tauri v2（Rust）                                                 | tauri ^2            |
-| 前端          | React + TypeScript + Vite                                        | react ^19 / vite ^6 |
-| 后端 sidecar  | Python + FastAPI（M0 引入 LangGraph）                            | Python ≥3.11,<3.14  |
-| JS 包管理     | pnpm workspaces                                                  | pnpm 10.x           |
-| Python 包管理 | uv                                                               | 最新稳定版          |
-| 构建编排      | 暂不引入 Turborepo（其 Python 支持为实验性，见调研报告 §风险 2） | —                   |
+| 层            | 选型                                                             | 版本基线                                                     |
+| ------------- | ---------------------------------------------------------------- | ------------------------------------------------------------ |
+| 桌面壳        | Tauri v2（Rust）                                                 | tauri ^2 · Rust 1.97.1（rust-toolchain.toml 固定）           |
+| 前端          | React + TypeScript + Vite                                        | react ^19 / vite ^6 · Node 20.x（.nvmrc 固定）               |
+| 后端 sidecar  | Python + FastAPI（M0 引入 LangGraph）                            | Python 3.12（server/.python-version 固定；允许 ≥3.11,<3.14） |
+| JS 包管理     | pnpm workspaces                                                  | pnpm 10.8.1（packageManager 字段固定）                       |
+| Python 包管理 | uv                                                               | ≥0.12（CI 固定 0.12.1）                                      |
+| 构建编排      | 暂不引入 Turborepo（其 Python 支持为实验性，见调研报告 §风险 2） | —                                                            |
 
 ## 2. 目录结构
 
@@ -101,3 +101,11 @@ mochi/
 - 应用版本（`tauri.conf.json` + 各 package.json 的 `version`）遵循 SemVer，发布前统一对齐。
 - **协议版本**（`PROTOCOL_VERSION`）与 **skin.json manifest 版本**独立演进，
   不与应用版本绑定（见 docs/protocol/agent-events-v0.1.md §9）。
+- **依赖可复现**：三端锁文件（`pnpm-lock.yaml` / `server/uv.lock` /
+  `Cargo.lock`）必须入库；CI 一律 frozen 安装（`--frozen-lockfile` /
+  `uv sync --frozen` / `cargo --locked`）。manifest（package.json /
+  pyproject.toml / Cargo.toml）保留语义化区间以便升级，精确版本以锁文件为准。
+- **工具链固定**：Node 由 `.nvmrc`、pnpm 由 `packageManager` 字段、Rust 由
+  `rust-toolchain.toml`（CI 的 dtolnay/rust-toolchain 引用需同步）、Python 由
+  `server/.python-version`、uv 由 CI `setup-uv.version` 固定。升级任一项时
+  同步更新对应文件、CI 工作流与 README「开发环境准备」表，并全量跑一次测试。

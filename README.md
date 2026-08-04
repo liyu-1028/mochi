@@ -19,12 +19,18 @@ Mochi 将冰冷的命令行和对话框，升级为有温度、有形象、可�
 
 ## 开发环境准备
 
-| 工具    | 要求   | 安装                                                                                                                                |
-| ------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Node.js | ≥20    | `nvm use`（仓库含 .nvmrc）                                                                                                          |
-| pnpm    | 10.x   | `npm i -g pnpm`                                                                                                                     |
-| Rust    | stable | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh`，另需 [Tauri 平台依赖](https://v2.tauri.app/start/prerequisites/) |
-| uv      | 最新   | `curl -LsSf https://astral.sh/uv/install.sh \| sh`                                                                                  |
+| 工具    | 版本基线                                        | 安装                                                                                                                                |
+| ------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Node.js | 20.x（`.nvmrc` 固定）                           | `nvm use`                                                                                                                           |
+| pnpm    | 10.8.1（`packageManager` 字段固定）             | `corepack enable`（自动匹配固定版本）                                                                                               |
+| Rust    | 1.97.1（`rust-toolchain.toml` 固定，自动安装）  | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh`，另需 [Tauri 平台依赖](https://v2.tauri.app/start/prerequisites/) |
+| uv      | ≥0.12（CI 固定 0.12.1）                         | `curl -LsSf https://astral.sh/uv/install.sh \| sh`                                                                                  |
+| Python  | 3.12（`server/.python-version` 固定，无需手装） | 由 uv 自动安装                                                                                                                      |
+
+> 依赖可复现：三端锁文件（`pnpm-lock.yaml` / `server/uv.lock` /
+> `Cargo.lock`）均已入库，CI 一律 frozen 安装；工具链版本由上表所列文件
+> 固定，保证 clone 下来的构建环境与 CI 一致。升级基线时同步修改对应文件
+> 与 `.github/workflows/` 中的引用。
 
 ## 快速开始
 

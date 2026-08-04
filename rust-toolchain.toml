@@ -1,0 +1,9 @@
+# Rust 工具链版本基线。rustup 在本仓库目录下运行 cargo 时自动安装/匹配该版本，
+# 保证贡献者本机与 CI 完全一致——clippy 以 `-D warnings` 运行，stable 漂移
+# 引入新 lint 会直接打挂 CI，故固定到已验证通过的版本而非 stable。
+#
+# 升级流程：改本文件 + .github/workflows/{ci,release}.yml 的
+# dtolnay/rust-toolchain@ 引用（两处需一致），本地验证 clippy 后提交。
+[toolchain]
+channel = "1.97.1"
+components = ["clippy", "rustfmt"]

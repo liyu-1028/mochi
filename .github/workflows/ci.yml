@@ -30,6 +30,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v4
+        with:
+          version: "0.12.1" # uv 版本固定，与生成 uv.lock 的版本一致
       - name: uv sync
         working-directory: server
         run: uv sync --frozen
@@ -52,7 +54,8 @@ jobs:
             libwebkit2gtk-4.1-dev libgtk-3-dev libxdo-dev libssl-dev \
             libayatana-appindicator3-dev librsvg2-dev libsoup-3.0-dev \
             libjavascriptcoregtk-4.1-dev
-      - uses: dtolnay/rust-toolchain@stable
+      # 版本与根目录 rust-toolchain.toml 一致（升级时两处同改）
+      - uses: dtolnay/rust-toolchain@1.97.1
         with:
           components: clippy
       # Cargo.lock 已入库（M0-S3），锁定依赖版本保证 CI 与本机一致
