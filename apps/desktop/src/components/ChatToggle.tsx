@@ -130,7 +130,7 @@ export function ChatToggle({ open, onOpenChange, onSend, onCancel }: ChatToggleP
   };
 
   return (
-    <div className={`chat-toggle${open ? " chat-toggle--open" : ""}`} ref={containerRef}>
+    <div className="chat-toggle" ref={containerRef}>
       {open ? (
         <div
           className={`chat-toggle__panel${closing ? " chat-toggle__panel--closing" : ""}`}

@@ -234,24 +234,26 @@ body {
   }
 }
 
-/* ---- 浮动聊天气泡按钮 + 展开式输入 ---- */
-.chat-toggle {
-  position: absolute;
-  right: 12px;
-  bottom: 22px; /* 给底部状态文字留位 */
-  z-index: 10;
+/* ---- 底部 dock 槽位：状态文案与输入条共享同一位置、互斥显示 ----
+   dock 参与流式布局且固定高度，角色舞台止于其上——输入条永不遮挡 Mochi；
+   展开输入条时不渲染状态文案，反之亦然（App.tsx app__dock 条件渲染）。 */
+.app__dock {
+  height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-/* 展开态：容器左右锚定，输入条因此撑到接近全窗口宽。
-   收起态保持仅右下锚定——避免整条底部横栏拦截窗口拖动。 */
-.chat-toggle--open {
-  left: 12px;
+/* 输入条容器：占据 dock 槽位（流内布局，不再绝对定位悬浮于角色之上） */
+.chat-toggle {
+  width: 100%;
 }
 
 .chat-toggle__panel {
   display: flex;
   align-items: center;
   gap: 6px;
+  width: 100%; /* 撑满 dock 槽位（与原状态文案同位置） */
   background: rgba(255, 250, 247, 0.82); /* 轻微透明，融入桌面（唤起方式：点击角色） */
   border: 1px solid #f3e3e7;
   border-radius: 22px;

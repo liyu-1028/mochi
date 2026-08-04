@@ -3,7 +3,8 @@
  *
  * 布局：
  * - 角色舞台（拖拽区）容纳 Live2D + 左侧气泡区
- * - 底部浮动聊天气泡按钮，点击展开紧凑输入框
+ * - 底部 dock 槽位：状态文案与输入条共享同一位置、互斥显示
+ *   （展开输入条时不渲染文案；dock 参与流式布局，输入条不遮挡角色）
  */
 import { useState } from "react";
 import { CharacterStage } from "./components/CharacterStage";
@@ -44,23 +45,30 @@ export default function App() {
       </div>
       <SpeechBubbleArea />
 
-      <ChatToggle
-        open={chatOpen}
-        onOpenChange={setChatOpen}
-        onSend={sendText}
-        onCancel={cancelRun}
-      />
-
-      <footer
-        className={`app__status ${sidecarHint ? "app__status--error" : `app__status--${status}`}`}
-      >
-        {sidecarHint ??
-          (status === "connected"
-            ? "已连接 · 点击 Mochi 聊天"
-            : status === "connecting"
-              ? "连接中…"
-              : "未连接")}
-      </footer>
+      {/* 底部 dock 槽位：状态文案与输入条共享同一位置、互斥显示——
+          条件渲染保证两者不会同时出现；dock 在流式布局中固定高度，
+          角色舞台止于其上，输入条永不遮挡 Mochi 形象 */}
+      <div className="app__dock">
+        {chatOpen ? (
+          <ChatToggle
+            open={chatOpen}
+            onOpenChange={setChatOpen}
+            onSend={sendText}
+            onCancel={cancelRun}
+          />
+        ) : (
+          <footer
+            className={`app__status ${sidecarHint ? "app__status--error" : `app__status--${status}`}`}
+          >
+            {sidecarHint ??
+              (status === "connected"
+                ? "已连接 · 点击 Mochi 聊天"
+                : status === "connecting"
+                  ? "连接中…"
+                  : "未连接")}
+          </footer>
+        )}
+      </div>
 
       {!onboardingDone ? (
         <OnboardingWizard
