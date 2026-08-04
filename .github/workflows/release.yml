@@ -1,0 +1,65 @@
+# 发布流水线（M0-S4，功能清单 1.1）：tag 触发，双平台构建安装包。
+#
+# 矩阵均为原生架构构建（无交叉编译）：
+#   macos-latest   → Apple Silicon（aarch64-apple-darwin）dmg
+#   macos-13       → Intel（x86_64-apple-darwin）dmg
+#   windows-latest → x86_64-pc-windows-msvc，nsis 安装包
+#
+# sidecar 由 beforeBuildCommand 链中的 scripts/package-sidecar.sh 用
+# PyInstaller 现机构建（PyInstaller 不支持交叉编译，必须与目标机同架构）。
+#
+# M0 范围：产物仅上传 artifact，不签名不发布。
+# TODO(M1)：macOS Developer ID 签名 + 公证、Windows 代码签名、
+#           自动创建 GitHub Release 与 1.7 增量更新。
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            bundles: dmg
+          - platform: macos-13
+            bundles: dmg
+          - platform: windows-latest
+            bundles: nsis
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4 # 版本取自 package.json 的 packageManager 字段
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: pnpm
+      - name: 前端依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: Python 工具链（uv 托管，供 PyInstaller 使用）
+        uses: astral-sh/setup-uv@v4
+      - run: uv python install 3.12
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "apps/desktop/src-tauri -> target"
+
+      # beforeBuildCommand 会依次执行：Live2D Core 下载 → sidecar PyInstaller
+      # 打包 → tsc → vite build，随后 cargo release + 打 ${{ matrix.bundles }}
+      - name: 构建安装包
+        run: pnpm --filter @mochi/desktop exec tauri build --bundles ${{ matrix.bundles }}
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: mochi-${{ matrix.platform }}-${{ github.ref_name }}
+          path: |
+            apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+            apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
