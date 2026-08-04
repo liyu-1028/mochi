@@ -14,6 +14,8 @@ dependencies = [
     "keyring>=25.0",         # API Key 存 OS 钥匙串（key_ref 规则，config-format.md §3）
     "platformdirs>=4.2",     # 数据目录解析，与 Tauri app_data_dir 对齐
     "tomli-w>=1.0",          # TOML 写入（标准库 tomllib 只读）
+    # M1-S1 会话持久化（4.3/6.2）：异步 SQLite，轻量迁移不用 Alembic
+    "aiosqlite>=0.20",
 ]
 
 [dependency-groups]

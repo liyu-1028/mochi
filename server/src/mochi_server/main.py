@@ -25,7 +25,7 @@ from .agent import RunManager
 from .agent.ollama_probe import probe_ollama
 from .agent.registry import ProviderRegistry
 from .agent.service import AgentService
-from .api import config_router
+from .api import config_router, session_router
 from .api.security import ALLOWED_CORS_ORIGINS, SensitiveDataFilter
 from .config import AppConfig, load_config
 from .events import (
@@ -46,6 +46,7 @@ from .events import (
 )
 from .paths import get_config_path
 from .secrets import KeyStore
+from .store import SessionStore
 
 logger = logging.getLogger(__name__)
 
@@ -90,13 +91,17 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             ollama_available=probe.available,
             ollama_model=probe.models[0] if probe.models else None,
         )
-        app.state.registry = ProviderRegistry(config, KeyStore())
+        app.state.registry = ProviderRegistry(config, KeyStore(), store=app.state.store)
         logger.info(
             "配置就绪：default_provider=%s（Ollama %s）",
             config.model.default_provider,
             "已发现" if probe.available else "未发现",
         )
     yield
+    # 关闭会话库连接（测试用 TestClient 同样走此路径）
+    store = getattr(app.state, "store", None)
+    if store is not None:
+        await store.close()
 
 
 def create_app(
@@ -122,9 +127,14 @@ def create_app(
         allow_headers=["Content-Type"],
     )
     app.state.agent = agent
-    app.state.registry = ProviderRegistry(config, key_store) if config is not None else None
+    # 会话持久化（M1-S1）：全局共享一个 SessionStore，Agent 与 REST 路由同源
+    app.state.store = SessionStore()
+    app.state.registry = (
+        ProviderRegistry(config, key_store, store=app.state.store) if config is not None else None
+    )
     app.state.config_path = get_config_path()
     app.include_router(config_router)
+    app.include_router(session_router)
     _install_log_filter()
 
     @app.get("/health")

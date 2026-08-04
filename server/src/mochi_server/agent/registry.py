@@ -17,6 +17,7 @@ import logging
 from ..config import TRIAL_PROVIDER_ID, AppConfig, ModelProviderConfig
 from ..events import ErrorCode, ErrorPayload
 from ..secrets import KeyStore
+from ..store import SessionStore
 from .adapters import OpenAICompatibleAdapter
 from .echo_agent import EchoAgentService
 from .errors import AgentError
@@ -29,12 +30,18 @@ logger = logging.getLogger(__name__)
 class ProviderRegistry:
     """每个 sidecar 进程一个实例；配置变更经 update_config 注入。"""
 
-    def __init__(self, config: AppConfig, key_store: KeyStore | None = None) -> None:
+    def __init__(
+        self,
+        config: AppConfig,
+        key_store: KeyStore | None = None,
+        store: SessionStore | None = None,
+    ) -> None:
         self._config = config
         self._key_store = key_store or KeyStore()
+        self._store = store  # 会话持久化（M1-S1）；None 时 Agent 保持单轮行为
         self._version = 0  # 配置版本号：update_config 递增，驱动缓存失效
         self._agent_cache: tuple[int, str, AgentService] | None = None
-        self._trial = EchoAgentService()
+        self._trial = EchoAgentService(store=store)
 
     # -- 配置 ----------------------------------------------------------------
 
@@ -85,7 +92,7 @@ class ProviderRegistry:
             )
         # 缺 Key 等构造期问题在此抛 AgentError，由 RunManager 转为 run.error
         adapter = OpenAICompatibleAdapter(provider_id, cfg, self._key_store)
-        return LLMAgentService(adapter)
+        return LLMAgentService(adapter, store=self._store)
 
     # -- 连通性测试（功能清单 7.2） ------------------------------------------
 

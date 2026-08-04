@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from collections.abc import AsyncIterator
 
@@ -23,7 +24,10 @@ from ..events import (
     ThinkingEndData,
     ThinkingStartData,
 )
+from ..store import SessionStore
 from .service import AgentContext, AgentEvent, AgentService
+
+logger = logging.getLogger(__name__)
 
 _CHUNK_SIZE = 4  # 每个 text.delta 的字符数
 
@@ -31,10 +35,16 @@ _CHUNK_SIZE = 4  # 每个 text.delta 的字符数
 class EchoAgentService(AgentService):
     """回显桩：模拟 思考 → 说话 的完整事件序列。"""
 
-    def __init__(self, chunk_delay: float = 0.03, thinking_delay: float = 0.15) -> None:
-        # 延迟可在测试中置 0 加速
+    def __init__(
+        self,
+        chunk_delay: float = 0.03,
+        thinking_delay: float = 0.15,
+        store: SessionStore | None = None,
+    ) -> None:
+        # 延迟可在测试中置 0 加速；store 注入后与真实 Agent 同构落盘（M1-S1）
         self._chunk_delay = chunk_delay
         self._thinking_delay = thinking_delay
+        self._store = store
 
     async def run(self, ctx: AgentContext) -> AsyncIterator[AgentEvent]:
         message_id = f"m-{uuid.uuid4().hex[:12]}"
@@ -72,6 +82,15 @@ class EchoAgentService(AgentService):
                     run_id=ctx.run_id, message_id=message_id, delta=reply[i : i + _CHUNK_SIZE]
                 ),
             )
+
+        # 落盘本轮（4.3，与 LLMAgentService 同构；存储故障不阻断回显）
+        if self._store is not None:
+            try:
+                await self._store.append_message(ctx.session_id, "user", ctx.text)
+                await self._store.append_message(ctx.session_id, "assistant", reply)
+            except Exception:
+                logger.exception("会话落盘失败（不影响本回合回复）：session_id=%s", ctx.session_id)
+
         yield "text.end", TextEndData(run_id=ctx.run_id, message_id=message_id, full_text=reply)
 
         # --- 回到待机 ---
