@@ -26,6 +26,9 @@ CONFIG_VERSION = 1
 
 ProviderKind = Literal["ollama", "openai_compatible", "anthropic"]
 
+# 界面语言（功能清单 7.8 的 M1 前置：设置项先行，文案双语化在桌面端）。
+Language = Literal["zh-CN", "en"]
+
 # 试用模式：内置 echo 桩（功能清单 1.5），不在 providers 表中持久化。
 TRIAL_PROVIDER_ID = "trial"
 
@@ -42,7 +45,7 @@ class ConfigError(ValueError):
 
 
 class GeneralConfig(BaseModel):
-    language: Literal["zh-CN", "en"] = "zh-CN"
+    language: Language = "zh-CN"
     launch_at_startup: bool = False
     telemetry: bool = False
 

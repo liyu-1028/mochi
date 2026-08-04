@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from mochi_server.agent.registry import ProviderRegistry
 from mochi_server.api.security import SensitiveDataFilter, scrub_sensitive
-from mochi_server.config import AppConfig, ModelConfig, ModelProviderConfig
+from mochi_server.config import AppConfig, ModelConfig, ModelProviderConfig, load_config
 from mochi_server.main import create_app
 from mochi_server.secrets import KeyStore, key_ref_for
 
@@ -148,6 +148,33 @@ def test_set_default_provider(client):
 
 def test_set_default_unknown_provider(client):
     assert client.put("/config/providers/ghost/default").status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# 通用设置（界面语言，M1-CTX）
+# ---------------------------------------------------------------------------
+
+
+def test_update_general_language_persists(client):
+    resp = client.put("/config/general", json={"language": "en"})
+    assert resp.status_code == 200
+    assert resp.json()["language"] == "en"
+    assert client.app.state.registry.config.general.language == "en"
+    # 原子落盘：重新从磁盘读取仍在
+    on_disk = load_config(client.app.state.config_path)
+    assert on_disk.general.language == "en"
+
+
+def test_update_general_invalid_language_rejected(client):
+    resp = client.put("/config/general", json={"language": "fr"})
+    assert resp.status_code == 422
+    assert client.app.state.registry.config.general.language == "zh-CN"
+
+
+def test_update_general_empty_body_keeps_defaults(client):
+    resp = client.put("/config/general", json={})
+    assert resp.status_code == 200
+    assert resp.json()["language"] == "zh-CN"
 
 
 # ---------------------------------------------------------------------------

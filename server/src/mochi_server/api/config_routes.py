@@ -19,6 +19,7 @@ from ..agent.registry import ProviderRegistry
 from ..config import (
     TRIAL_PROVIDER_ID,
     AppConfig,
+    Language,
     ModelProviderConfig,
     ProviderKind,
     save_config,
@@ -73,6 +74,12 @@ class ProviderTestResult(CamelModel):
 
 class DefaultProviderUpdate(CamelModel):
     default_provider: str
+
+
+class GeneralUpdate(CamelModel):
+    """[general] 部分更新（M1-CTX）：仅传入需要变更的字段。"""
+
+    language: Language | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +264,20 @@ async def update_default_provider(body: DefaultProviderUpdate, request: Request)
         lambda config: setattr(config.model, "default_provider", target),
     )
     return {"defaultProvider": new_config.model.default_provider}
+
+
+@router.put("/general")
+async def update_general(body: GeneralUpdate, request: Request) -> dict:
+    """更新 [general]（界面语言等）：pydantic 校验 → 原子落盘 → 返回最新 general。"""
+    registry = _registry(request)
+
+    def mutate(config: AppConfig) -> None:
+        if body.language is not None:
+            config.general.language = body.language
+
+    new_config = _apply(registry, _config_path(request), mutate)
+    logger.info("更新通用设置：language=%s", new_config.general.language)
+    return new_config.general.model_dump(mode="json", by_alias=True)
 
 
 @router.post("/providers/{provider_id}/test")
