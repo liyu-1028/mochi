@@ -5,8 +5,8 @@
 Mochi 将冰冷的命令行和对话框，升级为有温度、有形象、可陪伴的桌面存在：
 前端是灵动鲜活的 Live2D 角色，后端是 LangGraph 驱动的强大认知核心。
 
-> 🚧 当前阶段：规范与骨架已就绪，M0 垂直原型开发即将开始。
-> 产品全貌见 [docs/feature-list.md](docs/feature-list.md)。
+> 🚧 当前阶段：M0 垂直原型已闭环（桌面角色 + 流式对话 + 表情动作 + 安装包），
+> M1（皮肤系统 / 记忆 / 语音）规划中。产品全貌见 [docs/feature-list.md](docs/feature-list.md)。
 
 ## 技术栈
 
@@ -49,6 +49,28 @@ pnpm dev                     # Tauri 桌面应用（开发模式，需 Rust 环�
 ```
 
 代码检查：`pnpm lint` · `pnpm typecheck` · `pnpm format`
+
+## 安装与使用（发行版）
+
+双击安装、全程无需命令行。Python sidecar 由 PyInstaller 打成独立可执行随包
+分发（用户机器不需要 Python 环境），桌面壳自动拉起并在异常时自动重启。
+
+- **macOS 12+**（Apple Silicon / Intel）：`Mochi_<版本>_<架构>.dmg` → 拖入
+  应用程序文件夹。M0 阶段未签名未公证，首次打开请**右键 → 打开**。
+- **Windows 10+**：NSIS 安装包（`v*` tag 流水线产出）。SmartScreen 若提示
+  未知发布者，选择「仍要运行」。
+
+自行构建安装包：
+
+```bash
+pnpm install && (cd server && uv sync)
+pnpm --filter @mochi/desktop build      # tsc + tauri build，自动打包 sidecar
+# 产物：apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg（macOS）
+#        或 bundle/nsis/*.exe（Windows，需在 Windows 上构建）
+```
+
+> sidecar 与目标机同架构现机构建（PyInstaller 不支持交叉编译）；
+> 打包选型与冷启动实测见 ADR-0004（docs/internal/，不入库）。
 
 ## 文档索引
 

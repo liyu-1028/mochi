@@ -6,14 +6,14 @@
 
 ## 1. 技术栈基线
 
-| 层 | 选型 | 版本基线 |
-| --- | --- | --- |
-| 桌面壳 | Tauri v2（Rust） | tauri ^2 |
-| 前端 | React + TypeScript + Vite | react ^19 / vite ^6 |
-| 后端 sidecar | Python + FastAPI（M0 引入 LangGraph） | Python ≥3.11,<3.14 |
-| JS 包管理 | pnpm workspaces | pnpm 10.x |
-| Python 包管理 | uv | 最新稳定版 |
-| 构建编排 | 暂不引入 Turborepo（其 Python 支持为实验性，见调研报告 §风险 2） | — |
+| 层            | 选型                                                             | 版本基线            |
+| ------------- | ---------------------------------------------------------------- | ------------------- |
+| 桌面壳        | Tauri v2（Rust）                                                 | tauri ^2            |
+| 前端          | React + TypeScript + Vite                                        | react ^19 / vite ^6 |
+| 后端 sidecar  | Python + FastAPI（M0 引入 LangGraph）                            | Python ≥3.11,<3.14  |
+| JS 包管理     | pnpm workspaces                                                  | pnpm 10.x           |
+| Python 包管理 | uv                                                               | 最新稳定版          |
+| 构建编排      | 暂不引入 Turborepo（其 Python 支持为实验性，见调研报告 §风险 2） | —                   |
 
 ## 2. 目录结构
 
@@ -67,16 +67,16 @@ mochi/
 
 ## 5. 常用命令
 
-| 命令 | 说明 |
-| --- | --- |
-| `pnpm install` | 安装 JS 依赖并激活 husky 钩子 |
-| `pnpm dev` | 启动 Tauri 桌面应用（开发模式） |
-| `pnpm dev:web` | 仅启动前端 Vite（浏览器调试 UI） |
-| `pnpm dev:server` | 启动 Python sidecar（uvicorn --reload，端口 8199） |
-| `pnpm lint` | ESLint + Ruff 检查 |
-| `pnpm format` | Prettier + Ruff format |
-| `pnpm typecheck` | 全工作区 tsc --noEmit |
-| `cd server && uv sync` | 安装 Python 依赖 |
+| 命令                   | 说明                                               |
+| ---------------------- | -------------------------------------------------- |
+| `pnpm install`         | 安装 JS 依赖并激活 husky 钩子                      |
+| `pnpm dev`             | 启动 Tauri 桌面应用（开发模式）                    |
+| `pnpm dev:web`         | 仅启动前端 Vite（浏览器调试 UI）                   |
+| `pnpm dev:server`      | 启动 Python sidecar（uvicorn --reload，端口 8199） |
+| `pnpm lint`            | ESLint + Ruff 检查                                 |
+| `pnpm format`          | Prettier + Ruff format                             |
+| `pnpm typecheck`       | 全工作区 tsc --noEmit                              |
+| `cd server && uv sync` | 安装 Python 依赖                                   |
 
 ## 6. Rust/桌面壳约定
 
@@ -85,11 +85,16 @@ mochi/
 - Tauri capabilities 遵循最小权限：新增插件必须在 `capabilities/default.json`
   显式授权并在此文档登记理由。
 
-## 7. sidecar 分发策略（预告，M1 冻结）
+## 7. sidecar 分发策略（M0-S4 定案）
 
-- 开发模式：`uv run` 直接跑源码。
-- 发布模式：候选方案 PyInstaller 单文件 / uv 打包运行时，随 Tauri sidecar 机制集成；
-  需专项验证 macOS 公证与 Windows Defender 误报（M1 专项调研）。
+- 开发模式：`uv run` 直接跑源码（lib.rs dev 分支自动拉起）。
+- 发布模式：**PyInstaller onedir + noarchive**（冷启动达标，选型对比见
+  ADR-0004），由 `scripts/package-sidecar.sh` 构建并经 `bundle.resources`
+  打进安装包（`$RESOURCE/sidecar/`），Rust 侧 `sidecar.rs` release 分支
+  spawn + 监督重启 + 状态事件。
+- 发布链路约束：PyInstaller 不支持交叉编译 → 各平台在对应 CI runner 现机构建
+  （.github/workflows/release.yml 矩阵）。
+- 待办（M1）：macOS 签名 + 公证、Windows 代码签名、runtime.json 端口发现。
 
 ## 8. 版本政策
 
