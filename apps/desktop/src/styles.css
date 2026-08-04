@@ -325,3 +325,8 @@ body {
 .app__status--disconnected {
   color: #c98a8a;
 }
+
+/* sidecar 异常/重启提示（M0-S4，release 监督线程事件）——比未连接更醒目 */
+.app__status--error {
+  color: #c0392b;
+}

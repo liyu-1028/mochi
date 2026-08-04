@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "pnpm dev:web",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm --filter @mochi/desktop exec tsc --noEmit && pnpm --filter @mochi/desktop exec vite build",
+    "beforeBuildCommand": "node ../../scripts/download-live2d-core.mjs && bash ../../scripts/package-sidecar.sh && pnpm --filter @mochi/desktop exec tsc --noEmit && pnpm --filter @mochi/desktop exec vite build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -38,6 +38,13 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "resources": {
+      "binaries/sidecar/": "sidecar/"
+    },
+    "macOS": {
+      "minimumSystemVersion": "12",
+      "signingIdentity": null
+    }
   }
 }

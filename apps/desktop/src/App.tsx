@@ -12,12 +12,15 @@ import { OnboardingWizard } from "./components/OnboardingWizard";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { SpeechBubbleArea } from "./components/SpeechBubbleArea";
 import { resolveWsUrl, useMochiConnection } from "./hooks/useMochiConnection";
+import { useSidecarStatus } from "./hooks/useSidecarStatus";
 import { useConversation } from "./store/conversation";
 import "./styles/settings.css";
 
 export default function App() {
   const { sendText, cancelRun } = useMochiConnection(resolveWsUrl());
   const status = useConversation((s) => s.status);
+  // release 下 sidecar 异常/重启的可读提示（1.2）；dev/浏览器为 null
+  const sidecarHint = useSidecarStatus();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [onboardingDone, setOnboardingDone] = useState(false);
 
@@ -41,8 +44,15 @@ export default function App() {
 
       <ChatToggle onSend={sendText} onCancel={cancelRun} />
 
-      <footer className={`app__status app__status--${status}`}>
-        {status === "connected" ? "已连接 sidecar" : status === "connecting" ? "连接中…" : "未连接"}
+      <footer
+        className={`app__status ${sidecarHint ? "app__status--error" : `app__status--${status}`}`}
+      >
+        {sidecarHint ??
+          (status === "connected"
+            ? "已连接 sidecar"
+            : status === "connecting"
+              ? "连接中…"
+              : "未连接")}
       </footer>
 
       {!onboardingDone ? (

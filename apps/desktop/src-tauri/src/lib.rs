@@ -17,10 +17,12 @@ pub fn run() {
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(SidecarState::new())
         .setup(|app| {
-            // dev 模式尝试自动拉起 sidecar；release 打包方案见 sidecar.rs TODO(M1)
+            // dev：尝试拉起 uv + uvicorn；release：拉起打包产物并监督重启（1.2）
             if cfg!(debug_assertions) {
                 let state = app.state::<SidecarState>();
                 sidecar::try_spawn_dev_sidecar(&state);
+            } else {
+                sidecar::spawn_release_sidecar(app.handle());
             }
             Ok(())
         })
@@ -29,7 +31,9 @@ pub fn run() {
 
     app.run(|app_handle, event| {
         if matches!(event, RunEvent::Exit) {
-            app_handle.state::<SidecarState>().kill();
+            let state = app_handle.state::<SidecarState>();
+            state.begin_shutdown(); // 先停监督线程的重启意图，再回收子进程
+            state.kill();
         }
     });
 }
