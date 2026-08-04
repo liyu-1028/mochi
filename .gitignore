@@ -6,7 +6,8 @@ node_modules/
 dist/
 target/
 *.egg-info/
-server/build/   # PyInstaller 构建工作目录
+# PyInstaller 构建工作目录（gitignore 不支持行尾注释，必须单独一行）
+server/build/
 
 # Python
 __pycache__/
