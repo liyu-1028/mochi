@@ -22,3 +22,10 @@ def isolated_keyring():
 def isolated_data_dir(tmp_path, monkeypatch):
     """全部测试的数据目录指向临时目录。"""
     monkeypatch.setenv(paths.DATA_DIR_ENV, str(tmp_path / "mochi-data"))
+
+
+@pytest.fixture(autouse=True)
+def isolated_macos_flag(monkeypatch):
+    """默认视为非 macOS：get_key 的 None 兜底会 spawn /usr/bin/security，
+    测试不得触碰。macOS 兜底专项测试在测试体内显式置 True 覆盖。"""
+    monkeypatch.setattr("mochi_server.secrets._on_macos", lambda: False)

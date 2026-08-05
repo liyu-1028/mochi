@@ -114,3 +114,41 @@ def test_get_key_falls_back_to_cli_when_native_denied(monkeypatch):
     monkeypatch.setattr("mochi_server.secrets._on_macos", lambda: True)
     monkeypatch.setattr("mochi_server.secrets._cli_get", lambda service, username: "cli-value")
     assert KeyStore().get_key("p1") == "cli-value"
+
+
+def test_get_key_falls_back_to_cli_when_native_returns_none(monkeypatch):
+    """native 静默返回 None（跨重建签名身份不一致，不抛异常）也走 CLI 兜底。
+
+    回归测试 2026-08-05 Bug 2：此前仅 except KeyringError 分支兜底，
+    重打包 sidecar 后已存 Key 读不出、前端显示 Key: null。"""
+    calls = {"cli": 0}
+
+    class SilentNoneKeyring:
+        def get_password(self, service, username):
+            return None
+
+    def _fake_cli_get(service, username):
+        calls["cli"] += 1
+        return "cli-recovered"
+
+    monkeypatch.setattr("mochi_server.secrets.keyring.get_keyring", lambda: SilentNoneKeyring())
+    monkeypatch.setattr("mochi_server.secrets._on_macos", lambda: True)
+    monkeypatch.setattr("mochi_server.secrets._cli_get", _fake_cli_get)
+    assert KeyStore().get_key("p1") == "cli-recovered"
+    assert calls["cli"] == 1
+
+
+def test_get_key_none_stays_none_off_macos(monkeypatch):
+    """非 macOS：native 返回 None 即 None，不做 CLI 兜底（无 security 命令）。"""
+
+    class SilentNoneKeyring:
+        def get_password(self, service, username):
+            return None
+
+    def _should_not_run(service, username):
+        raise AssertionError("非 macOS 不应调用 CLI 兜底")
+
+    monkeypatch.setattr("mochi_server.secrets.keyring.get_keyring", lambda: SilentNoneKeyring())
+    monkeypatch.setattr("mochi_server.secrets._on_macos", lambda: False)
+    monkeypatch.setattr("mochi_server.secrets._cli_get", _should_not_run)
+    assert KeyStore().get_key("p1") is None

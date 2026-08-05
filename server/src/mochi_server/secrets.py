@@ -121,13 +121,18 @@ class KeyStore:
             return override
         ref = key_ref_for(provider_id)
         try:
-            return keyring.get_keyring().get_password(ref, _USERNAME)
+            secret = keyring.get_keyring().get_password(ref, _USERNAME)
         except KeyringError:
-            # native 被 ACL 拒绝时经 CLI 兜底；仅异常路径触发，无额外开销
-            if _on_macos():
-                with contextlib.suppress(OSError):
-                    return _cli_get(ref, _USERNAME)
-            return None
+            secret = None
+        if secret is None and _on_macos():
+            # 与 set_key 写路径对称的 CLI 兜底，覆盖两种 native 失败形态：
+            # 1) 抛 KeyringError（条目被 ACL 明确拒绝）；
+            # 2) 静默返回 None——跨重建签名身份不一致时 SecItemCopyMatching
+            #    读不到旧条目但不抛异常，仅异常兜底会漏掉此路径（测试报告
+            #    2026-08-05 Bug 2：重打包后已存 Key 读不出）。
+            with contextlib.suppress(OSError):
+                secret = _cli_get(ref, _USERNAME)
+        return secret
 
     def delete_key(self, provider_id: str) -> None:
         """删除条目；条目不存在时静默（幂等）。"""
