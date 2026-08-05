@@ -190,6 +190,11 @@ describe("历史回显（M1-S1，4.3）", () => {
     expect(mapped[0].id).not.toEqual(mapped[1].id);
   });
 
+  it("historyToMessages 为历史消息打 fromHistory 标记（气泡区据此过滤闪现）", () => {
+    const mapped = historyToMessages([{ role: "assistant", content: "旧回复", ts: 5 }]);
+    expect(mapped[0].fromHistory).toBe(true);
+  });
+
   it("hydrateHistory 在空白时回显历史", () => {
     useConversation
       .getState()

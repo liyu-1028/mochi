@@ -28,7 +28,9 @@ export function computeHideDelay(text: string): number {
 
 export function SpeechBubbleArea() {
   const messages = useConversation((s) => s.messages);
-  const assistantMessages = messages.filter((m) => m.role === "assistant");
+  // 过滤历史回显消息（fromHistory）：重启/刷新后历史只在聊天回忆面板回顾，
+  // 不以气泡形式批量闪现（测试报告 2026-08-05 Bug 3）
+  const assistantMessages = messages.filter((m) => m.role === "assistant" && !m.fromHistory);
   const [hover, setHover] = useState(false);
   const side = useBubbleSide();
 

@@ -13,6 +13,9 @@ export interface ChatMessage {
   role: "user" | "assistant";
   text: string;
   streaming: boolean;
+  /** 历史回显消息（hydrateHistory 注入）：不以气泡形式在主界面闪现，
+      仅在聊天回忆面板回顾（测试报告 2026-08-05 Bug 3）。 */
+  fromHistory?: boolean;
 }
 
 /** 内存中保留的消息上限（M1-S1）：超出裁掉最旧，历史事实源在 sidecar SQLite。 */
@@ -28,7 +31,8 @@ export function appendCapped(
   return appended.length > max ? appended.slice(appended.length - max) : appended;
 }
 
-/** 纯函数：把后端历史消息映射为 UI 消息（用于重启后回显）。 */
+/** 纯函数：把后端历史消息映射为 UI 消息（用于重启后回显）。
+    全部打 fromHistory 标记：气泡区据此过滤，避免历史批量闪现。 */
 export function historyToMessages(
   history: ReadonlyArray<{ role: "user" | "assistant"; content: string; ts: number }>,
 ): ChatMessage[] {
@@ -37,6 +41,7 @@ export function historyToMessages(
     role: h.role,
     text: h.content,
     streaming: false,
+    fromHistory: true,
   }));
 }
 
