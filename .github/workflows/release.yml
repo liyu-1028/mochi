@@ -44,6 +44,16 @@ jobs:
             exit 1
           fi
 
+      # Release Notes 取自 CHANGELOG.md 手写条目（不用自动生成，
+      # commit-convention §4）；缺条目在此快速失败，不浪费构建时长
+      - name: 校验 CHANGELOG.md 含本版条目
+        shell: bash
+        run: |
+          if ! grep -Eq "^## ${GITHUB_REF_NAME}([[:space:]]|$)" CHANGELOG.md; then
+            echo "✗ CHANGELOG.md 缺少 ${GITHUB_REF_NAME} 条目，请先手写本版更新说明再打 tag" >&2
+            exit 1
+          fi
+
       - uses: pnpm/action-setup@v4 # 版本取自 package.json 的 packageManager 字段
       - uses: actions/setup-node@v4
         with:
@@ -88,6 +98,8 @@ jobs:
     permissions:
       contents: write # softprops/action-gh-release 创建 Release 所需
     steps:
+      - uses: actions/checkout@v4 # 提取 CHANGELOG.md 本版条目作 Release Notes
+
       - name: 下载各平台安装包
         uses: actions/download-artifact@v4
         with:
@@ -103,11 +115,27 @@ jobs:
           echo "待发布安装包：${COUNT} 个"
           [ "$COUNT" -gt 0 ] || { echo "✗ 无任何安装包产物，取消发布" >&2; exit 1; }
 
+      # Release Notes 取 CHANGELOG.md 中本 tag 的手写段落（commit-convention §4），
+      # 不用 GitHub 自动生成（避免 "Full Changelog:" 链接样式）
+      - name: 提取本版更新说明
+        run: |
+          awk -v tag="${{ github.ref_name }}" '
+            $0 ~ "^## " tag "[ \t]*" { insec=1; next }
+            /^## v/ { insec=0 }
+            insec { print }
+          ' CHANGELOG.md > RELEASE_NOTES.md
+          if [ ! -s RELEASE_NOTES.md ]; then
+            echo "✗ CHANGELOG.md 未找到 ${{ github.ref_name }} 的更新说明" >&2
+            exit 1
+          fi
+          echo "----- RELEASE_NOTES.md -----"
+          cat RELEASE_NOTES.md
+
       - name: 发布 GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/**/*.dmg
             dist/**/*.exe
-          generate_release_notes: true
+          body_path: RELEASE_NOTES.md
           fail_on_unmatched_files: true
