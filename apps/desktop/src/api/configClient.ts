@@ -57,6 +57,17 @@ export interface ProviderCreateInput {
   apiKey?: string;
 }
 
+/**
+ * provider 部分更新输入：仅传需变更字段；
+ * apiKey 留空（不传）= 保留原 Key；kind/id 不可改（换类型请删除后重建）。
+ */
+export interface ProviderUpdateInput {
+  displayName?: string;
+  baseUrl?: string;
+  model?: string;
+  apiKey?: string;
+}
+
 export const TRIAL_PROVIDER_ID = "trial";
 
 /**
@@ -100,6 +111,13 @@ export const configApi = {
 
   createProvider: (body: ProviderCreateInput): Promise<ProviderSummary> =>
     request("/config/providers", { method: "POST", body: JSON.stringify(body) }),
+
+  /** 部分更新 provider（改模型信息/Key），返回更新后的摘要。 */
+  updateProvider: (id: string, body: ProviderUpdateInput): Promise<ProviderSummary> =>
+    request(`/config/providers/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
 
   deleteProvider: (id: string): Promise<void> =>
     request(`/config/providers/${encodeURIComponent(id)}`, { method: "DELETE" }),

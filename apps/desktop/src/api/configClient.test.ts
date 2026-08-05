@@ -50,6 +50,26 @@ describe("configApi", () => {
     expect(JSON.parse(init.body)).toMatchObject({ id: "deepseek", apiKey: "sk-x" });
   });
 
+  it("updateProvider PUT /config/providers/{id} 携带部分字段", async () => {
+    const fetchMock = mockFetch({ id: "deepseek", model: "deepseek-chat" });
+    const resp = await configApi.updateProvider("deepseek", {
+      model: "deepseek-chat",
+      apiKey: "sk-new",
+    });
+    expect(resp.model).toBe("deepseek-chat");
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://127.0.0.1:8199/config/providers/deepseek");
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body)).toMatchObject({ model: "deepseek-chat", apiKey: "sk-new" });
+  });
+
+  it("updateProvider 未传字段不出现在请求体（部分更新语义）", async () => {
+    const fetchMock = mockFetch({ id: "cloud" });
+    await configApi.updateProvider("cloud", { displayName: "云端" });
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body).toEqual({ displayName: "云端" });
+  });
+
   it("setDefault PUT /config/providers/{id}/default", async () => {
     const fetchMock = mockFetch({ defaultProvider: "ollama" });
     const resp = await configApi.setDefault("ollama");

@@ -18,6 +18,7 @@ const zhCN: StringTable = {
   "common.close": "关闭",
   "common.cancel": "取消",
   "common.save": "保存",
+  "common.edit": "编辑",
   "common.delete": "删除",
   "common.back": "返回",
 
@@ -50,6 +51,7 @@ const zhCN: StringTable = {
   "settings.languageEn": "English",
   "settings.feedbackUnreachable": "无法连接 sidecar 配置服务，请确认它正在运行",
   "settings.addedFeedback": "已添加「{name}」",
+  "settings.updatedFeedback": "已更新「{name}」，立即生效",
   "settings.testOk": "「{id}」连接成功 ✓",
   "settings.testFail": "「{id}」暂不可用：{hint}",
   "settings.unknownReason": "未知原因",
@@ -85,6 +87,7 @@ const zhCN: StringTable = {
   "providerForm.modelPlaceholderOllama": "如 qwen3:8b",
   "providerForm.modelPlaceholderOpenAi": "如 gpt-4o-mini",
   "providerForm.apiKey": "API Key（存入系统钥匙串，不落文件）",
+  "providerForm.apiKeyEditPlaceholder": "留空则保持原 Key 不变",
   "providerForm.saving": "保存中…",
 
   // 引导向导
@@ -137,6 +140,7 @@ const en: StringTable = {
   "common.close": "Close",
   "common.cancel": "Cancel",
   "common.save": "Save",
+  "common.edit": "Edit",
   "common.delete": "Delete",
   "common.back": "Back",
 
@@ -169,6 +173,7 @@ const en: StringTable = {
   "settings.languageEn": "English",
   "settings.feedbackUnreachable": "Cannot reach the sidecar config service. Is it running?",
   "settings.addedFeedback": "Added “{name}”",
+  "settings.updatedFeedback": "Updated “{name}” — effective immediately",
   "settings.testOk": "“{id}” connected ✓",
   "settings.testFail": "“{id}” unavailable: {hint}",
   "settings.unknownReason": "Unknown reason",
@@ -205,6 +210,7 @@ const en: StringTable = {
   "providerForm.modelPlaceholderOllama": "e.g. qwen3:8b",
   "providerForm.modelPlaceholderOpenAi": "e.g. gpt-4o-mini",
   "providerForm.apiKey": "API Key (stored in OS keychain, never in files)",
+  "providerForm.apiKeyEditPlaceholder": "Leave blank to keep the current key",
   "providerForm.saving": "Saving…",
 
   // Onboarding wizard

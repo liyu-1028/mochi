@@ -3,8 +3,8 @@
  *
  * 分组：
  * - 通用：界面语言（事实源在 sidecar config，切换即生效并持久化）；
- * - 模型：provider 列表 / 新增 / 连通性测试 / 设为默认 / 删除 / 试用模式。
- * 切换默认模型即热生效（sidecar registry 按回合解析），无需重启。
+ * - 模型：provider 列表 / 新增 / 编辑 / 连通性测试 / 设为默认 / 删除 / 试用模式。
+ * 切换默认模型、修改 provider 信息均即热生效（sidecar registry 按回合解析），无需重启。
  */
 import { useCallback, useEffect, useState } from "react";
 import { emit } from "@tauri-apps/api/event";
@@ -13,6 +13,7 @@ import {
   configApi,
   type ProviderCreateInput,
   type ProviderSummary,
+  type ProviderUpdateInput,
 } from "../api/configClient";
 import { useI18n } from "../i18n";
 import { EVENT_PROVIDERS_CHANGED } from "../panelWindow";
@@ -31,6 +32,8 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
   const [providers, setProviders] = useState<ProviderSummary[]>([]);
   const [defaultId, setDefaultId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+  /** 非 null 时表示表单处于编辑模式（修改已有 provider）。 */
+  const [editing, setEditing] = useState<ProviderSummary | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -54,13 +57,31 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
     void refresh();
   }, [refresh]);
 
-  async function handleCreate(input: ProviderCreateInput) {
-    await configApi.createProvider(input);
+  async function handleSubmit(input: ProviderCreateInput) {
+    if (editing) {
+      // 编辑模式：只提交可变字段（id/kind 锁定；apiKey 留空 = 保留原 Key）
+      const update: ProviderUpdateInput = {
+        displayName: input.displayName,
+        baseUrl: input.baseUrl,
+        model: input.model,
+        apiKey: input.apiKey,
+      };
+      await configApi.updateProvider(editing.id, update);
+      setFeedback(t("settings.updatedFeedback", { name: input.displayName }));
+    } else {
+      await configApi.createProvider(input);
+      setFeedback(t("settings.addedFeedback", { name: input.displayName }));
+      // provider 列表变化 → 主窗口重新探测设置状态（清除待设置提示）
+      void emit(EVENT_PROVIDERS_CHANGED);
+    }
     setShowForm(false);
-    setFeedback(t("settings.addedFeedback", { name: input.displayName }));
-    // provider 列表变化 → 主窗口重新探测设置状态（清除待设置提示）
-    void emit(EVENT_PROVIDERS_CHANGED);
+    setEditing(null);
     await refresh();
+  }
+
+  function closeForm() {
+    setShowForm(false);
+    setEditing(null);
   }
 
   async function handleTest(id: string) {
@@ -152,6 +173,17 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
               <div className="settings__item-actions">
                 <button
                   className="btn btn--ghost"
+                  disabled={showForm || busyId === p.id}
+                  onClick={() => {
+                    setEditing(p);
+                    setShowForm(true);
+                    setFeedback(null);
+                  }}
+                >
+                  {t("common.edit")}
+                </button>
+                <button
+                  className="btn btn--ghost"
                   disabled={busyId === p.id}
                   onClick={() => handleTest(p.id)}
                 >
@@ -176,9 +208,21 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
         </ul>
 
         {showForm ? (
-          <ProviderForm onSubmit={handleCreate} onCancel={() => setShowForm(false)} />
+          <ProviderForm
+            key={editing?.id ?? "__create__"}
+            initial={editing ?? undefined}
+            onSubmit={handleSubmit}
+            onCancel={closeForm}
+          />
         ) : (
-          <button className="btn" onClick={() => setShowForm(true)}>
+          <button
+            className="btn"
+            onClick={() => {
+              setEditing(null);
+              setShowForm(true);
+              setFeedback(null);
+            }}
+          >
             {t("settings.addProvider")}
           </button>
         )}

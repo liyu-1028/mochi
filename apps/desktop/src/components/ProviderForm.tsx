@@ -1,24 +1,32 @@
 /**
- * ProviderForm —— 新增模型提供方的极简表单（纯受控组件，无表单库）。
+ * ProviderForm —— 模型提供方的新增/编辑表单（纯受控组件，无表单库）。
+ *
+ * - 无 initial：新增模式，提交完整 ProviderCreateInput；
+ * - 有 initial：编辑模式，回填现有值；id 与类型锁定
+ *   （后端 PUT 不支持改 kind/id，换类型请删除后重建）；
+ *   API Key 留空 = 保留原 Key 不变。
  */
 import { useState, type FormEvent } from "react";
-import type { ProviderCreateInput, ProviderKind } from "../api/configClient";
+import type { ProviderCreateInput, ProviderKind, ProviderSummary } from "../api/configClient";
 import { useI18n } from "../i18n";
 
 interface ProviderFormProps {
+  /** 传入已有 provider 时进入编辑模式。 */
+  initial?: ProviderSummary;
   onSubmit: (input: ProviderCreateInput) => Promise<void>;
   onCancel: () => void;
 }
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9_-]*$/;
 
-export function ProviderForm({ onSubmit, onCancel }: ProviderFormProps) {
+export function ProviderForm({ initial, onSubmit, onCancel }: ProviderFormProps) {
   const { t } = useI18n();
-  const [kind, setKind] = useState<ProviderKind>("openai_compatible");
-  const [id, setId] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [baseUrl, setBaseUrl] = useState("");
-  const [model, setModel] = useState("");
+  const isEdit = initial !== undefined;
+  const [kind, setKind] = useState<ProviderKind>(initial?.kind ?? "openai_compatible");
+  const [id, setId] = useState(initial?.id ?? "");
+  const [displayName, setDisplayName] = useState(initial?.displayName ?? "");
+  const [baseUrl, setBaseUrl] = useState(initial?.baseUrl ?? "");
+  const [model, setModel] = useState(initial?.model ?? "");
   const [apiKey, setApiKey] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -29,7 +37,7 @@ export function ProviderForm({ onSubmit, onCancel }: ProviderFormProps) {
     e.preventDefault();
     setError(null);
 
-    if (!ID_PATTERN.test(id)) {
+    if (!isEdit && !ID_PATTERN.test(id)) {
       setError(t("providerForm.errId"));
       return;
     }
@@ -58,7 +66,11 @@ export function ProviderForm({ onSubmit, onCancel }: ProviderFormProps) {
     <form className="settings__form" onSubmit={handleSubmit}>
       <label className="settings__field">
         <span>{t("providerForm.kind")}</span>
-        <select value={kind} onChange={(e) => setKind(e.target.value as ProviderKind)}>
+        <select
+          value={kind}
+          onChange={(e) => setKind(e.target.value as ProviderKind)}
+          disabled={isEdit}
+        >
           <option value="openai_compatible">{t("providerForm.kindOpenAi")}</option>
           <option value="ollama">{t("providerForm.kindOllama")}</option>
           <option value="anthropic">{t("providerForm.kindAnthropic")}</option>
@@ -70,6 +82,7 @@ export function ProviderForm({ onSubmit, onCancel }: ProviderFormProps) {
           value={id}
           onChange={(e) => setId(e.target.value)}
           placeholder={t("providerForm.idPlaceholder")}
+          disabled={isEdit}
         />
       </label>
       <label className="settings__field">
@@ -107,7 +120,7 @@ export function ProviderForm({ onSubmit, onCancel }: ProviderFormProps) {
             type="password"
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
-            placeholder="sk-..."
+            placeholder={isEdit ? t("providerForm.apiKeyEditPlaceholder") : "sk-..."}
           />
         </label>
       ) : null}
