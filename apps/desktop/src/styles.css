@@ -410,18 +410,30 @@ body {
 }
 
 /* ---- 右键上下文菜单（M1-CTX）----
-   webview 自绘，风格对齐输入条卡片；尺寸与 CharacterMenu 的
-   MENU_WIDTH/MENU_HEIGHT clamp 常量保持一致。 */
+   webview 自绘，风格对齐输入条卡片。尺寸与 Mochi 窗口为百分比关系：
+   宽 50vw、高按内容撑开（估算 32vh），字号/内边距以 vw/vh 换算，
+   与 CharacterMenu.tsx 的 MENU_WIDTH_RATIO/MENU_HEIGHT_RATIO clamp
+   估算同源（320×400 下即 160×128），窗口尺寸变化时菜单等比缩放。 */
+
+/* 菜单打开期间的透明交互层：铺满窗口、位于菜单之下，
+   菜单外的按下/右键都由它接管并关闭菜单（CharacterMenu.tsx）。 */
+.character-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 59;
+  background: transparent;
+}
+
 .character-menu {
   position: fixed;
   z-index: 60;
-  min-width: 176px;
-  padding: 6px;
+  width: 50vw;
+  padding: 1.25vh;
   display: flex;
   flex-direction: column;
   background: rgba(255, 250, 247, 0.92);
   border: 1px solid #f3e3e7;
-  border-radius: 14px;
+  border-radius: 3vh;
   box-shadow: 0 8px 24px rgba(74, 63, 68, 0.2);
   backdrop-filter: blur(8px);
   outline: none;
@@ -430,20 +442,20 @@ body {
 
 .character-menu__divider {
   height: 1px;
-  margin: 4px 6px;
+  margin: 0.75vh 1.5625vw;
   background: #f3e3e7;
 }
 
 .character-menu__item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 1.5vh;
   width: 100%;
-  padding: 8px 10px;
+  padding: 1.75vh 3.125vw;
   border: none;
-  border-radius: 9px;
+  border-radius: 2vh;
   background: transparent;
-  font-size: 13px;
+  font-size: 3.25vh;
   color: var(--ink);
   text-align: left;
   cursor: pointer;
@@ -455,7 +467,7 @@ body {
 }
 
 .character-menu__icon {
-  width: 18px;
+  width: 4vh;
   text-align: center;
 }
 
