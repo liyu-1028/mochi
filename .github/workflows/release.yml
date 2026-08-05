@@ -95,19 +95,19 @@ jobs:
           path: dist
           merge-multiple: true
 
+      # upload-artifact 会保留 bundle/dmg、bundle/nsis 目录结构，递归查找
       - name: 校验产物（至少一个安装包）
         run: |
-          ls -la dist/ || true
-          shopt -s nullglob
-          files=(dist/*.dmg dist/*.exe)
-          echo "待发布安装包：${#files[@]} 个"
-          [ ${#files[@]} -gt 0 ] || { echo "✗ 无任何安装包产物，取消发布" >&2; exit 1; }
+          find dist -type f | sort
+          COUNT="$(find dist -type f \( -name '*.dmg' -o -name '*.exe' \) | wc -l | tr -d ' ')"
+          echo "待发布安装包：${COUNT} 个"
+          [ "$COUNT" -gt 0 ] || { echo "✗ 无任何安装包产物，取消发布" >&2; exit 1; }
 
       - name: 发布 GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/*.dmg
-            dist/*.exe
+            dist/**/*.dmg
+            dist/**/*.exe
           generate_release_notes: true
           fail_on_unmatched_files: true
