@@ -2,16 +2,19 @@
 /**
  * 生成系统托盘图标（功能清单 1.4，M1-S0）。
  *
- * 产物（提交入库，勿手工改像素）：
- * - apps/desktop/public/tray-icon-template.png —— macOS 菜单栏 template 图
- *   （纯黑 + alpha 轮廓，系统按深浅色自动着色）：带耳朵的团子剪影
- * - apps/desktop/public/tray-icon-color.png —— Windows 托盘用的彩色图标
- *   （直接复制 src-tauri/icons/32x32.png，保持与应用图标一致）
+ * 产物（提交入库，勿手工改）：
+ * - apps/desktop/src/trayIcons.ts —— 前端内联 base64（唯一运行时来源；
+ *   release 下 webview 走 tauri:// 资源协议，fetch 静态资源不可靠，故内联）
+ * - apps/desktop/public/tray-icon-*.png —— 预览/留档副本
+ *
+ * 图标语义：tray-icon-template 为 macOS 菜单栏 template 图
+ * （纯黑 + alpha 轮廓，系统按深浅色自动着色）：带耳朵的团子剪影；
+ * tray-icon-color 为其余平台托盘用的彩色应用图标。
  *
  * 用法：node scripts/make-tray-icon.mjs
  */
 import { deflateSync } from "node:zlib";
-import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -95,13 +98,29 @@ function encodePng(width, height, rgba) {
   ]);
 }
 
+const templatePng = encodePng(W, H, pixels);
 const templatePath = join(PUBLIC_DIR, "tray-icon-template.png");
-writeFileSync(templatePath, encodePng(W, H, pixels));
+writeFileSync(templatePath, templatePng);
 console.log(`✓ ${templatePath}`);
 
-// --- Windows 彩色图标：复用应用图标 ----------------------------------------
+// --- 其余平台彩色图标：复用应用图标 ----------------------------------------
 
 const colorSrc = join(ROOT, "apps", "desktop", "src-tauri", "icons", "32x32.png");
 const colorDst = join(PUBLIC_DIR, "tray-icon-color.png");
 copyFileSync(colorSrc, colorDst);
 console.log(`✓ ${colorDst}`);
+
+// --- 前端内联常量（运行时唯一来源）------------------------------------------
+
+const iconsTs = join(ROOT, "apps", "desktop", "src", "trayIcons.ts");
+writeFileSync(
+  iconsTs,
+  `/**
+ * 托盘图标内联 base64 —— 由 scripts/make-tray-icon.mjs 生成，勿手改。
+ * template：macOS 菜单栏剪影（系统按深浅色着色）；color：其余平台托盘图标。
+ */
+export const TRAY_ICON_TEMPLATE_B64 = "${templatePng.toString("base64")}";
+export const TRAY_ICON_COLOR_B64 = "${readFileSync(colorSrc).toString("base64")}";
+`,
+);
+console.log(`✓ ${iconsTs}`);

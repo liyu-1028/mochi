@@ -15,6 +15,14 @@ import { TrayIcon } from "@tauri-apps/api/tray";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { configApi } from "./api/configClient";
 import { translate, type Language } from "./i18n";
+import { TRAY_ICON_COLOR_B64, TRAY_ICON_TEMPLATE_B64 } from "./trayIcons";
+
+function base64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
 
 export const TRAY_ID = "mochi-tray";
 
@@ -40,10 +48,11 @@ export async function setupTray(
     await TrayIcon.removeById(TRAY_ID);
   }
 
-  // macOS 用 template 剪影（菜单栏跟随系统深浅色）；其余平台用彩色应用图标
+  // macOS 用 template 剪影（菜单栏跟随系统深浅色）；其余平台用彩色应用图标。
+  // 图标内联 base64：release 下 webview 走 tauri:// 资源协议，fetch 静态资源不可靠。
   const isMac = navigator.platform.toLowerCase().includes("mac");
-  const iconBytes = new Uint8Array(
-    await (await fetch(isMac ? "/tray-icon-template.png" : "/tray-icon-color.png")).arrayBuffer(),
+  const icon = await Image.fromBytes(
+    base64ToBytes(isMac ? TRAY_ICON_TEMPLATE_B64 : TRAY_ICON_COLOR_B64),
   );
 
   const t = (key: string) => translate(locale, key);
@@ -105,7 +114,7 @@ export async function setupTray(
   const menu = await Menu.new({ items: [showHide, openChat, mute, quit] });
   await TrayIcon.new({
     id: TRAY_ID,
-    icon: await Image.fromBytes(iconBytes),
+    icon,
     iconAsTemplate: isMac,
     tooltip: "Mochi",
     menu,
