@@ -4,6 +4,9 @@ import App from "./App";
 import { PanelShell } from "./components/PanelShell";
 import type { PanelId } from "./panelWindow";
 import "./styles.css";
+/* 面板/向导样式全局导入：桌面端由 PanelShell 窗口使用，浏览器 dev:web
+   的内联降级（App.tsx IS_TAURI 分支）同样需要 */
+import "./styles/settings.css";
 
 /** 面板窗口视图白名单（与 panelWindow.PanelId 一致）。 */
 const PANEL_IDS: readonly string[] = ["settings", "history", "skins", "onboarding"];

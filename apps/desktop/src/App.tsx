@@ -6,6 +6,8 @@
  * - 底部 dock 槽位：状态文案与输入条共享同一位置、互斥显示
  * - 上下文菜单（CharacterMenu）→ 打开面板独立窗口（PanelShell，屏幕居中，
  *   不再以遮罩层挤在角色窗口内）
+ * - 浏览器环境（dev:web 等无 Tauri runtime）无法建独立窗口，面板与
+ *   引导向导降级为窗口内内联模态（IS_TAURI 分支）
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
@@ -13,13 +15,25 @@ import { configApi } from "./api/configClient";
 import { CharacterMenu, type MenuItemId } from "./components/CharacterMenu";
 import { CharacterStage } from "./components/CharacterStage";
 import { ChatToggle } from "./components/ChatToggle";
+import { HistoryPanel } from "./components/HistoryPanel";
+import { OnboardingWizard } from "./components/OnboardingWizard";
+import { SettingsPanel } from "./components/SettingsPanel";
+import { SkinsPanel } from "./components/SkinsPanel";
 import { SpeechBubbleArea } from "./components/SpeechBubbleArea";
 import { resolveWsUrl, useMochiConnection } from "./hooks/useMochiConnection";
 import { useSettingsHydration } from "./hooks/useSettingsHydration";
 import { useSidecarStatus } from "./hooks/useSidecarStatus";
 import { useI18n } from "./i18n";
-import { EVENT_ONBOARDING_DONE, EVENT_PROVIDERS_CHANGED, openPanelWindow } from "./panelWindow";
+import {
+  EVENT_ONBOARDING_DONE,
+  EVENT_PROVIDERS_CHANGED,
+  openPanelWindow,
+  type PanelId,
+} from "./panelWindow";
 import { useConversation } from "./store/conversation";
+
+/** 是否运行于 Tauri 桌面 runtime（dev:web 等浏览器环境无此对象）。 */
+const IS_TAURI = "__TAURI_INTERNALS__" in window;
 
 export default function App() {
   const { sendText, cancelRun } = useMochiConnection(resolveWsUrl());
@@ -30,6 +44,8 @@ export default function App() {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   // 输入框开关上提到 App：点击角色唤起（CharacterStage.onActivate）
   const [chatOpen, setChatOpen] = useState(false);
+  // 浏览器环境（无 Tauri runtime）的面板内联降级状态；桌面端恒为 null
+  const [inlinePanel, setInlinePanel] = useState<PanelId | null>(null);
   // 初始设置状态：null = 尚未探测；false = 明确未完成（状态栏提示）；true = 完成
   const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null);
   // 会话内只自动弹一次引导窗：用户关掉后改用状态栏提示，不反复打扰
@@ -60,7 +76,12 @@ export default function App() {
         setOnboardingDone(false);
         if (!onboardingPrompted.current) {
           onboardingPrompted.current = true;
-          await openPanelWindow("onboarding");
+          // 桌面端弹独立窗口；浏览器环境降级为窗口内内联向导
+          if (IS_TAURI) {
+            await openPanelWindow("onboarding");
+          } else {
+            setInlinePanel("onboarding");
+          }
         }
       }
     } catch {
@@ -87,7 +108,11 @@ export default function App() {
 
   const handleMenuSelect = (item: MenuItemId) => {
     setMenu(null);
-    void openPanelWindow(item);
+    if (IS_TAURI) {
+      void openPanelWindow(item);
+    } else {
+      setInlinePanel(item); // 浏览器环境内联降级（dev:web）
+    }
   };
 
   return (
@@ -135,6 +160,27 @@ export default function App() {
           onSelect={handleMenuSelect}
           onClose={() => setMenu(null)}
         />
+      ) : null}
+
+      {/* 浏览器环境（无 Tauri runtime，dev:web）内联降级：面板与向导以模态
+          渲染在本窗口内；桌面端走独立窗口，此分支恒不渲染 */}
+      {!IS_TAURI && inlinePanel === "onboarding" ? (
+        <OnboardingWizard
+          onDone={() => {
+            setInlinePanel(null);
+            setOnboardingDone(true);
+          }}
+          onOpenSettings={() => setInlinePanel("settings")}
+        />
+      ) : null}
+      {!IS_TAURI && inlinePanel === "settings" ? (
+        <SettingsPanel onClose={() => setInlinePanel(null)} />
+      ) : null}
+      {!IS_TAURI && inlinePanel === "history" ? (
+        <HistoryPanel onClose={() => setInlinePanel(null)} />
+      ) : null}
+      {!IS_TAURI && inlinePanel === "skins" ? (
+        <SkinsPanel onClose={() => setInlinePanel(null)} />
       ) : null}
     </main>
   );

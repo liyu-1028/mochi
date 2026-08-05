@@ -10,7 +10,7 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useSettingsHydration } from "../hooks/useSettingsHydration";
 import { EVENT_ONBOARDING_DONE, EVENT_PANEL_NAVIGATE, type PanelId } from "../panelWindow";
-import "../styles/settings.css";
+/* settings.css 由 main.tsx 全局导入（App 内联降级与 PanelShell 共用） */
 import { HistoryPanel } from "./HistoryPanel";
 import { OnboardingWizard } from "./OnboardingWizard";
 import { SettingsPanel } from "./SettingsPanel";
