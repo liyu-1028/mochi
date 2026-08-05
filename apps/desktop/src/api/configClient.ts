@@ -38,6 +38,16 @@ export interface ProviderTestResult {
   hint?: string;
 }
 
+/** [voice] 视图（M1-S0 托盘静音；S2 TTS 设置复用）。 */
+export interface VoiceSettings {
+  ttsEnabled: boolean;
+  engine: "edge" | "local";
+  voiceId: string;
+  volume: number;
+  rate: number;
+  muted: boolean;
+}
+
 export interface ProviderCreateInput {
   id: string;
   kind: ProviderKind;
@@ -101,6 +111,12 @@ export const configApi = {
     request(`/config/providers/${encodeURIComponent(id)}/test`, { method: "POST" }),
 
   ollamaStatus: (): Promise<OllamaStatus> => request("/config/providers/ollama-status"),
+
+  getVoice: (): Promise<VoiceSettings> => request("/config/voice"),
+
+  /** 部分更新 [voice]（托盘静音等），返回更新后的 voice。 */
+  putVoice: (body: Partial<VoiceSettings>): Promise<VoiceSettings> =>
+    request("/config/voice", { method: "PUT", body: JSON.stringify(body) }),
 };
 
 // ---------------------------------------------------------------------------

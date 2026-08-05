@@ -10,6 +10,14 @@
     "core:webview:allow-create-webview-window",
     "core:window:allow-close",
     "core:window:allow-set-focus",
-    "window-state:default"
+    "window-state:default",
+    "core:window:allow-hide",
+    "core:window:allow-show",
+    "core:window:allow-is-visible",
+    "core:tray:allow-new",
+    "core:tray:allow-get-by-id",
+    "core:tray:allow-remove-by-id",
+    "core:menu:default",
+    "core:image:default"
   ]
 }

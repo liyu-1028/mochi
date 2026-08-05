@@ -3,13 +3,18 @@
 //! 窗口拖拽走前端 `data-tauri-drag-region` 声明式方案（见 App.tsx 角色舞台），
 //! 位置记忆由 tauri-plugin-window-state 持久化（功能清单 1.3）。
 //!
-//! TODO(M1)：系统托盘菜单（功能清单 1.4）
+//! 系统托盘菜单（功能清单 1.4）经前端 JS API 构建（src/tray.ts，i18n 共享），
+//! Rust 面仅监听退出事件（RunEvent::Exit 回收 sidecar，ADR-0001）。
 
 mod runtime;
 mod sidecar;
 
 use sidecar::SidecarState;
-use tauri::{Manager, RunEvent};
+use tauri::{Listener, Manager, RunEvent};
+
+/// 托盘「退出 Mochi」事件：前端 emit，Rust 监听后退出（无需命令 ACL）。
+/// app.exit 触发 RunEvent::Exit，走既有 sidecar 回收路径。
+const TRAY_QUIT_EVENT: &str = "mochi:tray-quit";
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -24,6 +29,10 @@ pub fn run() {
         )
         .manage(SidecarState::new())
         .setup(|app| {
+            // 托盘「退出 Mochi」：前端 emit 事件（无命令 ACL 负担，ADR-0001）
+            let quit_handle = app.handle().clone();
+            app.listen(TRAY_QUIT_EVENT, move |_event| quit_handle.exit(0));
+
             // 窗口尺寸以 tauri.conf.json 为唯一事实源：tauri-plugin-window-state
             // 会恢复旧版本保存的尺寸，布局改版后需强制覆盖（位置记忆保留，
             // min/max 约束同时兜底），保证气泡/角色布局对齐。

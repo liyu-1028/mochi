@@ -178,6 +178,50 @@ def test_update_general_empty_body_keeps_defaults(client):
 
 
 # ---------------------------------------------------------------------------
+# [voice] 读写（M1-S0 托盘静音）
+# ---------------------------------------------------------------------------
+
+
+def test_get_voice_returns_camel_case_defaults(client):
+    resp = client.get("/config/voice")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ttsEnabled"] is True
+    assert data["engine"] == "edge"
+    assert data["voiceId"] == "zh-CN-XiaoxiaoNeural"
+    assert data["volume"] == 1.0
+    assert data["rate"] == 1.0
+    assert data["muted"] is False
+
+
+def test_put_voice_muted_persists(client):
+    resp = client.put("/config/voice", json={"muted": True})
+    assert resp.status_code == 200
+    assert resp.json()["muted"] is True
+    assert client.app.state.registry.config.voice.muted is True
+    # 原子落盘：重新从磁盘读取仍在
+    on_disk = load_config(client.app.state.config_path)
+    assert on_disk.voice.muted is True
+
+
+def test_put_voice_partial_update_keeps_others(client):
+    resp = client.put("/config/voice", json={"volume": 0.5})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["volume"] == 0.5
+    assert data["muted"] is False  # 未传字段不变
+    assert data["voiceId"] == "zh-CN-XiaoxiaoNeural"
+
+
+def test_put_voice_out_of_range_rejected(client):
+    resp = client.put("/config/voice", json={"volume": 1.5})
+    assert resp.status_code == 422
+    assert client.app.state.registry.config.voice.volume == 1.0
+    resp = client.put("/config/voice", json={"engine": "piper"})
+    assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
 # 连通性测试与 Ollama 状态
 # ---------------------------------------------------------------------------
 

@@ -32,6 +32,8 @@ import {
   type PanelId,
 } from "./panelWindow";
 import { useConversation } from "./store/conversation";
+import { useSettings } from "./store/settings";
+import { setupTray } from "./tray";
 
 /** 是否运行于 Tauri 桌面 runtime（dev:web 等浏览器环境无此对象）。 */
 const IS_TAURI = "__TAURI_INTERNALS__" in window;
@@ -61,6 +63,27 @@ export default function App() {
 
   // 语言设置事实源在 sidecar config；启动时同步，sidecar 未就绪则重试数次
   useSettingsHydration();
+
+  // 系统托盘（1.4）：菜单文案随语言切换重建（setupTray 幂等）；
+  // 非 Tauri 环境整体 no-op
+  const locale = useSettings((s) => s.language);
+  useEffect(() => {
+    if (!IS_TAURI) return;
+    let cancelled = false;
+    let teardown: (() => void) | null = null;
+    void setupTray(locale, { openChat: () => setChatOpen(true) })
+      .then((dispose) => {
+        if (cancelled) dispose?.();
+        else teardown = dispose;
+      })
+      .catch((err) => {
+        console.error("[mochi] 托盘初始化失败：", err);
+      });
+    return () => {
+      cancelled = true;
+      teardown?.();
+    };
+  }, [locale]);
 
   // 面板窗口完成初始设置（一键 Ollama / 试用模式）后同步状态
   useEffect(() => {

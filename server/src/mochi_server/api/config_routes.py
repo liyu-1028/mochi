@@ -11,8 +11,10 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Callable
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import Field
 
 from ..agent.ollama_probe import probe_ollama
 from ..agent.registry import ProviderRegistry
@@ -80,6 +82,32 @@ class GeneralUpdate(CamelModel):
     """[general] 部分更新（M1-CTX）：仅传入需要变更的字段。"""
 
     language: Language | None = None
+
+
+class VoiceUpdate(CamelModel):
+    """[voice] 部分更新（M1-S0 托盘静音；S2 TTS 设置）：仅传入需变更字段。"""
+
+    tts_enabled: bool | None = None
+    engine: Literal["edge", "local"] | None = None
+    voice_id: str | None = None
+    volume: float | None = Field(default=None, ge=0.0, le=1.0)
+    rate: float | None = Field(default=None, ge=0.5, le=2.0)
+    muted: bool | None = None
+
+
+class VoiceView(CamelModel):
+    """[voice] 当前值视图（camelCase 响应）。"""
+
+    tts_enabled: bool
+    engine: Literal["edge", "local"]
+    voice_id: str
+    volume: float
+    rate: float
+    muted: bool
+
+
+def _voice_view(config: AppConfig) -> dict:
+    return VoiceView.model_validate(config.voice.model_dump()).model_dump(by_alias=True)
 
 
 # ---------------------------------------------------------------------------
@@ -292,6 +320,41 @@ async def update_general(body: GeneralUpdate, request: Request) -> dict:
     new_config = _apply(registry, _config_path(request), mutate)
     logger.info("更新通用设置：language=%s", new_config.general.language)
     return new_config.general.model_dump(mode="json", by_alias=True)
+
+
+@router.get("/voice")
+async def get_voice(request: Request) -> dict:
+    """[voice] 当前值（M1-S0：托盘静音读写；S2 TTS 设置面板复用）。"""
+    registry = _registry(request)
+    return _voice_view(registry.config)
+
+
+@router.put("/voice")
+async def update_voice(body: VoiceUpdate, request: Request) -> dict:
+    """更新 [voice]：pydantic 校验 → 原子落盘 → 返回最新 voice。"""
+    registry = _registry(request)
+
+    def mutate(config: AppConfig) -> None:
+        if body.tts_enabled is not None:
+            config.voice.tts_enabled = body.tts_enabled
+        if body.engine is not None:
+            config.voice.engine = body.engine
+        if body.voice_id is not None:
+            config.voice.voice_id = body.voice_id
+        if body.volume is not None:
+            config.voice.volume = body.volume
+        if body.rate is not None:
+            config.voice.rate = body.rate
+        if body.muted is not None:
+            config.voice.muted = body.muted
+
+    new_config = _apply(registry, _config_path(request), mutate)
+    logger.info(
+        "更新语音设置：muted=%s tts_enabled=%s",
+        new_config.voice.muted,
+        new_config.voice.tts_enabled,
+    )
+    return _voice_view(new_config)
 
 
 @router.post("/providers/{provider_id}/test")

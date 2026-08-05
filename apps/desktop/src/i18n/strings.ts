@@ -124,6 +124,12 @@ const zhCN: StringTable = {
   "character.emotion.surprised": "惊讶",
   "character.emotion.embarrassed": "害羞",
   "character.emotion.angry": "生气",
+
+  // 系统托盘（功能清单 1.4）
+  "tray.showHide": "显示 / 隐藏 Mochi",
+  "tray.openChat": "打开对话",
+  "tray.mute": "静音",
+  "tray.quit": "退出 Mochi",
 };
 
 const en: StringTable = {
@@ -238,6 +244,12 @@ const en: StringTable = {
   "character.emotion.surprised": "Surprised",
   "character.emotion.embarrassed": "Embarrassed",
   "character.emotion.angry": "Angry",
+
+  // System tray (feature list 1.4)
+  "tray.showHide": "Show / Hide Mochi",
+  "tray.openChat": "Open Chat",
+  "tray.mute": "Mute",
+  "tray.quit": "Quit Mochi",
 };
 
 export const STRINGS: Record<Language, StringTable> = { "zh-CN": zhCN, en };
