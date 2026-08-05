@@ -6,6 +6,7 @@ import pytest
 
 from mochi_server.agent import (
     AgentError,
+    AnthropicAdapter,
     EchoAgentService,
     LLMAgentService,
     ProviderRegistry,
@@ -73,12 +74,21 @@ def test_missing_key_raises_agent_error_not_crash(key_store):
         registry.current_agent()
 
 
-def test_anthropic_placeholder_raises_friendly_error(key_store):
+def test_anthropic_resolves_to_llm_agent(key_store):
+    """M1-S0（ADR-0002 D1）：Anthropic 接入，独立适配器。"""
+    key_store.set_key("claude", "sk-ant-test")
     cfg = ModelProviderConfig(kind="anthropic", display_name="Claude", model="claude-sonnet-4")
     registry = ProviderRegistry(_config("claude", {"claude": cfg}), key_store)
-    with pytest.raises(AgentError) as exc_info:
+    agent = registry.current_agent()
+    assert isinstance(agent, LLMAgentService)
+    assert isinstance(agent.adapter, AnthropicAdapter)
+
+
+def test_anthropic_missing_key_raises_agent_error_not_crash(key_store):
+    cfg = ModelProviderConfig(kind="anthropic", display_name="Claude", model="claude-sonnet-4")
+    registry = ProviderRegistry(_config("claude", {"claude": cfg}), key_store)
+    with pytest.raises(AgentError):
         registry.current_agent()
-    assert "M1" in (exc_info.value.payload.hint or "")
 
 
 @pytest.mark.asyncio

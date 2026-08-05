@@ -6,7 +6,7 @@
 解析规则：
 - ``trial`` → EchoAgentService（试用模式，功能清单 1.5）
 - ``ollama`` / ``openai_compatible`` → LLMAgentService(OpenAICompatibleAdapter)
-- ``anthropic`` → 解析期 AgentError（M1 实现，友好提示而非崩溃）
+- ``anthropic`` → LLMAgentService(AnthropicAdapter)（M1-S0，ADR-0002 D1）
 - default_provider 引用缺失 → 回退试用模式（可用性优先）
 """
 
@@ -15,10 +15,9 @@ from __future__ import annotations
 import logging
 
 from ..config import TRIAL_PROVIDER_ID, AppConfig, ModelProviderConfig
-from ..events import ErrorCode, ErrorPayload
 from ..secrets import KeyStore
 from ..store import SessionStore
-from .adapters import OpenAICompatibleAdapter
+from .adapters import AnthropicAdapter, OpenAICompatibleAdapter
 from .echo_agent import EchoAgentService
 from .errors import AgentError
 from .llm_agent import LLMAgentService
@@ -81,17 +80,11 @@ class ProviderRegistry:
         return agent
 
     def _build_agent(self, provider_id: str, cfg: ModelProviderConfig) -> AgentService:
-        if cfg.kind == "anthropic":
-            raise AgentError(
-                ErrorPayload(
-                    code=ErrorCode.MODEL_UNAVAILABLE,
-                    message="Anthropic 支持还在路上",
-                    retryable=False,
-                    hint="M1 版本将接入 Anthropic；请先选用 OpenAI 兼容接口或 Ollama",
-                )
-            )
         # 缺 Key 等构造期问题在此抛 AgentError，由 RunManager 转为 run.error
-        adapter = OpenAICompatibleAdapter(provider_id, cfg, self._key_store)
+        if cfg.kind == "anthropic":
+            adapter = AnthropicAdapter(provider_id, cfg, self._key_store)
+        else:
+            adapter = OpenAICompatibleAdapter(provider_id, cfg, self._key_store)
         return LLMAgentService(adapter, store=self._store)
 
     # -- 连通性测试（功能清单 7.2） ------------------------------------------
@@ -102,10 +95,11 @@ class ProviderRegistry:
         cfg = self._config.model.providers.get(provider_id)
         if cfg is None:
             return False, f"提供方 {provider_id} 不存在"
-        if cfg.kind == "anthropic":
-            return False, "Anthropic 支持将在 M1 版本接入"
         try:
-            adapter = OpenAICompatibleAdapter(provider_id, cfg, self._key_store)
+            if cfg.kind == "anthropic":
+                adapter = AnthropicAdapter(provider_id, cfg, self._key_store)
+            else:
+                adapter = OpenAICompatibleAdapter(provider_id, cfg, self._key_store)
         except AgentError as exc:
             return False, exc.payload.hint or exc.payload.message
         return await adapter.ping()

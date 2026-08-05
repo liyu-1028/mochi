@@ -1,6 +1,6 @@
-"""Agent 认知核心（M0-S1 echo 桩 → M0-S2 真实模型适配层）。"""
+"""Agent 认知核心（M0-S1 echo 桩 → M0-S2 真实模型适配层 → M1-S0 Anthropic）。"""
 
-from .adapters import OpenAICompatibleAdapter, ProviderAdapter
+from .adapters import AnthropicAdapter, OpenAICompatibleAdapter, ProviderAdapter
 from .echo_agent import EchoAgentService
 from .errors import AgentError
 from .llm_agent import LLMAgentService
@@ -14,6 +14,7 @@ __all__ = [
     "AgentError",
     "AgentEvent",
     "AgentService",
+    "AnthropicAdapter",
     "EchoAgentService",
     "LLMAgentService",
     "OllamaProbeResult",

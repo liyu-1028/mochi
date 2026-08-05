@@ -1,22 +1,23 @@
-"""OpenAI 兼容适配器：一个实现覆盖 OpenAI 兼容接口 + Ollama /v1（ADR-0002 D1）。
+"""Anthropic 适配器（M1-S0，ADR-0002 D1 补齐）。
 
-Ollama 特化（已知边界，ADR-0002「Ollama 已知边界差异」）：
-- api_key 用占位符（AsyncOpenAI 要求非空）；
-- base_url 自动补 ``/v1`` 后缀；
-- context overflow 可能不走 HTTP 状态码而是 chunk 内 error 字段 → 防御性检测。
+与 OpenAI 兼容接口差异大到不值得强行统一（ADR-0002 D1），独立实现：
+
+- system prompt 是 ``messages.create`` 的顶层参数，不混在 messages 里；
+- 流式事件模型不同：``content_block_delta`` 携带 ``text_delta`` /
+  ``thinking_delta`` 两类增量——thinking 直接映射为协议 thinking.* 的源；
+- 异常体系独立（同为 stainless 生成，类名与 OpenAI 系对齐但互不兼容）。
 """
 
 from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
-from typing import Any
 
-from openai import (
+from anthropic import (
     APIConnectionError,
     APIStatusError,
     APITimeoutError,
-    AsyncOpenAI,
+    AsyncAnthropic,
     AuthenticationError,
     BadRequestError,
     NotFoundError,
@@ -24,7 +25,7 @@ from openai import (
     RateLimitError,
 )
 
-from ...config import OLLAMA_DEFAULT_BASE_URL, ModelProviderConfig
+from ...config import ModelProviderConfig
 from ...events import ErrorCode, ErrorPayload
 from ...secrets import KeyStore
 from ..errors import AgentError
@@ -32,13 +33,13 @@ from .base import ChatMessage, ProviderAdapter, StreamKind
 
 logger = logging.getLogger(__name__)
 
-OLLAMA_API_KEY_PLACEHOLDER = "ollama"
-_OLLAMA_V1_SUFFIX = "/v1"
 _REQUEST_TIMEOUT_SECONDS = 60.0
+# Anthropic 必填 max_tokens：对话回复 1024 足够，长文场景后续按模型配置放开
+_DEFAULT_MAX_TOKENS = 1024
 
 
-class OpenAICompatibleAdapter(ProviderAdapter):
-    """AsyncOpenAI 封装：流式对话 + 连通性测试 + 异常翻译。"""
+class AnthropicAdapter(ProviderAdapter):
+    """AsyncAnthropic 封装：流式对话（含 thinking 流）+ 连通性测试 + 异常翻译。"""
 
     def __init__(
         self,
@@ -46,7 +47,7 @@ class OpenAICompatibleAdapter(ProviderAdapter):
         cfg: ModelProviderConfig,
         key_store: KeyStore,
         *,
-        client: AsyncOpenAI | None = None,
+        client: AsyncAnthropic | None = None,
     ) -> None:
         self._provider_id = provider_id
         self._cfg = cfg
@@ -57,26 +58,23 @@ class OpenAICompatibleAdapter(ProviderAdapter):
     @staticmethod
     def _build_client(
         provider_id: str, cfg: ModelProviderConfig, key_store: KeyStore
-    ) -> AsyncOpenAI:
-        if cfg.kind == "ollama":
-            api_key = OLLAMA_API_KEY_PLACEHOLDER
-            base_url = _ollama_v1_url(cfg.base_url)
-        else:
-            api_key_value = key_store.get_key(provider_id)
-            if not api_key_value:
-                raise AgentError(
-                    ErrorPayload(
-                        code=ErrorCode.MODEL_AUTH,
-                        message="尚未配置 API Key",
-                        retryable=False,
-                        hint=f"请在设置中为「{cfg.display_name}」填入 API Key",
-                    )
+    ) -> AsyncAnthropic:
+        api_key = key_store.get_key(provider_id)
+        if not api_key:
+            raise AgentError(
+                ErrorPayload(
+                    code=ErrorCode.MODEL_AUTH,
+                    message="尚未配置 API Key",
+                    retryable=False,
+                    hint=f"请在设置中为「{cfg.display_name}」填入 API Key",
                 )
-            api_key = api_key_value
-            base_url = cfg.base_url  # None → SDK 默认 OpenAI 官方端点
+            )
         # max_retries=0：错误即时翻译给用户（重试交由协议 retryable 语义）
-        return AsyncOpenAI(
-            api_key=api_key, base_url=base_url, max_retries=0, timeout=_REQUEST_TIMEOUT_SECONDS
+        return AsyncAnthropic(
+            api_key=api_key,
+            base_url=cfg.base_url,  # None → SDK 默认官方端点
+            max_retries=0,
+            timeout=_REQUEST_TIMEOUT_SECONDS,
         )
 
     # -- ProviderAdapter -----------------------------------------------------
@@ -84,30 +82,30 @@ class OpenAICompatibleAdapter(ProviderAdapter):
     async def stream_chat(
         self, messages: list[ChatMessage], *, run_id: str
     ) -> AsyncIterator[tuple[StreamKind, str]]:
+        system_text, chat_messages = _split_system(messages)
         try:
-            stream = await self._client.chat.completions.create(
+            async with self._client.messages.stream(
                 model=self._cfg.model,
-                messages=messages,
-                stream=True,
-                # 不传 stream_options 等扩展字段：Ollama /v1 兼容层支持滞后
-            )
-            async for chunk in stream:
-                chunk_error = _chunk_error_text(chunk)
-                if chunk_error:
-                    raise _translate_chunk_error(chunk_error, model=self._cfg.model)
-                if not chunk.choices:
-                    continue
-                content = chunk.choices[0].delta.content
-                if content:
-                    # OpenAI 兼容接口无独立推理流：恒为正文增量
-                    yield "text", content
+                max_tokens=_DEFAULT_MAX_TOKENS,
+                system=system_text or None,
+                messages=chat_messages,
+            ) as stream:
+                async for event in stream:
+                    if getattr(event, "type", None) != "content_block_delta":
+                        continue
+                    delta = event.delta
+                    kind = getattr(delta, "type", None)
+                    if kind == "text_delta" and getattr(delta, "text", ""):
+                        yield "text", delta.text
+                    elif kind == "thinking_delta" and getattr(delta, "thinking", ""):
+                        yield "thinking", delta.thinking
         except AgentError:
             raise
         except Exception as exc:  # 适配层职责即收敛一切异常为 AgentError
             raise _translate_sdk_error(exc, model=self._cfg.model) from exc
 
     async def ping(self) -> tuple[bool, str]:
-        """以最小补全请求验证 端点可达 + Key 有效 + 模型存在。"""
+        """以最小请求验证 端点可达 + Key 有效 + 模型存在。"""
         try:
             async for _chunk in self.stream_chat(
                 [{"role": "user", "content": "ping"}], run_id="ping"
@@ -119,51 +117,29 @@ class OpenAICompatibleAdapter(ProviderAdapter):
 
 
 # ---------------------------------------------------------------------------
-# Ollama 特化辅助
+# 消息形态转换
 # ---------------------------------------------------------------------------
 
 
-def _ollama_v1_url(base_url: str | None) -> str:
-    url = (base_url or OLLAMA_DEFAULT_BASE_URL).rstrip("/")
-    return url if url.endswith(_OLLAMA_V1_SUFFIX) else url + _OLLAMA_V1_SUFFIX
-
-
-def _chunk_error_text(chunk: Any) -> str | None:
-    """防御性检测流内 error 字段（Ollama 部分错误不走 HTTP 状态码）。"""
-    extra = getattr(chunk, "model_extra", None)
-    error = (extra or {}).get("error") if isinstance(extra, dict) else None
-    if error is None:
-        error = getattr(chunk, "error", None)
-    if error is None:
-        return None
-    if isinstance(error, dict):
-        return str(error.get("message") or error)
-    return str(error)
-
-
-def _translate_chunk_error(message: str, *, model: str) -> AgentError:
-    lowered = message.lower()
-    if "context" in lowered or "token" in lowered:
-        return AgentError(
-            ErrorPayload(
-                code=ErrorCode.CONTEXT_OVERFLOW,
-                message="对话过长，模型装不下了",
-                retryable=False,
-                hint="请新开会话，或换上下文更大的模型",
-            )
-        )
-    return AgentError(
-        ErrorPayload(
-            code=ErrorCode.MODEL_UNAVAILABLE,
-            message=f"模型 {model} 返回了错误",
-            retryable=True,
-            hint=message,
-        )
-    )
+def _split_system(
+    messages: list[ChatMessage],
+) -> tuple[str, list[ChatMessage]]:
+    """拆出 system（顶层参数）；合并连续同角色消息（Anthropic 要求角色交替）。"""
+    system_parts: list[str] = []
+    chat: list[ChatMessage] = []
+    for msg in messages:
+        if msg["role"] == "system":
+            system_parts.append(msg["content"])
+            continue
+        if chat and chat[-1]["role"] == msg["role"]:
+            chat[-1] = {"role": msg["role"], "content": chat[-1]["content"] + "\n" + msg["content"]}
+        else:
+            chat.append({"role": msg["role"], "content": msg["content"]})
+    return "\n\n".join(system_parts), chat
 
 
 # ---------------------------------------------------------------------------
-# SDK 异常 → 协议错误码映射（协议文档 §7；文案要求见功能清单 6.7）
+# SDK 异常 → 协议错误码映射（与 openai_compat 对齐；协议文档 §7）
 # ---------------------------------------------------------------------------
 
 
@@ -193,7 +169,7 @@ def _translate_sdk_error(exc: Exception, *, model: str) -> AgentError:
                 code=ErrorCode.MODEL_UNAVAILABLE,
                 message=f"模型 {model} 不存在",
                 retryable=False,
-                hint="请检查模型名称；Ollama 用户可先执行 ollama pull 拉取模型",
+                hint="请检查模型名称是否正确",
             )
         )
     if isinstance(exc, RateLimitError):  # 429
@@ -220,7 +196,7 @@ def _translate_sdk_error(exc: Exception, *, model: str) -> AgentError:
                 code=ErrorCode.NETWORK,
                 message="无法连接到模型服务",
                 retryable=True,
-                hint="请检查网络；本地模型请确认服务已启动",
+                hint="请检查网络连接",
             )
         )
     if isinstance(exc, BadRequestError):  # 400
@@ -250,7 +226,6 @@ def _translate_sdk_error(exc: Exception, *, model: str) -> AgentError:
                 hint="服务端繁忙，请稍后再试",
             )
         )
-    # 兜底前的最后甄别：部分后端（如 Ollama）把 context overflow 以裸异常形式抛出
     if _looks_like_context_overflow(str(exc)):
         return AgentError(
             ErrorPayload(
@@ -272,4 +247,7 @@ def _translate_sdk_error(exc: Exception, *, model: str) -> AgentError:
 
 def _looks_like_context_overflow(text: str) -> bool:
     lowered = text.lower()
-    return any(k in lowered for k in ("context_length", "context length", "maximum context"))
+    return any(
+        k in lowered
+        for k in ("context_length", "context length", "maximum context", "prompt is too long")
+    )

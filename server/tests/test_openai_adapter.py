@@ -74,7 +74,8 @@ def _make_adapter(
     return OpenAICompatibleAdapter("test", cfg, KeyStore(), client=client)
 
 
-async def _collect(adapter: OpenAICompatibleAdapter) -> list[str]:
+async def _collect(adapter: OpenAICompatibleAdapter) -> list[tuple[str, str]]:
+    """收集 (kind, delta) 增量流；OpenAI 兼容接口恒为 ("text", ...)。"""
     return [d async for d in adapter.stream_chat([{"role": "user", "content": "你好"}], run_id="r")]
 
 
@@ -91,7 +92,7 @@ async def test_stream_yields_deltas() -> None:
         )
 
     deltas = await _collect(_make_adapter(handler))
-    assert deltas == ["你好，", "我是 Mochi"]
+    assert deltas == [("text", "你好，"), ("text", "我是 Mochi")]
 
 
 @pytest.mark.asyncio
@@ -106,7 +107,7 @@ async def test_stream_skips_empty_choices() -> None:
         }
         return _streaming_response(body=_sse(no_choices, _chunk("有效内容")))
 
-    assert await _collect(_make_adapter(handler)) == ["有效内容"]
+    assert await _collect(_make_adapter(handler)) == [("text", "有效内容")]
 
 
 # ---------------------------------------------------------------------------

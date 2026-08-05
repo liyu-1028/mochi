@@ -25,9 +25,11 @@ class _RecordingAdapter(ProviderAdapter):
         self._reply = reply
         self.last_messages: list[ChatMessage] | None = None
 
-    async def stream_chat(self, messages: list[ChatMessage], *, run_id: str) -> AsyncIterator[str]:
+    async def stream_chat(
+        self, messages: list[ChatMessage], *, run_id: str
+    ) -> AsyncIterator[tuple[str, str]]:
         self.last_messages = messages
-        yield self._reply
+        yield "text", self._reply
 
     async def ping(self) -> tuple[bool, str]:
         return True, "ok"

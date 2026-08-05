@@ -1,9 +1,12 @@
 """LLMAgentService —— 真实 LLM 的 AgentService 实现（M0-S2，M1-S1 接多轮）。
 
-把 ProviderAdapter 的文本流包装为协议 v0.1 事件序列（§8.1 普通回合时序），
+把 ProviderAdapter 的增量流包装为协议 v0.1 事件序列（§8.1 普通回合时序），
 与 EchoAgentService 同构：RunManager 对两者无感。
 
-emotion 策略（ADR-0002 D5）：M0 固定 neutral/0.5；情绪推断推迟 M1。
+增量流（M1-S0）：适配层 yield (kind, delta)，kind ∈ {"text", "thinking"}；
+thinking 增量透传为协议 thinking.delta（Anthropic 原生推理流），无推理流的
+提供方骨架内不带 delta。
+emotion 策略（ADR-0002 D5）：固定 neutral/0.5；真实情绪推断推迟 M1 专项。
 多轮历史（M1-S1，4.3/6.2）：注入 SessionStore 后，按 session_id 取最近 N 条
 消息拼装上下文，回合完成后把本轮 user/assistant 落盘。store 缺省（None）时
 保持 M0 单轮行为，向后兼容既有注入路径。
@@ -80,21 +83,6 @@ class LLMAgentService(AgentService):
     async def run(self, ctx: AgentContext) -> AsyncIterator[AgentEvent]:
         message_id = f"m-{uuid.uuid4().hex[:12]}"
 
-        # --- 思考阶段 ---
-        # M0：OpenAI 兼容接口无独立推理流，thinking 事件为占位骨架（M1 对话节点打磨）
-        yield "state.change", StateChangeData(state="thinking")
-        yield "thinking.start", ThinkingStartData(run_id=ctx.run_id, message_id=message_id)
-        yield (
-            "thinking.delta",
-            ThinkingDeltaData(run_id=ctx.run_id, message_id=message_id, delta="让我想想……"),
-        )
-        yield "thinking.end", ThinkingEndData(run_id=ctx.run_id, message_id=message_id)
-
-        # --- 说话阶段 ---
-        yield "state.change", StateChangeData(state="talking")
-        yield "emotion", EmotionData(run_id=ctx.run_id, emotion=Emotion.NEUTRAL, intensity=0.5)
-        yield "text.start", TextStartData(run_id=ctx.run_id, message_id=message_id)
-
         # 多轮拼装（6.2）：system + 最近 N 条历史 + 本轮 user（4.4 截断保不报错）
         history = await self._load_history(ctx.session_id)
         messages: list[ChatMessage] = [
@@ -102,10 +90,43 @@ class LLMAgentService(AgentService):
             *history,
             {"role": "user", "content": ctx.text},
         ]
+
+        # --- 思考阶段 ---
+        # thinking.* 骨架先行；真实推理流（M1-S0：Anthropic thinking block）
+        # 经适配层 ("thinking", delta) 注入。无推理流的提供方骨架内无 delta。
+        # emotion 真实推断仍推迟 M1 对话节点打磨专项（ADR-0002 D5）。
+        yield "state.change", StateChangeData(state="thinking")
+        yield "thinking.start", ThinkingStartData(run_id=ctx.run_id, message_id=message_id)
+
+        text_started = False
         parts: list[str] = []
-        async for delta in self._adapter.stream_chat(messages, run_id=ctx.run_id):
+
+        async for kind, delta in self._adapter.stream_chat(messages, run_id=ctx.run_id):
+            if kind == "thinking":
+                yield (
+                    "thinking.delta",
+                    ThinkingDeltaData(run_id=ctx.run_id, message_id=message_id, delta=delta),
+                )
+                continue
+            if not text_started:
+                # 首个正文增量到达：收思考、切说话
+                yield "thinking.end", ThinkingEndData(run_id=ctx.run_id, message_id=message_id)
+                yield "state.change", StateChangeData(state="talking")
+                yield (
+                    "emotion",
+                    EmotionData(run_id=ctx.run_id, emotion=Emotion.NEUTRAL, intensity=0.5),
+                )
+                yield "text.start", TextStartData(run_id=ctx.run_id, message_id=message_id)
+                text_started = True
             parts.append(delta)
             yield "text.delta", TextDeltaData(run_id=ctx.run_id, message_id=message_id, delta=delta)
+
+        if not text_started:
+            # 空响应（或纯 thinking）：仍走完 thinking→说话 骨架，保协议时序完整
+            yield "thinking.end", ThinkingEndData(run_id=ctx.run_id, message_id=message_id)
+            yield "state.change", StateChangeData(state="talking")
+            yield "emotion", EmotionData(run_id=ctx.run_id, emotion=Emotion.NEUTRAL, intensity=0.5)
+            yield "text.start", TextStartData(run_id=ctx.run_id, message_id=message_id)
 
         full_text = "".join(parts)
         # 落盘本轮（4.3）：仅完整回合入库，取消/出错不落盘
