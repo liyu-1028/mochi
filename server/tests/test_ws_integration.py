@@ -115,6 +115,28 @@ def test_cancel_via_ws() -> None:
         assert frames[-1]["data"]["reason"] == "cancelled"
 
 
+def test_interrupt_via_ws() -> None:
+    """chat.interrupt → run.finished(interrupted)，与 cancel 的 reason 区分。"""
+    with _client(chunk_delay=0.05, thinking_delay=0.05).websocket_connect("/ws") as ws:
+        ws.send_json(_hello())
+        assert ws.receive_json()["type"] == "hello_ack"
+
+        ws.send_json(_chat_send())
+        ws.send_json(
+            {
+                "v": "0.1",
+                "type": "chat.interrupt",
+                "id": "c-interrupt",
+                "ts": 0,
+                "data": {"runId": "r-it"},
+            }
+        )
+        frames = _drain_until_finished(ws)
+        assert frames[-1]["data"]["reason"] == "interrupted"
+        states = [f["data"]["state"] for f in frames if f["type"] == "state.change"]
+        assert states[-1] == "idle"  # 打断不是错误，直接回待机
+
+
 def test_registry_driven_turn_via_config_injection() -> None:
     """S2 生产装配路径：config 注入 → registry 按回合解析 agent（此例为试用模式）。"""
     app = create_app(config=AppConfig())  # 默认 default_provider=trial

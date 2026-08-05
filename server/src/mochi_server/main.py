@@ -4,8 +4,6 @@
 1. lifespan 探测本地 Ollama（1.5s 硬超时）
 2. load_config：首启生成默认配置（探测到 Ollama → 预填默认 provider；否则试用模式）
 3. ProviderRegistry 就绪，/ws 与 /config 端点可用
-
-TODO(M1)：sidecar 端口发现机制（写 <userData>/runtime.json 供桌面壳读取）。
 """
 
 from __future__ import annotations
@@ -34,6 +32,7 @@ from .events import (
     PROTOCOL_VERSION,
     SERVER_NAME,
     ChatCancelData,
+    ChatInterruptData,
     ChatSendData,
     ErrorCode,
     ErrorPayload,
@@ -260,10 +259,12 @@ def create_app(
                     try:
                         if msg_type == "chat.send":
                             await manager.start_run(ChatSendData.model_validate(frame["data"]))
-                        else:
-                            # TODO(M1)：interrupt 与 cancel 语义分离（停止播报 vs 丢弃生成）
+                        elif msg_type == "chat.cancel":
                             payload = ChatCancelData.model_validate(frame["data"])
                             await manager.cancel_run(payload.run_id)
+                        else:  # chat.interrupt：打断播报（协议 §4，reason="interrupted"）
+                            payload = ChatInterruptData.model_validate(frame["data"])
+                            await manager.interrupt_run(payload.run_id)
                     except ValidationError:
                         logger.warning("命令负载校验失败：%s %s", msg_type, frame.get("data"))
                     except KeyError:

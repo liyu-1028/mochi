@@ -1,12 +1,14 @@
 /**
  * useMochiConnection —— WebSocketClient 与 conversation store 的装配点。
  *
- * 组件卸载时自动断开；sendText/cancelRun 是 UI 仅有的两个业务动作。
+ * 组件卸载时自动断开；sendText/cancelRun/interruptRun 是 UI 仅有的业务动作
+ * （interrupt 供 S2 TTS 播报打断使用，当前无调用方）。
  */
 import {
   COMMAND_TYPES,
   createCommand,
   type ChatCancelData,
+  type ChatInterruptData,
   type ChatSendData,
 } from "@mochi/protocol";
 import { useCallback, useEffect, useRef } from "react";
@@ -72,7 +74,13 @@ export function useMochiConnection(url: string) {
     clientRef.current?.send(createCommand(COMMAND_TYPES.ChatCancel, data));
   }, []);
 
-  return { sendText, cancelRun };
+  /** 打断播报（协议 §4）：停 TTS/展示、保留已生成内容，reason="interrupted"。 */
+  const interruptRun = useCallback((runId: string): void => {
+    const data: ChatInterruptData = { runId };
+    clientRef.current?.send(createCommand(COMMAND_TYPES.ChatInterrupt, data));
+  }, []);
+
+  return { sendText, cancelRun, interruptRun };
 }
 
 /** sidecar 连接地址：dev 模式手动起 sidecar（默认 8199），Tauri 集成后可经 env 覆盖。 */

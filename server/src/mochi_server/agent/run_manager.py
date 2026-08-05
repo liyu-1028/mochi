@@ -4,6 +4,9 @@
 - runId → asyncio.Task 注册表
 - 统一包裹 run.started / run.finished 生命周期事件
 - chat.cancel → Task.cancel() → reason="cancelled" → state.change(idle)
+- chat.interrupt → 打断播报（协议 §4，功能清单 5.3）→ reason="interrupted"；
+  S0 无 TTS 时与 cancel 同为终止回合，仅 reason 区分语义，
+  S2 接入 TTS 后扩展为「停播但保留内容」的真实差异
 - AgentError（适配层业务错误）→ run.error 透传其 payload（含 hint）
 - 未知异常 → run.error + reason="error"（错误文案可读，功能清单 6.7）
 - 出错回合发 state.change(error)（功能清单 2.2 的 error 状态），
@@ -60,6 +63,9 @@ class RunManager:
         self._agent_source = agent if callable(agent) else lambda: agent
         self._send = send_frame
         self._runs: dict[str, asyncio.Task[None]] = {}
+        # 被 interrupt（而非 cancel）终止的 runId：CancelledError 无负载，
+        # 经此集合把「打断播报」的语义传递到 run.finished 的 reason
+        self._interrupted: set[str] = set()
         # error 状态停留时长：足够用户看到出错表情，又不至于卡住（2.2）
         self._error_recovery_delay_s = error_recovery_delay_s
         self._error_recovery_task: asyncio.Task[None] | None = None
@@ -80,6 +86,17 @@ class RunManager:
     async def cancel_run(self, run_id: str) -> None:
         task = self._runs.get(run_id)
         if task and not task.done():
+            task.cancel()
+
+    async def interrupt_run(self, run_id: str) -> None:
+        """打断播报（协议 §4）：回合以 reason="interrupted" 结束，已生成内容保留。
+
+        S0 无 TTS，行为与 cancel 同为终止回合；S2 接入语音后在此扩展
+        「停止播报、保留内容」的真实差异（5.3 barge-in）。
+        """
+        task = self._runs.get(run_id)
+        if task and not task.done():
+            self._interrupted.add(run_id)
             task.cancel()
 
     async def _send_state(self, state: str) -> None:
@@ -135,7 +152,8 @@ class RunManager:
                 await self._send(make_frame(event_type, payload, _now_ms()))
         except asyncio.CancelledError:
             # 用户主动停止：不算错误，直接回待机（2.2：error 状态只留给真出错）
-            reason = "cancelled"
+            # interrupt（打断播报）与 cancel（停止生成）以 reason 区分语义
+            reason = "interrupted" if ctx.run_id in self._interrupted else "cancelled"
             await self._send_state("idle")
         except AgentError as exc:
             reason = "error"
@@ -166,3 +184,4 @@ class RunManager:
                 )
             )
         self._runs.pop(data.run_id, None)
+        self._interrupted.discard(data.run_id)

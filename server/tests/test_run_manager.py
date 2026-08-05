@@ -77,6 +77,47 @@ async def test_cancel_run() -> None:
 
 
 @pytest.mark.asyncio
+async def test_interrupt_run() -> None:
+    """打断路径：chat.interrupt → run.finished(interrupted)，语义区别于 cancel。"""
+    recorder = FrameRecorder()
+    manager = RunManager(EchoAgentService(chunk_delay=0.05, thinking_delay=0.05), recorder)
+
+    await manager.start_run(_send_data())
+    await asyncio.sleep(0.02)  # 让回合跑起来
+    await manager.interrupt_run("r-1")
+    await _wait_idle(manager)
+
+    types = [f["type"] for f in recorder.frames]
+    assert types[0] == "run.started"
+    assert types[-1] == "run.finished"
+    assert recorder.frames[-1]["data"]["reason"] == "interrupted"
+
+
+@pytest.mark.asyncio
+async def test_interrupt_does_not_emit_error_state() -> None:
+    """打断播报不是错误：直接回 idle，不发 error 状态。"""
+    recorder = FrameRecorder()
+    manager = RunManager(EchoAgentService(chunk_delay=0.05, thinking_delay=0.05), recorder)
+
+    await manager.start_run(_send_data())
+    await asyncio.sleep(0.02)
+    await manager.interrupt_run("r-1")
+    await _wait_idle(manager)
+
+    states = [f["data"]["state"] for f in recorder.frames if f["type"] == "state.change"]
+    assert "error" not in states
+    assert states[-1] == "idle"
+
+
+@pytest.mark.asyncio
+async def test_interrupt_unknown_run_is_noop() -> None:
+    recorder = FrameRecorder()
+    manager = RunManager(EchoAgentService(chunk_delay=0, thinking_delay=0), recorder)
+    await manager.interrupt_run("not-exists")
+    assert recorder.frames == []
+
+
+@pytest.mark.asyncio
 async def test_duplicate_run_id_ignored() -> None:
     """重复 runId：第二个被忽略，不产生两套生命周期帧。"""
     recorder = FrameRecorder()
