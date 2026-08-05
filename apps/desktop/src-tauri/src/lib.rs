@@ -14,7 +14,13 @@ use tauri::{Manager, RunEvent};
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        // 仅记忆 character 窗口：panel 窗口运行期创建、每次 center 居中，
+        // 若被插件恢复旧状态会覆盖 center:true
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_filter(|label| label == "character")
+                .build(),
+        )
         .manage(SidecarState::new())
         .setup(|app| {
             // 窗口尺寸以 tauri.conf.json 为唯一事实源：tauri-plugin-window-state

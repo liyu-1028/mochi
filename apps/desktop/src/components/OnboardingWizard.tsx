@@ -65,7 +65,8 @@ export function OnboardingWizard({ onDone, onOpenSettings }: OnboardingWizardPro
   return (
     <div className="settings-overlay">
       <div className="settings settings--wizard">
-        <header className="settings__header">
+        {/* data-tauri-drag-region：无边框面板窗口以头部为拖拽区 */}
+        <header className="settings__header" data-tauri-drag-region>
           <h2>{t("onboarding.welcome")}</h2>
         </header>
         {checking ? (
@@ -89,8 +90,8 @@ export function OnboardingWizard({ onDone, onOpenSettings }: OnboardingWizardPro
               <button
                 className="btn btn--ghost"
                 onClick={() => {
+                  // 面板窗口内切到设置视图；设置未完成，不触发 onDone 关窗
                   onOpenSettings();
-                  onDone();
                 }}
               >
                 {t("onboarding.fillKey")}

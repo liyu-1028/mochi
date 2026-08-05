@@ -54,7 +54,8 @@ export function SkinsPanel({ onClose }: SkinsPanelProps) {
   return (
     <div className="settings-overlay" onClick={onClose}>
       <div className="settings" onClick={(e) => e.stopPropagation()}>
-        <header className="settings__header">
+        {/* data-tauri-drag-region：无边框面板窗口以头部为拖拽区（button 子元素自动豁免） */}
+        <header className="settings__header" data-tauri-drag-region>
           <h2>{t("skins.title")}</h2>
           <button className="settings__close" onClick={onClose} aria-label={t("common.close")}>
             ×

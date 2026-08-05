@@ -478,3 +478,29 @@ body {
 .app__status--error {
   color: #c0392b;
 }
+
+/* ---- 面板独立窗口（PanelShell，透明无边框卡片）----
+   面板不再以遮罩挤在角色窗口内，而是 560×640 独立窗口屏幕居中。
+   窗口背景透明，卡片靠 .settings 的圆角 + 阴影成形；外层留白给阴影渲染空间。 */
+.panel-shell {
+  width: 100vw;
+  height: 100vh;
+  padding: 14px;
+  display: flex;
+}
+
+/* 覆写 settings.css 的模态遮罩：独立窗口里它就是视口本身，不需定位/暗化背景 */
+.panel-shell .settings-overlay {
+  position: static;
+  inset: auto;
+  flex: 1;
+  min-height: 0;
+  background: transparent;
+}
+
+/* 卡片铺满窗口可视区（保留原有圆角/阴影/滚动） */
+.panel-shell .settings {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+}

@@ -25,6 +25,7 @@ const zhCN: StringTable = {
   "status.connected": "已连接 · 点击 Mochi 聊天",
   "status.connecting": "连接中…",
   "status.disconnected": "未连接",
+  "status.setupPending": "待完成初始设置…",
 
   // 输入条
   "chat.placeholder": "和 Mochi 说点什么…",
@@ -123,6 +124,7 @@ const en: StringTable = {
   "status.connected": "Connected · Click Mochi to chat",
   "status.connecting": "Connecting…",
   "status.disconnected": "Not connected",
+  "status.setupPending": "Waiting for initial setup…",
 
   // Chat input bar
   "chat.placeholder": "Say something to Mochi…",

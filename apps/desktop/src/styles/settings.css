@@ -33,13 +33,13 @@
 
 .settings__header h2 {
   margin: 0;
-  font-size: 16px;
+  font-size: 18px;
 }
 
 /* 分组标题（通用 / 模型，M1-CTX） */
 .settings__section {
   margin: 4px 0 -4px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.04em;
   color: #8a7580;
@@ -66,7 +66,7 @@
   border-radius: 8px;
   background: #f0f7f0;
   color: #4a7a4a;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .settings__error {
@@ -75,7 +75,7 @@
   border-radius: 8px;
   background: #fff0f0;
   color: #b04a4a;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 /* ---- provider 列表 ---- */
@@ -92,6 +92,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap; /* provider 名过长时操作按钮换行，避免撑出横向滚动 */
   gap: 8px;
   padding: 10px;
   border: 1px solid #f3e3e7;
@@ -107,7 +108,7 @@
 }
 
 .settings__item-sub {
-  font-size: 12px;
+  font-size: 13px;
   color: #8a7580;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -119,11 +120,12 @@
   gap: 6px;
   align-items: center;
   flex-shrink: 0;
+  margin-left: auto; /* 换行后仍靠右对齐 */
 }
 
 .settings__item-actions .btn {
-  padding: 5px 10px;
-  font-size: 12px;
+  padding: 6px 12px;
+  font-size: 13px;
 }
 
 .settings__tag {
@@ -152,7 +154,7 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 12px;
+  font-size: 13px;
   color: #8a7580;
 }
 
@@ -161,7 +163,7 @@
   border: 1px solid #eed7dc;
   border-radius: 10px;
   padding: 8px 12px;
-  font-size: 13px;
+  font-size: 14px;
   outline: none;
   background: #fff;
   color: var(--ink);
@@ -223,7 +225,7 @@
   border-radius: 10px;
   background: #fff0f0;
   color: #b04a4a;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .history__msg {
@@ -265,7 +267,7 @@
   grid-template-columns: auto 1fr;
   gap: 4px 10px;
   margin: 0;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .skins__credits dt {
@@ -294,8 +296,52 @@
 .settings__wizard-main {
   width: 100%;
   padding: 12px;
+  font-size: 14px;
 }
 
 .settings--wizard .settings__actions {
   justify-content: center;
+}
+
+/* ---- 按钮基础样式（统一品牌色）----
+   此前 .btn/.btn--ghost 无定义、fallback 到浏览器原生外观；
+   主色与输入条 .chat-toggle__btn 一致（styles.css），模态内按钮视觉统一。 */
+.btn {
+  border: none;
+  border-radius: 10px;
+  padding: 8px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  background: var(--mochi-pink-deep);
+  color: #6d3a47;
+}
+
+.btn:hover:not(:disabled) {
+  background: #ff9eb0;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 次级按钮：透明底 + 浅粉边框 */
+.btn--ghost {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid #f3e3e7;
+}
+
+.btn--ghost:hover:not(:disabled) {
+  background: #f7e8eb;
+}
+
+/* 危险按钮背景补充（原有 color/border-color 见 .settings__danger 上方定义）；
+   置于 .btn--ghost 之后，保证组合用时浅红底生效 */
+.settings__danger {
+  background: #fff0f0;
+}
+
+.settings__danger:hover:not(:disabled) {
+  background: #ffe0e0;
 }

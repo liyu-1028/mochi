@@ -7,6 +7,7 @@
  * 切换默认模型即热生效（sidecar registry 按回合解析），无需重启。
  */
 import { useCallback, useEffect, useState } from "react";
+import { emit } from "@tauri-apps/api/event";
 import {
   TRIAL_PROVIDER_ID,
   configApi,
@@ -14,6 +15,7 @@ import {
   type ProviderSummary,
 } from "../api/configClient";
 import { useI18n } from "../i18n";
+import { EVENT_PROVIDERS_CHANGED } from "../panelWindow";
 import { useSettings } from "../store/settings";
 import type { Language } from "../i18n/strings";
 import { ProviderForm } from "./ProviderForm";
@@ -56,6 +58,8 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
     await configApi.createProvider(input);
     setShowForm(false);
     setFeedback(t("settings.addedFeedback", { name: input.displayName }));
+    // provider 列表变化 → 主窗口重新探测设置状态（清除待设置提示）
+    void emit(EVENT_PROVIDERS_CHANGED);
     await refresh();
   }
 
@@ -85,13 +89,16 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
   async function handleDelete(id: string) {
     await configApi.deleteProvider(id);
     setFeedback(t("settings.deletedFeedback", { id }));
+    // provider 列表变化（可能删空）→ 主窗口重新探测，必要时回到待设置提示
+    void emit(EVENT_PROVIDERS_CHANGED);
     await refresh();
   }
 
   return (
     <div className="settings-overlay" onClick={onClose}>
       <div className="settings" onClick={(e) => e.stopPropagation()}>
-        <header className="settings__header">
+        {/* data-tauri-drag-region：无边框面板窗口以头部为拖拽区（button 子元素自动豁免） */}
+        <header className="settings__header" data-tauri-drag-region>
           <h2>{t("settings.title")}</h2>
           <button className="settings__close" onClick={onClose} aria-label={t("common.close")}>
             ×

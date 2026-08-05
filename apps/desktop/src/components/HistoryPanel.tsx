@@ -77,7 +77,8 @@ export function HistoryPanel({ onClose }: HistoryPanelProps) {
   return (
     <div className="settings-overlay" onClick={onClose}>
       <div className="settings" onClick={(e) => e.stopPropagation()}>
-        <header className="settings__header">
+        {/* data-tauri-drag-region：无边框面板窗口以头部为拖拽区（button 子元素自动豁免） */}
+        <header className="settings__header" data-tauri-drag-region>
           <h2>
             {selectedId ? (
               <button className="history__back" onClick={() => setSelectedId(null)}>
