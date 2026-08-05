@@ -1,8 +1,8 @@
-# Mochi 🍡
+# 团子 Mochi 🍡
 
 **会成长的桌面智能伙伴** —— 捏出你的专属 AI 伙伴，让智能体拥有温暖的模样。
 
-Mochi 将冰冷的命令行和对话框，升级为有温度、有形象、可陪伴的桌面存在：
+团子 Mochi 将冰冷的命令行和对话框，升级为有温度、有形象、可陪伴的桌面存在：
 前端是灵动鲜活的 Live2D 角色，后端是 LangGraph 驱动的强大认知核心。
 
 > 🚧 当前阶段：M0 垂直原型已闭环（桌面角色 + 流式对话 + 表情动作 + 安装包），
@@ -98,6 +98,13 @@ pnpm --filter @mochi/desktop build      # tsc + tauri build，自动打包 sidec
 欢迎添加作者微信交流（请备注来意）：
 
 <img src="docs/images/mywechatqr.jpg" width="180" alt="作者微信二维码">
+
+## 赞赏
+
+如果你喜欢团子 Mochi，不妨赞赏作者，请它再吃一颗小团子 🍡
+你的每一份喜欢，都是它继续成长的养分。
+
+<img src="docs/images/myzanshangqr.jpg" width="180" alt="作者赞赏码">
 
 ## 许可证
 
