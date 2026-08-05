@@ -110,6 +110,20 @@ const zhCN: StringTable = {
   "skins.creditIllustration": "原画",
   "skins.creditModel": "模型",
   "skins.license": "授权",
+
+  // 角色状态/情绪（CharacterBadge 占位/降级渲染，Live2D 加载失败路径可见）
+  "character.state.idle": "待机中",
+  "character.state.talking": "说话中",
+  "character.state.thinking": "思考中",
+  "character.state.working": "工作中",
+  "character.state.error": "出错了",
+  "character.state.sleeping": "打盹中",
+  "character.emotion.happy": "开心",
+  "character.emotion.sad": "难过",
+  "character.emotion.confused": "困惑",
+  "character.emotion.surprised": "惊讶",
+  "character.emotion.embarrassed": "害羞",
+  "character.emotion.angry": "生气",
 };
 
 const en: StringTable = {
@@ -210,6 +224,20 @@ const en: StringTable = {
   "skins.creditIllustration": "Illustration",
   "skins.creditModel": "Model",
   "skins.license": "License",
+
+  // Character state/emotion (CharacterBadge fallback rendering)
+  "character.state.idle": "Idle",
+  "character.state.talking": "Talking",
+  "character.state.thinking": "Thinking",
+  "character.state.working": "Working",
+  "character.state.error": "Error",
+  "character.state.sleeping": "Dozing",
+  "character.emotion.happy": "Happy",
+  "character.emotion.sad": "Sad",
+  "character.emotion.confused": "Confused",
+  "character.emotion.surprised": "Surprised",
+  "character.emotion.embarrassed": "Embarrassed",
+  "character.emotion.angry": "Angry",
 };
 
 export const STRINGS: Record<Language, StringTable> = { "zh-CN": zhCN, en };
