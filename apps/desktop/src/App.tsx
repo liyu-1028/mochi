@@ -11,7 +11,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { configApi, resolveHttpBaseUrl } from "./api/configClient";
+import { configApi } from "./api/configClient";
 import { initRuntimePortListener, subscribeRuntimePort } from "./api/sidecarRuntime";
 import { CharacterMenu, type MenuItemId } from "./components/CharacterMenu";
 import { CharacterStage } from "./components/CharacterStage";
@@ -78,10 +78,6 @@ export default function App() {
       })
       .catch((err) => {
         console.error("[mochi] 托盘初始化失败：", err);
-        // 临时诊断：错误文本送 sidecar 请求日志（安装版可查，定位后移除）
-        void fetch(
-          `${resolveHttpBaseUrl()}/__tray-err/${encodeURIComponent(String(err).slice(0, 120))}`,
-        ).catch(() => undefined);
       });
     return () => {
       cancelled = true;

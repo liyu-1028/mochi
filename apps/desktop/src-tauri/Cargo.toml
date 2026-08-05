@@ -14,7 +14,9 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
+# image-png：TrayIcon 图标经 Image.fromBytes 解码 PNG 必需（缺失时
+# plugin:image|from_bytes 命令不响应，invoke 永久挂起——M1-S0 托盘根因）
+tauri = { version = "2", features = ["macos-private-api", "tray-icon", "image-png"] }
 tauri-plugin-opener = "2"
 # 窗口位置记忆（功能清单 1.3）：官方插件自动处理多显示器/分辨率边界
 tauri-plugin-window-state = "2"
