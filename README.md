@@ -93,6 +93,12 @@ pnpm --filter @mochi/desktop build      # tsc + tauri build，自动打包 sidec
 | [docs/specs/commit-convention.md](docs/specs/commit-convention.md)       | Git 与 Commit 规范                   |
 | [docs/specs/config-format.md](docs/specs/config-format.md)               | 用户配置格式规范                     |
 
+## 联系作者
+
+欢迎添加作者微信交流（请备注来意）：
+
+<img src="docs/images/mywechatqr.jpg" width="180" alt="作者微信二维码">
+
 ## 许可证
 
 - **源代码**：[MIT](LICENSE)
