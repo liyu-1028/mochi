@@ -5,6 +5,7 @@
  * 响应中永无明文 Key，只有 keyRef + maskedKey。
  */
 import type { Language } from "../i18n/strings";
+import { DEFAULT_SIDECAR_PORT, getRuntimePort } from "./sidecarRuntime";
 
 export type ProviderKind = "ollama" | "openai_compatible" | "anthropic";
 
@@ -48,9 +49,13 @@ export interface ProviderCreateInput {
 
 export const TRIAL_PROVIDER_ID = "trial";
 
-/** sidecar REST 地址：dev 手动起 sidecar（默认 8199），可用 VITE_API_URL 覆盖。 */
+/**
+ * sidecar REST 地址：VITE_API_URL 覆盖 > runtime.json 发现端口 > 默认 8199。
+ * 每次调用即时读取运行时端口（发现事件晚于首屏也不丢，M1-S0 端口发现）。
+ */
 export function resolveHttpBaseUrl(): string {
-  return import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8199";
+  if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
+  return `http://127.0.0.1:${getRuntimePort() ?? DEFAULT_SIDECAR_PORT}`;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

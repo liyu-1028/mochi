@@ -4,6 +4,7 @@
 1. lifespan 探测本地 Ollama（1.5s 硬超时）
 2. load_config：首启生成默认配置（探测到 Ollama → 预填默认 provider；否则试用模式）
 3. ProviderRegistry 就绪，/ws 与 /config 端点可用
+4. 写 <userData>/runtime.json（端口/pid/协议版本）供桌面壳发现（M1-S0）
 """
 
 from __future__ import annotations
@@ -45,6 +46,7 @@ from .events import (
     make_frame,
 )
 from .paths import get_config_path
+from .runtime import remove_runtime_file, resolve_port, write_runtime_file
 from .secrets import KeyStore
 from .store import SessionStore
 
@@ -133,7 +135,11 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             config.model.default_provider,
             "已发现" if probe.available else "未发现",
         )
+    # 端口发现（M1-S0）：uvicorn 的端口经 MOCHI_SIDECAR_PORT 约定，就绪即写。
+    # 注：lifespan 先于 socket 监听执行，前端连接由重连机制兜住毫秒级窗口。
+    write_runtime_file(resolve_port())
     yield
+    remove_runtime_file()
     # 关闭会话库连接（测试用 TestClient 同样走此路径）
     store = getattr(app.state, "store", None)
     if store is not None:

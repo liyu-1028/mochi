@@ -13,6 +13,7 @@ import {
 } from "@mochi/protocol";
 import { useCallback, useEffect, useRef } from "react";
 import { sessionApi } from "../api/configClient";
+import { DEFAULT_SIDECAR_PORT, getRuntimePort } from "../api/sidecarRuntime";
 import { historyToMessages, useConversation } from "../store/conversation";
 import { WebSocketClient } from "../ws/WebSocketClient";
 
@@ -83,7 +84,11 @@ export function useMochiConnection(url: string) {
   return { sendText, cancelRun, interruptRun };
 }
 
-/** sidecar 连接地址：dev 模式手动起 sidecar（默认 8199），Tauri 集成后可经 env 覆盖。 */
+/**
+ * sidecar WS 地址：VITE_WS_URL 覆盖 > runtime.json 发现端口 > 默认 8199。
+ * 发现端口可能晚于首屏到达——App.tsx 订阅端口更新后以新 url 触发重连。
+ */
 export function resolveWsUrl(): string {
-  return import.meta.env.VITE_WS_URL ?? "ws://127.0.0.1:8199/ws";
+  if (import.meta.env.VITE_WS_URL) return import.meta.env.VITE_WS_URL;
+  return `ws://127.0.0.1:${getRuntimePort() ?? DEFAULT_SIDECAR_PORT}/ws`;
 }

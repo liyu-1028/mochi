@@ -10,7 +10,8 @@
 //! 监督线程用 `try_wait` 轮询而非阻塞 `wait`：避免持锁等待导致 Exit 时
 //! `kill()` 死锁。
 //!
-//! TODO(M1)：runtime.json 端口发现（sidecar 就绪后写 <userData>/runtime.json）
+//! 端口发现（M1-S0）：sidecar 就绪后写 <userData>/runtime.json，
+//! 由 runtime.rs 轮询读取并通知前端（`mochi://sidecar-ready`）。
 
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};

@@ -5,6 +5,7 @@
 //!
 //! TODO(M1)：系统托盘菜单（功能清单 1.4）
 
+mod runtime;
 mod sidecar;
 
 use sidecar::SidecarState;
@@ -36,7 +37,10 @@ pub fn run() {
                 let state = app.state::<SidecarState>();
                 sidecar::try_spawn_dev_sidecar(&state);
             } else {
+                // 端口发现（M1-S0）：清陈旧文件 → 拉起 sidecar → 轮询 runtime.json
+                runtime::remove_stale_runtime_file(app.handle());
                 sidecar::spawn_release_sidecar(app.handle());
+                runtime::spawn_runtime_discovery(app.handle().clone());
             }
             Ok(())
         })

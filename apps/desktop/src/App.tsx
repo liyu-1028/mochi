@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { configApi } from "./api/configClient";
+import { initRuntimePortListener, subscribeRuntimePort } from "./api/sidecarRuntime";
 import { CharacterMenu, type MenuItemId } from "./components/CharacterMenu";
 import { CharacterStage } from "./components/CharacterStage";
 import { ChatToggle } from "./components/ChatToggle";
@@ -36,7 +37,14 @@ import { useConversation } from "./store/conversation";
 const IS_TAURI = "__TAURI_INTERNALS__" in window;
 
 export default function App() {
-  const { sendText, cancelRun } = useMochiConnection(resolveWsUrl());
+  // WS 地址随 runtime.json 端口发现更新（M1-S0）：release 下 sidecar 换端口时
+  // 桌面壳 emit 就绪事件 → 重新解析 url → useMochiConnection 依 url 变化重连
+  const [wsUrl, setWsUrl] = useState(resolveWsUrl);
+  useEffect(() => {
+    initRuntimePortListener();
+    return subscribeRuntimePort(() => setWsUrl(resolveWsUrl()));
+  }, []);
+  const { sendText, cancelRun } = useMochiConnection(wsUrl);
   const status = useConversation((s) => s.status);
   // release 下 sidecar 异常/重启的可读提示（1.2）；dev/浏览器为 null
   const sidecarHint = useSidecarStatus();
