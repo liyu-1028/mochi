@@ -5,6 +5,28 @@
 > release.yml 发布时自动提取对应段落作为 GitHub Release Notes，
 > 缺少条目会在构建前拦截（先写 changelog 再打 tag）。
 
+## v0.2.0 - 2026-08-05
+
+M1-S0 快赢冲刺 🍡
+
+**新增**
+
+- 系统托盘菜单：显隐 Mochi / 打开对话 / 静音 / 退出，双语文案；
+  macOS 用 template 剪影图标，随系统深浅色着色
+- Anthropic 模型提供方：独立适配器（ADR-0002 D1），错误映射复用协议
+  错误码；真实推理流（thinking block）透传为协议 thinking 事件
+- runtime.json 端口发现：sidecar 端口被占自动换空闲口，桌面壳轮询
+  发现后通知前端切换重连；release/dev 行为一致
+- chat.interrupt 与 chat.cancel 语义分离（interrupted / cancelled）
+- [voice] 配置读写端点 GET/PUT /config/voice（托盘静音持久化，S2 TTS 复用）
+
+**修复**
+
+- 托盘不显示：tauri 缺 image-png feature，Image.fromBytes 解码 PNG 的
+  命令不响应、invoke 永久挂起，托盘初始化静默卡死
+- 安装包可能内嵌旧前端：build.rs 未声明对 dist 的依赖，纯前端改动后
+  cargo 复用旧 crate 不重内嵌（现 rerun-if-changed=../dist）
+
 ## v0.1.2 - 2026-08-05
 
 首个公开发布版本 🍡
