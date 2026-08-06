@@ -5,7 +5,12 @@
  * 官方 scope 放行 http/https）；浏览器环境（dev:web）降级 window.open。
  * 仅接受 http(s) 协议——模型输出的链接不可信，禁止 file:/javascript: 等
  * 协议借道本地打开能力（测试报告 2026-08-06 问题 1：链接 URL 丢失）。
+ *
+ * 注：Tauri API 走静态导入（包内其他模块已静态引入，动态导入无代码分割
+ * 收益，vite 会告警）；浏览器环境的隔离由运行时守卫 `__TAURI_INTERNALS__`
+ * 承担，而非懒加载。
  */
+import { invoke } from "@tauri-apps/api/core";
 
 /** 纯函数：判断 href 是否为安全外链（仅 http/https）。 */
 export function isSafeExternalUrl(href: string): boolean {
@@ -23,7 +28,6 @@ export async function openExternal(href: string): Promise<void> {
   if (typeof window === "undefined") return;
   try {
     if ("__TAURI_INTERNALS__" in window) {
-      const { invoke } = await import("@tauri-apps/api/core");
       await invoke("plugin:opener|open_url", { url: href });
     } else {
       window.open(href, "_blank", "noopener,noreferrer");

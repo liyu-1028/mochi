@@ -7,7 +7,11 @@
  * 窗口移动后重新计算：Tauri 环境以官方 onMoved 事件为权威（DOM move
  * 事件在 webview 中不保证触发），浏览器 dev 环境退回 window "move"/
  * "resize" 事件兜底。
+ *
+ * Tauri API 走静态导入（包内其他模块已静态引入 window，动态导入无代码
+ * 分割收益，vite 会告警）；浏览器环境隔离由运行时守卫承担。
  */
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useState } from "react";
 
 export type BubbleSide = "left" | "right";
@@ -39,15 +43,12 @@ export function useBubbleSide(): BubbleSide {
     let unlisten: (() => void) | null = null;
     let cancelled = false;
     if ("__TAURI_INTERNALS__" in window) {
-      import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
-        if (cancelled) return;
-        void getCurrentWindow()
-          .onMoved(update)
-          .then((u) => {
-            if (cancelled) u();
-            else unlisten = u;
-          });
-      });
+      void getCurrentWindow()
+        .onMoved(update)
+        .then((u) => {
+          if (cancelled) u();
+          else unlisten = u;
+        });
     }
     return () => {
       cancelled = true;
