@@ -78,8 +78,8 @@ export default function App() {
   // 切换为按模型包围盒推导的布局并同步 OS 窗口（dev:web 下 no-op）
   const [layout, setLayout] = useState<CharacterLayout>(FALLBACK_LAYOUT);
   const handleModelReady = useCallback(
-    (modelWidth: number, modelHeight: number) =>
-      setLayout(computeCharacterLayout(modelWidth, modelHeight)),
+    (modelWidth: number, modelHeight: number, maxUpscale?: number) =>
+      setLayout(computeCharacterLayout(modelWidth, modelHeight, maxUpscale)),
     [],
   );
   const handleStageFallback = useCallback(() => setLayout(FALLBACK_LAYOUT), []);

@@ -15,6 +15,9 @@
 export const TARGET_CHARACTER_HEIGHT = 280;
 /** 宽屏/横版模型 clamp：防窗口被拉得过宽。 */
 export const MAX_CHARACTER_WIDTH = 360;
+/** 静态皮肤渲染放大上限：小图拉到标准高的倍数封顶（扁平风 ≤2x 糊感可控）。
+ *  Live2D 不传参（矢量模型任意缩放清晰），仅静态路径生效。 */
+export const MAX_STATIC_UPSCALE = 2;
 /** 角色头顶留给气泡叠层的空白区高度。 */
 export const BUBBLE_HEADROOM = 96;
 /** 气泡内缘距窗口中线的间距占角色宽比例（头半宽经验值）：贴近头部又不遮脸。 */
@@ -43,9 +46,18 @@ export interface CharacterLayout {
   headGap: number;
 }
 
-/** 模型原始尺寸 → 布局：scale 取「目标高」与「最大宽」两个约束的较小者。 */
-export function computeCharacterLayout(modelW: number, modelH: number): CharacterLayout {
-  const scale = Math.min(TARGET_CHARACTER_HEIGHT / modelH, MAX_CHARACTER_WIDTH / modelW);
+/** 模型原始尺寸 → 布局：scale 取「目标高」「最大宽」与可选放大上限的较小者。
+ *  maxUpscale 防小图位图无限放大发糊（静态皮肤传 MAX_STATIC_UPSCALE）。 */
+export function computeCharacterLayout(
+  modelW: number,
+  modelH: number,
+  maxUpscale: number = Number.POSITIVE_INFINITY,
+): CharacterLayout {
+  const scale = Math.min(
+    TARGET_CHARACTER_HEIGHT / modelH,
+    MAX_CHARACTER_WIDTH / modelW,
+    maxUpscale,
+  );
   const charW = modelW * scale;
   const charH = modelH * scale;
   return {

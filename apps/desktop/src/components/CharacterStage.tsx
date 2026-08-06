@@ -19,6 +19,7 @@ import { disposeStage, loadCharacterStage, type StageHandle } from "../live2d/co
 import { createDriver, type CharacterDriver } from "../live2d/driver";
 import { lerpGaze, normalizeGaze, type GazeTarget } from "../live2d/gaze";
 import { MOUTH_CLOSED, onDelta, stepMouth, type MouthState } from "../live2d/mouth";
+import { MAX_STATIC_UPSCALE } from "../layout/characterLayout";
 import { disposeStaticStage, loadStaticStage, type StaticStageHandle } from "../live2d/staticCore";
 import { createStaticDriver, type StaticDriver } from "../live2d/staticDriver";
 import { resolveStaticAnimation } from "../live2d/staticStateMachine";
@@ -47,8 +48,9 @@ interface CharacterStageProps {
   onActivate?: () => void;
   /** 右键角色时触发（弹出上下文菜单），回传光标视口坐标供定位 */
   onContextMenu?: (x: number, y: number) => void;
-  /** 模型加载完成：回传原始尺寸，App 据此推导窗口布局（布局倒置） */
-  onModelReady?: (modelWidth: number, modelHeight: number) => void;
+  /** 模型加载完成：回传原始尺寸，App 据此推导窗口布局（布局倒置）；
+   *  maxUpscale 仅静态皮肤传（渲染放大上限，窗口与 capped 角色严格一致） */
+  onModelReady?: (modelWidth: number, modelHeight: number, maxUpscale?: number) => void;
   /** 加载失败降级为占位形象：App 回到兜底布局 */
   onFallback?: () => void;
 }
@@ -112,7 +114,11 @@ export function CharacterStage({
         console.info(
           `[mochi] character-ready(${skin.resourceType}) +${Math.round(performance.now())}ms`,
         );
-        onModelReady?.(loaded.modelWidth, loaded.modelHeight);
+        onModelReady?.(
+          loaded.modelWidth,
+          loaded.modelHeight,
+          live2d ? undefined : MAX_STATIC_UPSCALE,
+        );
         setReady(true);
       })
       .catch((err) => {

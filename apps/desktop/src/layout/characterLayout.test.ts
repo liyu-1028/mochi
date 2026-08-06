@@ -9,6 +9,7 @@ import {
   FALLBACK_LAYOUT,
   HEAD_GAP_RATIO,
   MAX_CHARACTER_WIDTH,
+  MAX_STATIC_UPSCALE,
   PAD,
   TARGET_CHARACTER_HEIGHT,
   anchorBottomY,
@@ -38,6 +39,21 @@ describe("computeCharacterLayout", () => {
     const layout = computeCharacterLayout(800, 1200);
     expect(layout.winH).toBe(BUBBLE_HEADROOM + Math.ceil(layout.charH) + CHROME_HEIGHT);
     expect(layout.winW).toBe(Math.ceil(layout.charW) + PAD * 2);
+  });
+
+  it("放大上限：64px 小图 scale 封顶 MAX_STATIC_UPSCALE，不再无限拉大", () => {
+    const capped = computeCharacterLayout(64, 64, MAX_STATIC_UPSCALE);
+    expect(capped.scale).toBe(MAX_STATIC_UPSCALE);
+    expect(capped.charH).toBe(128);
+    // 无上限（live2d 路径）保持目标高归一
+    const uncapped = computeCharacterLayout(64, 64);
+    expect(uncapped.scale).toBeCloseTo(TARGET_CHARACTER_HEIGHT / 64, 10);
+  });
+
+  it("放大上限：常规尺寸不受 cap 影响（snj 形状 1.34x < 2）", () => {
+    const layout = computeCharacterLayout(148, 209, MAX_STATIC_UPSCALE);
+    expect(layout.scale).toBeCloseTo(TARGET_CHARACTER_HEIGHT / 209, 10);
+    expect(layout.charH).toBeCloseTo(TARGET_CHARACTER_HEIGHT, 10);
   });
 });
 

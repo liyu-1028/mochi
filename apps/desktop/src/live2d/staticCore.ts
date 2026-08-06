@@ -6,7 +6,7 @@
  * 动画表达在 staticDriver（正弦漂浮/呼吸/摇摆，ADR-0006 D9）。
  */
 import * as PIXI from "pixi.js";
-import { computeCharacterLayout } from "../layout/characterLayout";
+import { MAX_STATIC_UPSCALE, computeCharacterLayout } from "../layout/characterLayout";
 
 /** pixi v6 Loader 包装：图片纹理加载，失败 reject 供调用方降级。 */
 function loadTexture(url: string): Promise<PIXI.Texture> {
@@ -55,7 +55,10 @@ export async function loadStaticStage(
     const texture = await loadTexture(imageUrl);
     const sprite = new PIXI.Sprite(texture);
     sprite.anchor.set(0.5, 1);
-    sprite.scale.set(computeCharacterLayout(texture.width, texture.height).scale);
+    // 放大上限封顶：小图不无限拉大发糊（窗口尺寸经 onModelReady 同参闭环）
+    sprite.scale.set(
+      computeCharacterLayout(texture.width, texture.height, MAX_STATIC_UPSCALE).scale,
+    );
     sprite.x = app.screen.width / 2;
     sprite.y = app.screen.height;
     app.stage.addChild(sprite);
