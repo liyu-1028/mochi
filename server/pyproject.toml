@@ -17,11 +17,13 @@ dependencies = [
     "tomli-w>=1.0",          # TOML 写入（标准库 tomllib 只读）
     # M1-S1 会话持久化（4.3/6.2）：异步 SQLite，轻量迁移不用 Alembic
     "aiosqlite>=0.20",
+    "python-multipart>=0.0.9",  # FastAPI UploadFile（M1-S1 皮肤导入）
 ]
 
 [dependency-groups]
 dev = [
     "httpx2>=0.1",
+    "pillow>=10.4",  # 仅 dev：内置静态皮肤抠图脚本（scripts/make_static_skins.py）
     "pyinstaller>=6.6",
     "pytest>=8.3",
     "pytest-asyncio>=0.24",

@@ -39,6 +39,10 @@ class SkinRegistry:
     def set_base_url(self, url: str) -> None:
         self._http_base_url = url
 
+    def user_base_url(self, skin_id: str) -> str:
+        """用户皮肤资源基址（绝对 URL，经 sidecar 路由分发）。"""
+        return f"{self._http_base_url}/user-skins/{skin_id}"
+
     # ------------------------------------------------------------------
     # 查询
     # ------------------------------------------------------------------
@@ -50,11 +54,7 @@ class SkinRegistry:
             for m in BUILTIN_SKINS.values()
         ]
         summaries += [
-            manifest_to_summary(
-                m,
-                source="user",
-                base_url=f"{self._http_base_url}/user-skins/{m.id}",
-            )
+            manifest_to_summary(m, source="user", base_url=self.user_base_url(m.id))
             for m in self._user_skins.values()
         ]
         return summaries

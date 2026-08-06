@@ -12,12 +12,14 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 
 from ..config import AppConfig
 from ..paths import get_skins_dir
+from ..skin.importer import PNG_MAGIC, ZIP_MAGIC, import_png_skin, import_zip_skin
 from ..skin.registry import SkinRegistry
+from ..skin_manifest import manifest_to_summary
 from .config_routes import _apply, _config_path, _registry
 from .security import localhost_only
 
@@ -38,6 +40,31 @@ async def list_skins(request: Request) -> list[dict]:
     """皮肤列表：内置（相对 base URL）+ 用户（绝对 base URL）。"""
     registry = _skin_registry(request)
     return [s.model_dump(by_alias=True, exclude_none=True) for s in registry.list_all()]
+
+
+@router.post("/skins/import", status_code=201)
+async def import_skin(
+    request: Request,
+    file: UploadFile,
+    skin_id: str | None = Form(default=None),
+    skin_name: str | None = Form(default=None),
+) -> dict:
+    """导入皮肤（3.4/3.5）：magic bytes 分流 PNG / zip，校验失败给可读原因。"""
+    skin_registry = _skin_registry(request)
+    content = await file.read()
+
+    if content[:8] == PNG_MAGIC:
+        manifest = import_png_skin(content, skin_id, skin_name, skin_registry)
+    elif content[:4] == ZIP_MAGIC:
+        manifest = import_zip_skin(content, skin_id, skin_registry)
+    else:
+        raise HTTPException(
+            status_code=422, detail="不支持的文件格式（仅接受 PNG 图片或 zip 皮肤包）"
+        )
+    logger.info("导入皮肤：%s（%s）", manifest.id, manifest.resource_type)
+    return manifest_to_summary(
+        manifest, source="user", base_url=skin_registry.user_base_url(manifest.id)
+    ).model_dump(by_alias=True, exclude_none=True)
 
 
 @router.delete("/skins/{skin_id}", status_code=204)

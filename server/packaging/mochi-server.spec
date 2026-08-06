@@ -21,6 +21,8 @@ hiddenimports = [
 ]
 # keyring 经 entry points 动态发现后端（macOS Keychain / Windows Credentials 等）
 hiddenimports += collect_submodules("keyring.backends")
+# python-multipart 由 FastAPI 运行时按需导入（UploadFile，M1-S1 皮肤导入）
+hiddenimports += ["multipart", "multipart.multipart"]
 
 a = Analysis(
     ["entry.py"],
