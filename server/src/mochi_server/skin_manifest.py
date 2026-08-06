@@ -80,6 +80,32 @@ class SkinSummary(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+# 静态皮肤逐状态动画默认表（内置/导入共用，参数理由见 ADR-0006 D9）。
+STATIC_STATES = ("idle", "talking", "thinking", "working", "error", "sleeping")
+
+
+def default_static_animation() -> dict[str, AnimationParams]:
+    return {
+        "idle": AnimationParams(float=True, breathe=True),
+        "talking": AnimationParams(float=True, breathe=True),
+        "thinking": AnimationParams(float=True),
+        "working": AnimationParams(breathe=True, sway=True),
+        "error": AnimationParams(),
+        "sleeping": AnimationParams(breathe=True),
+    }
+
+
+def default_static_emotion_mapping() -> dict[str, EmotionEffect]:
+    return {
+        "happy": EmotionEffect(scale=1.05),
+        "sad": EmotionEffect(scale=0.95),
+        "angry": EmotionEffect(scale=1.02),
+        "surprised": EmotionEffect(scale=1.08),
+        "confused": EmotionEffect(scale=1.0),
+        "embarrassed": EmotionEffect(scale=1.02),
+    }
+
+
 def manifest_to_summary(
     manifest: SkinManifest, *, source: SkinSource, base_url: str
 ) -> SkinSummary:

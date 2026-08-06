@@ -30,6 +30,14 @@ def get_config_path() -> Path:
     return get_data_dir() / "config.toml"
 
 
+def get_skins_dir(*, create: bool = True) -> Path:
+    """用户皮肤目录：<userData>/skins/（M1-S1，导入皮肤落盘处）。"""
+    path = get_data_dir(create=create) / "skins"
+    if create:
+        path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def _platform_data_dir() -> str:
     # appauthor=False 避免 Windows 下出现 appname\appname 双层目录；
     # roaming=True 使 Windows 落在 %APPDATA%（与 Tauri app_data_dir 一致）。
