@@ -29,15 +29,15 @@ from ..events import (
     ThinkingEndData,
     ThinkingStartData,
 )
+
+# DEFAULT_SYSTEM_PROMPT 权威定义在 persona 模块（提示词内容的领域归属）；
+# 此处保留同名再导出，既有 import 路径（llm_agent.DEFAULT_SYSTEM_PROMPT）不变。
+from ..persona import DEFAULT_SYSTEM_PROMPT
 from ..store import HISTORY_LIMIT, SessionStore
 from .adapters.base import ChatMessage, ProviderAdapter
 from .service import AgentContext, AgentEvent, AgentService
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_SYSTEM_PROMPT = (
-    "你是 Mochi，一只温暖可爱的桌面 AI 伙伴。请用自然、亲切、简洁的中文与用户对话，像朋友一样陪伴。"
-)
 
 
 class LLMAgentService(AgentService):

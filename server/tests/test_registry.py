@@ -66,6 +66,47 @@ def test_agent_cached_until_config_update(key_store):
     assert registry.current_agent() is not first  # 配置更新 → 缓存失效
 
 
+# ---------------------------------------------------------------------------
+# 人格注入（功能清单 6.13，ADR-0005）
+# ---------------------------------------------------------------------------
+
+
+def test_empty_persona_uses_default_prompt(key_store):
+    from mochi_server.persona import DEFAULT_SYSTEM_PROMPT
+
+    registry = ProviderRegistry(_config("cloud", {"cloud": _cloud_cfg()}), key_store)
+    agent = registry.current_agent()
+    assert agent._system_prompt == DEFAULT_SYSTEM_PROMPT
+
+
+def test_persona_injected_into_system_prompt(key_store):
+    config = _config("cloud", {"cloud": _cloud_cfg()})
+    config.character.persona.soul_preset = "warm_sun"
+    config.character.persona.style_custom = "说话像海盗"
+    registry = ProviderRegistry(config, key_store)
+
+    prompt = registry.current_agent()._system_prompt
+    assert "【灵魂设定】" in prompt
+    assert "温暖治愈" in prompt  # warm_sun 预设文案
+    assert "【说话风格】" in prompt
+    assert "说话像海盗" in prompt  # custom 注入
+    assert "【性格特征】" not in prompt  # 未配置的维度不出现
+
+
+def test_persona_update_rebuilds_agent_prompt(key_store):
+    registry = ProviderRegistry(_config("cloud", {"cloud": _cloud_cfg()}), key_store)
+    first = registry.current_agent()
+
+    new_config = _config("cloud", {"cloud": _cloud_cfg()})
+    new_config.character.persona.personality_preset = "tsundere_cat"
+    registry.update_config(new_config)
+
+    second = registry.current_agent()
+    assert second is not first  # 缓存失效重建
+    assert "傲娇" in second._system_prompt
+    assert "傲娇" not in first._system_prompt
+
+
 def test_missing_key_raises_agent_error_not_crash(key_store):
     cfg = _cloud_cfg()
     cfg.key_ref = "mochi:provider:no_key"  # 钥匙串中不存在

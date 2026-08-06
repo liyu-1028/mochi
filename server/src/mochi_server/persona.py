@@ -14,8 +14,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .agent.llm_agent import DEFAULT_SYSTEM_PROMPT
 from .config import PersonaConfig
+
+# 默认人设（Zero Config 基线）：全空人格配置回退至此。
+# 权威定义在本模块——persona 是提示词内容的领域归属；
+# llm_agent 反向引用（单向依赖，避免 agent 包 ↔ persona 循环导入）。
+DEFAULT_SYSTEM_PROMPT = (
+    "你是 Mochi，一只温暖可爱的桌面 AI 伙伴。请用自然、亲切、简洁的中文与用户对话，像朋友一样陪伴。"
+)
 
 # 维度标识（顺序即 prompt 分段顺序）：灵魂 → 性格 → 说话风格。
 DIMENSIONS: tuple[str, ...] = ("soul", "personality", "style")

@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 
 from ..config import TRIAL_PROVIDER_ID, AppConfig, ModelProviderConfig
+from ..persona import build_system_prompt
 from ..secrets import KeyStore
 from ..store import SessionStore
 from .adapters import AnthropicAdapter, OpenAICompatibleAdapter
@@ -85,7 +86,10 @@ class ProviderRegistry:
             adapter = AnthropicAdapter(provider_id, cfg, self._key_store)
         else:
             adapter = OpenAICompatibleAdapter(provider_id, cfg, self._key_store)
-        return LLMAgentService(adapter, store=self._store)
+        # 人格注入（6.13，ADR-0005）：system prompt 由 [character.persona] 拼装。
+        # 全空回退 DEFAULT_SYSTEM_PROMPT；配置更新经 update_config 缓存失效后重建生效。
+        system_prompt = build_system_prompt(self._config.character.persona)
+        return LLMAgentService(adapter, system_prompt=system_prompt, store=self._store)
 
     # -- 连通性测试（功能清单 7.2） ------------------------------------------
 
