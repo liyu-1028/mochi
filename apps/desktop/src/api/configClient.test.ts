@@ -103,6 +103,22 @@ describe("configApi", () => {
     expect(status.models).toEqual(["qwen3:8b"]);
   });
 
+  it("getCharacter GET /config/character", async () => {
+    const fetchMock = mockFetch({ activeSkin: "default" });
+    const view = await configApi.getCharacter();
+    expect(view.activeSkin).toBe("default");
+    expect(fetchMock.mock.calls[0][0]).toBe("http://127.0.0.1:8199/config/character");
+  });
+
+  it("setCharacter PUT /config/character 携带 activeSkin", async () => {
+    const fetchMock = mockFetch({ activeSkin: "mochi-julia" });
+    await configApi.setCharacter({ activeSkin: "mochi-julia" });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://127.0.0.1:8199/config/character");
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body)).toEqual({ activeSkin: "mochi-julia" });
+  });
+
   it("getPersona GET /config/persona 返回 current + presets", async () => {
     const fetchMock = mockFetch({ current: { soulPreset: "warm_sun" }, presets: {} });
     const view = await configApi.getPersona();

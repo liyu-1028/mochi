@@ -48,6 +48,11 @@ export interface VoiceSettings {
   muted: boolean;
 }
 
+/** [character] 视图（3.3 换肤持久化；persona 有专属端点）。 */
+export interface CharacterSettings {
+  activeSkin: string;
+}
+
 /** 人格维度（6.13）：灵魂 / 性格 / 说话风格，与 persona.py DIMENSIONS 一致。 */
 export type PersonaDimension = "soul" | "personality" | "style";
 
@@ -162,6 +167,13 @@ export const configApi = {
   /** 部分更新 [voice]（托盘静音等），返回更新后的 voice。 */
   putVoice: (body: Partial<VoiceSettings>): Promise<VoiceSettings> =>
     request("/config/voice", { method: "PUT", body: JSON.stringify(body) }),
+
+  /** [character] 当前值（activeSkin）。 */
+  getCharacter: (): Promise<CharacterSettings> => request("/config/character"),
+
+  /** 更新 [character]（3.3 一键换肤），返回更新后的视图。 */
+  setCharacter: (body: Partial<CharacterSettings>): Promise<CharacterSettings> =>
+    request("/config/character", { method: "PUT", body: JSON.stringify(body) }),
 
   /** 人格当前配置 + 内置预设目录（6.13），一次拉齐供角色 tab 渲染。 */
   getPersona: (): Promise<PersonaFullView> => request("/config/persona"),
