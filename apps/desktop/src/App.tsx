@@ -25,7 +25,7 @@ import { OnboardingWizard } from "./components/OnboardingWizard";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { SkinsPanel } from "./components/SkinsPanel";
 import { SpeechBubbleArea } from "./components/SpeechBubbleArea";
-import { resolveWsUrl, useMochiConnection } from "./hooks/useMochiConnection";
+import { DEFAULT_SESSION_ID, resolveWsUrl, useMochiConnection } from "./hooks/useMochiConnection";
 import { useSettingsHydration } from "./hooks/useSettingsHydration";
 import { useSidecarStatus } from "./hooks/useSidecarStatus";
 import { useI18n } from "./i18n";
@@ -36,6 +36,7 @@ import {
   type CharacterLayout,
 } from "./layout/characterLayout";
 import {
+  EVENT_ACTIVE_SESSION_DELETED,
   EVENT_ONBOARDING_DONE,
   EVENT_PROVIDERS_CHANGED,
   openPanelWindow,
@@ -112,6 +113,21 @@ export default function App() {
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return;
     const unlisten = listen(EVENT_ONBOARDING_DONE, () => setOnboardingDone(true));
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
+  // 回忆面板（独立窗口）删除活跃会话 → 清空主界面内存消息。
+  // zustand 每窗口独立上下文，面板窗口的 resetMessages 到不了本窗口，
+  // 须经事件同步；Web 内联降级同窗口直接生效，无需此监听。
+  useEffect(() => {
+    if (!IS_TAURI) return;
+    const unlisten = listen<{ sessionId?: string }>(EVENT_ACTIVE_SESSION_DELETED, (e) => {
+      if (!e.payload?.sessionId || e.payload.sessionId === DEFAULT_SESSION_ID) {
+        useConversation.getState().resetMessages();
+      }
+    });
     return () => {
       unlisten.then((fn) => fn());
     };

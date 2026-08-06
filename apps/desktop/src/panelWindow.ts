@@ -20,6 +20,7 @@ export const EVENT_PANEL_NAVIGATE = "mochi:panel-navigate";
 export const EVENT_ONBOARDING_DONE = "mochi:onboarding-done";
 export const EVENT_PROVIDERS_CHANGED = "mochi:providers-changed";
 export const EVENT_LANGUAGE_CHANGED = "mochi:language-changed";
+export const EVENT_ACTIVE_SESSION_DELETED = "mochi:active-session-deleted";
 
 /** 面板窗口尺寸（与主窗口 320×400 区分开，给 provider 行三按钮 + 表单足够空间）。 */
 const PANEL_WIDTH = 560;

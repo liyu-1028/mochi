@@ -6,9 +6,11 @@
  * 复用 S1 的 sessionApi 与 settings.css 模态样式。
  */
 import { useCallback, useEffect, useState } from "react";
+import { emit } from "@tauri-apps/api/event";
 import { sessionApi, type HistoryMessage, type SessionSummary } from "../api/configClient";
 import { DEFAULT_SESSION_ID } from "../hooks/useMochiConnection";
 import { useI18n } from "../i18n";
+import { EVENT_ACTIVE_SESSION_DELETED } from "../panelWindow";
 import { useConversation } from "../store/conversation";
 import { MarkdownBody } from "./MarkdownBody";
 
@@ -74,9 +76,17 @@ export function HistoryPanel({ onClose }: HistoryPanelProps) {
       setMessages([]);
     }
     // 删除的是主界面活跃会话 → 同步清空内存消息，避免"后端已删、
-    // 前端残留"的状态脱节（测试报告 2026-08-06 问题 2）
+    // 前端残留"的状态脱节（测试报告 2026-08-06 问题 2）。
+    // 桌面端回忆面板在独立窗口（zustand 每窗口独立上下文）：直接 reset 只
+    // 清本窗口 store，主角色窗口须经事件通知清空——与 language-changed 同模式。
+    // Web 内联降级同窗口，直接 reset 即生效。
     if (id === DEFAULT_SESSION_ID) {
       useConversation.getState().resetMessages();
+      if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
+        emit(EVENT_ACTIVE_SESSION_DELETED, { sessionId: id }).catch(() => {
+          /* 广播失败不阻断删除流程 */
+        });
+      }
     }
     await loadSessions();
   }
