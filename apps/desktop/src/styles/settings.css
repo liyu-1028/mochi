@@ -122,6 +122,95 @@
   padding: 24px 0;
 }
 
+/* ---- 人格选择（角色 tab，功能清单 6.13） ---- */
+
+.persona__intro {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #8a7580;
+}
+
+.persona__dim {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.persona__dim-desc {
+  margin-left: 8px;
+  font-weight: 400;
+  font-size: 12px;
+  color: #b09aa3;
+}
+
+.persona__cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.persona__card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid #f3e3e7;
+  border-radius: 12px;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.persona__card:hover {
+  background: #f7e8eb;
+}
+
+.persona__card--selected {
+  border-color: var(--mochi-pink-deep);
+  background: #fdf0f3;
+}
+
+.persona__card--selected:hover {
+  background: #fdf0f3;
+}
+
+.persona__card-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.persona__card-desc {
+  font-size: 12px;
+  color: #8a7580;
+  line-height: 1.4;
+}
+
+.persona__textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 64px;
+  border: 1px solid #eed7dc;
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--ink);
+  resize: vertical;
+  outline: none;
+}
+
+.persona__textarea:focus {
+  border-color: var(--mochi-pink-deep);
+}
+
+.persona__actions {
+  display: flex;
+  gap: 8px;
+}
+
 /* Web 内联降级（320px 角色窗）：导航收窄，内容保持可用 */
 @media (max-width: 400px) {
   .settings__nav {
@@ -131,6 +220,9 @@
     padding: 6px;
     font-size: 12px;
     text-align: center;
+  }
+  .persona__cards {
+    grid-template-columns: 1fr;
   }
 }
 

@@ -102,4 +102,30 @@ describe("configApi", () => {
     expect(status.available).toBe(true);
     expect(status.models).toEqual(["qwen3:8b"]);
   });
+
+  it("getPersona GET /config/persona 返回 current + presets", async () => {
+    const fetchMock = mockFetch({ current: { soulPreset: "warm_sun" }, presets: {} });
+    const view = await configApi.getPersona();
+    expect(view.current.soulPreset).toBe("warm_sun");
+    expect(fetchMock.mock.calls[0][0]).toBe("http://127.0.0.1:8199/config/persona");
+  });
+
+  it("putPersona PUT /config/persona 携带全量 persona", async () => {
+    const fetchMock = mockFetch({ soulPreset: "warm_sun" });
+    await configApi.putPersona({
+      soulPreset: "warm_sun",
+      soulCustom: "",
+      personalityPreset: "",
+      personalityCustom: "",
+      stylePreset: "",
+      styleCustom: "说话像海盗",
+    });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://127.0.0.1:8199/config/persona");
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body)).toMatchObject({
+      soulPreset: "warm_sun",
+      styleCustom: "说话像海盗",
+    });
+  });
 });

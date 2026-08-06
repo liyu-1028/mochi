@@ -73,6 +73,24 @@ const zhCN: StringTable = {
   "settings.kindOpenAiCompat": "OpenAI 兼容",
   "settings.kindAnthropic": "Anthropic",
 
+  // 人格选择（设置「角色」tab，功能清单 6.13）
+  "persona.intro": "为 Mochi 挑选灵魂、性格与说话风格，也可组合或自定义。保存后下一轮对话即生效。",
+  "persona.soul": "灵魂",
+  "persona.soulDesc": "Mochi 内在是个怎样的存在",
+  "persona.personality": "性格",
+  "persona.personalityDesc": "Mochi 待人处事的方式",
+  "persona.style": "说话风格",
+  "persona.styleDesc": "Mochi 表达的语气与口吻",
+  "persona.custom": "自定义",
+  "persona.customDesc": "用你自己的话描述",
+  "persona.customPlaceholder": "写下你想要的设定（不超过 500 字）…",
+  "persona.save": "保存",
+  "persona.resetDefault": "恢复默认",
+  "persona.saved": "已保存，下一轮对话即生效",
+  "persona.resetDone": "已恢复为默认 Mochi",
+  "persona.errorLoad": "人格设置加载失败",
+  "persona.errorSave": "保存失败",
+
   // 提供方表单
   "providerForm.errId": "ID 仅限小写字母/数字/下划线/连字符，且以字母数字开头",
   "providerForm.errModel": "请填写模型名称",
@@ -198,6 +216,25 @@ const en: StringTable = {
   "settings.kindOllama": "Ollama (local)",
   "settings.kindOpenAiCompat": "OpenAI compatible",
   "settings.kindAnthropic": "Anthropic",
+
+  // Persona selection (Settings > Character tab, feature 6.13)
+  "persona.intro":
+    "Pick Mochi's soul, personality and speaking style — mix presets or write your own. Takes effect from the next reply.",
+  "persona.soul": "Soul",
+  "persona.soulDesc": "What Mochi is at the core",
+  "persona.personality": "Personality",
+  "persona.personalityDesc": "How Mochi behaves with you",
+  "persona.style": "Speaking style",
+  "persona.styleDesc": "The tone and voice Mochi uses",
+  "persona.custom": "Custom",
+  "persona.customDesc": "Describe it in your own words",
+  "persona.customPlaceholder": "Write the setting you want (up to 500 chars)…",
+  "persona.save": "Save",
+  "persona.resetDefault": "Reset to default",
+  "persona.saved": "Saved — takes effect from the next reply",
+  "persona.resetDone": "Reset to the default Mochi",
+  "persona.errorLoad": "Failed to load persona settings",
+  "persona.errorSave": "Save failed",
 
   // Provider form
   "providerForm.errId":

@@ -48,6 +48,33 @@ export interface VoiceSettings {
   muted: boolean;
 }
 
+/** 人格维度（6.13）：灵魂 / 性格 / 说话风格，与 persona.py DIMENSIONS 一致。 */
+export type PersonaDimension = "soul" | "personality" | "style";
+
+/** 单个人格预设（服务端目录为唯一事实源，ADR-0005 D1）。 */
+export interface PersonaPreset {
+  id: string;
+  name: Record<string, string>;
+  description: Record<string, string>;
+  prompt: string;
+}
+
+/** [character.persona] 当前配置（camelCase 视图）。 */
+export interface PersonaSettings {
+  soulPreset: string;
+  soulCustom: string;
+  personalityPreset: string;
+  personalityCustom: string;
+  stylePreset: string;
+  styleCustom: string;
+}
+
+/** GET /config/persona 响应：当前配置 + 三维预设目录。 */
+export interface PersonaFullView {
+  current: PersonaSettings;
+  presets: Record<PersonaDimension, PersonaPreset[]>;
+}
+
 export interface ProviderCreateInput {
   id: string;
   kind: ProviderKind;
@@ -135,6 +162,13 @@ export const configApi = {
   /** 部分更新 [voice]（托盘静音等），返回更新后的 voice。 */
   putVoice: (body: Partial<VoiceSettings>): Promise<VoiceSettings> =>
     request("/config/voice", { method: "PUT", body: JSON.stringify(body) }),
+
+  /** 人格当前配置 + 内置预设目录（6.13），一次拉齐供角色 tab 渲染。 */
+  getPersona: (): Promise<PersonaFullView> => request("/config/persona"),
+
+  /** 更新 [character.persona]（全量当前编辑态），返回更新后的 persona。 */
+  putPersona: (body: PersonaSettings): Promise<PersonaSettings> =>
+    request("/config/persona", { method: "PUT", body: JSON.stringify(body) }),
 };
 
 // ---------------------------------------------------------------------------
