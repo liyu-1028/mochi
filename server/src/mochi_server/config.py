@@ -50,8 +50,24 @@ class GeneralConfig(BaseModel):
     telemetry: bool = False
 
 
+class PersonaConfig(BaseModel):
+    """人格设定（功能清单 6.13，ADR-0005）：三维度各一对字段。
+
+    `{soul,personality,style}_preset` 引用内置预设 id（空串 = 未选择），
+    `_custom` 为用户自定义文本（非空时覆盖 preset）。全空 = 默认人设。
+    """
+
+    soul_preset: str = ""
+    soul_custom: str = Field(default="", max_length=500)
+    personality_preset: str = ""
+    personality_custom: str = Field(default="", max_length=500)
+    style_preset: str = ""
+    style_custom: str = Field(default="", max_length=500)
+
+
 class CharacterConfig(BaseModel):
     active_skin: str = "default"
+    persona: PersonaConfig = Field(default_factory=PersonaConfig)
 
 
 class ModelProviderConfig(BaseModel):
