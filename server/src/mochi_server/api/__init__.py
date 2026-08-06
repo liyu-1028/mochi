@@ -5,5 +5,6 @@
 
 from .config_routes import router as config_router
 from .session_routes import router as session_router
+from .skin_routes import router as skin_router
 
-__all__ = ["config_router", "session_router"]
+__all__ = ["config_router", "session_router", "skin_router"]

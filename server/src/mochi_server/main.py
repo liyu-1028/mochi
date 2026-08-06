@@ -25,7 +25,7 @@ from .agent import RunManager
 from .agent.ollama_probe import probe_ollama
 from .agent.registry import ProviderRegistry
 from .agent.service import AgentService
-from .api import config_router, session_router
+from .api import config_router, session_router, skin_router
 from .api.security import ALLOWED_CORS_ORIGINS, SensitiveDataFilter
 from .config import AppConfig, load_config
 from .events import (
@@ -48,6 +48,7 @@ from .events import (
 from .paths import get_config_path
 from .runtime import remove_runtime_file, resolve_port, write_runtime_file
 from .secrets import KeyStore
+from .skin.registry import SkinRegistry
 from .store import SessionStore
 
 logger = logging.getLogger(__name__)
@@ -177,8 +178,11 @@ def create_app(
         ProviderRegistry(config, key_store, store=app.state.store) if config is not None else None
     )
     app.state.config_path = get_config_path()
+    # 皮肤注册表（M1-S1）：用户皮肤资源经 /user-skins 路由分发，base URL 带端口。
+    app.state.skin_registry = SkinRegistry(http_base_url=f"http://127.0.0.1:{resolve_port()}")
     app.include_router(config_router)
     app.include_router(session_router)
+    app.include_router(skin_router)
     _install_log_filter()
 
     @app.get("/health")

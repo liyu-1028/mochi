@@ -422,6 +422,44 @@ async def update_persona(body: PersonaUpdate, request: Request) -> dict:
     return _persona_view(new_config)
 
 
+class CharacterView(CamelModel):
+    """[character] 当前值视图（仅暴露 activeSkin；persona 有专属端点）。"""
+
+    active_skin: str
+
+
+class CharacterUpdate(CamelModel):
+    active_skin: str | None = None
+
+
+def _character_view(config: AppConfig) -> dict:
+    return CharacterView(active_skin=config.character.active_skin).model_dump(by_alias=True)
+
+
+@router.get("/character")
+async def get_character(request: Request) -> dict:
+    registry = _registry(request)
+    return _character_view(registry.config)
+
+
+@router.put("/character")
+async def update_character(body: CharacterUpdate, request: Request) -> dict:
+    """更新 [character.active_skin]（3.3 一键换肤）：皮肤须存在于注册表，否则 422。"""
+    registry = _registry(request)
+    if body.active_skin is not None:
+        skin_registry = request.app.state.skin_registry
+        if skin_registry is None or not skin_registry.has(body.active_skin):
+            raise HTTPException(status_code=422, detail=f"皮肤不存在：{body.active_skin}")
+
+    def mutate(config: AppConfig) -> None:
+        if body.active_skin is not None:
+            config.character.active_skin = body.active_skin
+
+    new_config = _apply(registry, _config_path(request), mutate)
+    logger.info("更新角色设置：active_skin=%s", new_config.character.active_skin)
+    return _character_view(new_config)
+
+
 @router.post("/providers/{provider_id}/test")
 async def test_provider(provider_id: str, request: Request) -> dict:
     registry = _registry(request)

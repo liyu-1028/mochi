@@ -44,6 +44,7 @@ class SkinRegistry:
     # ------------------------------------------------------------------
 
     def list_all(self) -> list[SkinSummary]:
+        self.reload()  # 读时扫描：手动放置/外部变更即时可见，目录量小成本可忽略
         summaries = [
             manifest_to_summary(m, source="builtin", base_url=f"/skins/{m.id}")
             for m in BUILTIN_SKINS.values()
@@ -60,7 +61,10 @@ class SkinRegistry:
 
     def get(self, skin_id: str) -> SkinManifest | None:
         effective = resolve_skin_id(skin_id)
-        return BUILTIN_SKINS.get(effective) or self._user_skins.get(effective)
+        if effective in BUILTIN_SKINS:
+            return BUILTIN_SKINS[effective]
+        self.reload()
+        return self._user_skins.get(effective)
 
     def has(self, skin_id: str) -> bool:
         return self.get(skin_id) is not None
@@ -79,6 +83,7 @@ class SkinRegistry:
         """删除用户皮肤（内置禁删）；返回目录是否被移除。"""
         if skin_id in BUILTIN_SKINS:
             return False
+        self.reload()
         if self._user_skins.pop(skin_id, None) is None:
             return False
         shutil.rmtree(get_skins_dir() / skin_id, ignore_errors=True)
