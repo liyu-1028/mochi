@@ -2,14 +2,18 @@
  * M0-S3 布局 + M1-CTX 入口装配。
  *
  * 布局：
- * - 角色舞台（拖拽区）容纳 Live2D + 气泡区；左键唤起输入条、右键弹上下文菜单
+ * - 窗口尺寸动态贴合角色（布局倒置）：模型加载完成回传原始尺寸 →
+ *   computeCharacterLayout 推导窗口尺寸 → applyCharacterLayout 同步 OS 窗口；
+ *   气泡渲染在角色图层之上、头部侧向贴近（useBubbleSide 按屏幕位置选边），
+ *   出现/消失不改变窗口尺寸
+ * - 角色舞台（拖拽区）容纳 Live2D；左键唤起输入条、右键弹上下文菜单
  * - 底部 dock 槽位：状态文案与输入条共享同一位置、互斥显示
  * - 上下文菜单（CharacterMenu）→ 打开面板独立窗口（PanelShell，屏幕居中，
  *   不再以遮罩层挤在角色窗口内）
  * - 浏览器环境（dev:web 等无 Tauri runtime）无法建独立窗口，面板与
- *   引导向导降级为窗口内内联模态（IS_TAURI 分支）
+ *   引导向导降级为窗口内内联模态（IS_TAURI 分支）；OS resize 同样 no-op
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { configApi } from "./api/configClient";
 import { initRuntimePortListener, subscribeRuntimePort } from "./api/sidecarRuntime";
@@ -25,6 +29,12 @@ import { resolveWsUrl, useMochiConnection } from "./hooks/useMochiConnection";
 import { useSettingsHydration } from "./hooks/useSettingsHydration";
 import { useSidecarStatus } from "./hooks/useSidecarStatus";
 import { useI18n } from "./i18n";
+import { applyCharacterLayout } from "./layout/applyWindowLayout";
+import {
+  FALLBACK_LAYOUT,
+  computeCharacterLayout,
+  type CharacterLayout,
+} from "./layout/characterLayout";
 import {
   EVENT_ONBOARDING_DONE,
   EVENT_PROVIDERS_CHANGED,
@@ -60,6 +70,19 @@ export default function App() {
   const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null);
   // 会话内只自动弹一次引导窗：用户关掉后改用状态栏提示，不反复打扰
   const onboardingPrompted = useRef(false);
+
+  // 布局倒置：角色尺寸是窗口尺寸的事实源。初始兜底布局，模型加载完成
+  // 切换为按模型包围盒推导的布局并同步 OS 窗口（dev:web 下 no-op）
+  const [layout, setLayout] = useState<CharacterLayout>(FALLBACK_LAYOUT);
+  const handleModelReady = useCallback(
+    (modelWidth: number, modelHeight: number) =>
+      setLayout(computeCharacterLayout(modelWidth, modelHeight)),
+    [],
+  );
+  const handleStageFallback = useCallback(() => setLayout(FALLBACK_LAYOUT), []);
+  useEffect(() => {
+    void applyCharacterLayout(layout);
+  }, [layout]);
 
   // 语言设置事实源在 sidecar config；启动时同步，sidecar 未就绪则重试数次
   useSettingsHydration();
@@ -147,13 +170,23 @@ export default function App() {
   };
 
   return (
-    <main className="app">
+    <main
+      className="app"
+      style={
+        {
+          "--bubble-top": `${layout.bubbleTop}px`,
+          "--head-gap": `${layout.headGap}px`,
+        } as CSSProperties
+      }
+    >
       {/* data-tauri-drag-region：Tauri 声明式窗口拖拽（功能清单 1.3）；
           浏览器环境下该属性无副作用。气泡区放在拖拽区外，避免点击气泡误触发拖动 */}
       <div className="app__stage" data-tauri-drag-region>
         <CharacterStage
           onActivate={() => setChatOpen(true)}
           onContextMenu={(x, y) => setMenu({ x, y })}
+          onModelReady={handleModelReady}
+          onFallback={handleStageFallback}
         />
       </div>
       <SpeechBubbleArea />

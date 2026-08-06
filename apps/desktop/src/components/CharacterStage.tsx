@@ -25,9 +25,18 @@ interface CharacterStageProps {
   onActivate?: () => void;
   /** 右键角色时触发（弹出上下文菜单），回传光标视口坐标供定位 */
   onContextMenu?: (x: number, y: number) => void;
+  /** 模型加载完成：回传原始尺寸，App 据此推导窗口布局（布局倒置） */
+  onModelReady?: (modelWidth: number, modelHeight: number) => void;
+  /** 加载失败降级为占位形象：App 回到兜底布局 */
+  onFallback?: () => void;
 }
 
-export function CharacterStage({ onActivate, onContextMenu }: CharacterStageProps) {
+export function CharacterStage({
+  onActivate,
+  onContextMenu,
+  onModelReady,
+  onFallback,
+}: CharacterStageProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<StageHandle | null>(null);
   const driverRef = useRef<CharacterDriver | null>(null);
@@ -60,11 +69,15 @@ export function CharacterStage({ onActivate, onContextMenu }: CharacterStageProp
         // 启动里程碑打点（performance.now 相对页面 timeOrigin）：
         // 1.1 冷启动验收 / 2.6 性能回归排查用，release 下经 macOS 统一日志可见
         console.info(`[mochi] character-ready +${Math.round(performance.now())}ms`);
+        onModelReady?.(loaded.modelWidth, loaded.modelHeight);
         setReady(true);
       })
       .catch((err) => {
         console.error("[CharacterStage] Live2D 加载失败，降级为占位形象：", err);
-        if (!cancelled) setFailed(true);
+        if (!cancelled) {
+          setFailed(true);
+          onFallback?.();
+        }
       });
 
     return () => {
@@ -74,7 +87,7 @@ export function CharacterStage({ onActivate, onContextMenu }: CharacterStageProp
       if (stageRef.current) disposeStage(stageRef.current);
       stageRef.current = null;
     };
-  }, []);
+  }, [onModelReady, onFallback]);
 
   // 状态机：(状态, 情绪) → 动画计划
   useEffect(() => {

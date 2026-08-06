@@ -2,10 +2,11 @@
  * useBubbleSide —— 决定回复气泡出现在角色头部的哪一侧。
  *
  * 规则：气泡展示在角色旁边**屏幕空间更充足**的一侧——窗口靠近屏幕左缘
- * （左侧空间不够）时气泡在头部右侧，靠近右缘时在头部左侧，避免气泡
- * 贴死屏幕边缘的压迫感。窗口移动后重新计算：Tauri 环境以官方
- * onMoved 事件为权威（DOM move 事件在 webview 中不保证触发），
- * 浏览器 dev 环境退回 window "move"/"resize" 事件兜底。
+ * （左侧空间不够）时气泡在头部右侧，靠近右缘时在头部左侧，贴近头部并
+ * 以尾三角水平指向头部，明确「Mochi 说的话」；同时避免气泡贴死屏幕边缘。
+ * 窗口移动后重新计算：Tauri 环境以官方 onMoved 事件为权威（DOM move
+ * 事件在 webview 中不保证触发），浏览器 dev 环境退回 window "move"/
+ * "resize" 事件兜底。
  */
 import { useEffect, useState } from "react";
 

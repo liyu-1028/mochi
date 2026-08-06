@@ -28,7 +28,7 @@ body {
   position: relative; /* 让 .chat-toggle 可以相对窗口绝对定位 */
 }
 
-/* ---- 角色舞台（占满垂直空间，气泡区与角色并列：左侧气泡，右侧角色） ---- */
+/* ---- 角色舞台（占满垂直空间；气泡在角色图层之上侧向贴头，见 .bubbles） ---- */
 .app__stage {
   flex: 1;
   display: flex;
@@ -39,12 +39,16 @@ body {
 }
 
 /* Live2D 画布容器：铺满舞台供 PIXI resizeTo（M0-S3）；
-   点击角色唤起输入框（App.tsx chatOpen），手型提示可点击 */
+   点击角色唤起输入框（App.tsx chatOpen），手型提示可点击。
+   图层契约：角色层显式钉在 z-index 0，气泡叠层（.bubbles z-index 5）
+   恒定渲染在其之上；也约束画布内部任何后续层（canvas、动画 transform
+   产生的层）不会外溢到气泡之上。菜单 backdrop/菜单 59/60 仍是最顶层。 */
 .character-stage {
   width: 100%;
   height: 100%;
-  min-height: 200px;
   cursor: pointer;
+  position: relative;
+  z-index: 0;
 }
 
 .character {
@@ -139,30 +143,34 @@ body {
   }
 }
 
-/* ---- 对话气泡（角色头部两侧，尾三角指向头部） ----
-   出现在头部左侧或右侧，由 useBubbleSide 按窗口在屏幕的位置自动选
-   空间更充足的一（左缘→右侧，右缘→左侧），明确表达「Mochi 说的话」。
-   头部纵向位置：角色头顶约在窗口 top 28% 处（core.ts fitModelToStage）。
+/* ---- 对话气泡（头部侧向贴近叠层，尾三角水平指向头部） ----
+   窗口贴合角色后，气泡渲染在角色图层之上（z-index 高于画布）的头部高度，
+   贴近头部的一侧：useBubbleSide 按窗口屏幕位置选边（屏幕左半→头右侧，
+   屏幕右半→头左侧）。内缘与窗口中线间距由 App 经 --head-gap 注入
+   （characterLayout headGap ≈ 头半宽），顶边经 --bubble-top 注入（角色
+   头顶略上移）。单侧宽度以「半窗 - headGap」clamp，防贴合窗口溢窗。
    自动隐藏 + 悬停保持：每条气泡按字符数估算阅读延迟，超时 display: none；
    鼠标悬停 .bubbles 区域时所有气泡重新显示并暂停定时器。
    容器放在 .app__stage 之外（避免点击气泡误触发 Tauri 窗口拖动）。*/
 .bubbles {
   position: absolute;
-  top: 92px; /* 与角色头部纵向对齐 */
-  width: min(44%, 140px);
+  top: var(--bubble-top, 100px);
+  width: clamp(64px, calc(50% - var(--head-gap, 24px) - 4px), 180px);
   display: flex;
   flex-direction: column;
   gap: 6px;
+  /* 图层契约：恒定高于角色层（.character-stage 显式 z-index 0），
+     气泡与角色头部重叠时气泡压线在上 */
   z-index: 5;
 }
 
 .bubbles--left {
-  left: 6px;
+  right: calc(50% + var(--head-gap, 24px));
   align-items: flex-end; /* 气泡向右贴紧头部 */
 }
 
 .bubbles--right {
-  right: 6px;
+  left: calc(50% + var(--head-gap, 24px));
   align-items: flex-start; /* 气泡向左贴紧头部 */
 }
 
@@ -410,10 +418,9 @@ body {
 }
 
 /* ---- 右键上下文菜单（M1-CTX）----
-   webview 自绘，风格对齐输入条卡片。尺寸与 Mochi 窗口为百分比关系：
-   宽 50vw、高按内容撑开（估算 32vh），字号/内边距以 vw/vh 换算，
-   与 CharacterMenu.tsx 的 MENU_WIDTH_RATIO/MENU_HEIGHT_RATIO clamp
-   估算同源（320×400 下即 160×128），窗口尺寸变化时菜单等比缩放。 */
+   webview 自绘，风格对齐输入条卡片。固定 160×140（窗口动态贴合角色后
+   不再等比缩放），px 取值与 CharacterMenu.tsx 的 MENU_WIDTH/MENU_HEIGHT
+   clamp 估算同源；调整任一侧都需同步另一侧。 */
 
 /* 菜单打开期间的透明交互层：铺满窗口、位于菜单之下，
    菜单外的按下/右键都由它接管并关闭菜单（CharacterMenu.tsx）。 */
@@ -427,13 +434,13 @@ body {
 .character-menu {
   position: fixed;
   z-index: 60;
-  width: 50vw;
-  padding: 1.25vh;
+  width: 160px;
+  padding: 5px;
   display: flex;
   flex-direction: column;
   background: rgba(255, 250, 247, 0.92);
   border: 1px solid #f3e3e7;
-  border-radius: 3vh;
+  border-radius: 12px;
   box-shadow: 0 8px 24px rgba(74, 63, 68, 0.2);
   backdrop-filter: blur(8px);
   outline: none;
@@ -442,20 +449,20 @@ body {
 
 .character-menu__divider {
   height: 1px;
-  margin: 0.75vh 1.5625vw;
+  margin: 3px 5px;
   background: #f3e3e7;
 }
 
 .character-menu__item {
   display: flex;
   align-items: center;
-  gap: 1.5vh;
+  gap: 6px;
   width: 100%;
-  padding: 1.75vh 3.125vw;
+  padding: 7px 10px;
   border: none;
-  border-radius: 2vh;
+  border-radius: 8px;
   background: transparent;
-  font-size: 3.25vh;
+  font-size: 13px;
   color: var(--ink);
   text-align: left;
   cursor: pointer;
@@ -467,7 +474,7 @@ body {
 }
 
 .character-menu__icon {
-  width: 4vh;
+  width: 16px;
   text-align: center;
 }
 

@@ -1,37 +1,27 @@
 /**
  * CharacterMenu 纯函数测试：
- * - getMenuSize：菜单尺寸与 Mochi 窗口为百分比关系（宽 50%、高 32%）；
+ * - getMenuSize：菜单固定 160×140（窗口动态贴合角色后不再等比缩放）；
  * - clampMenuPosition：菜单不溢出窗口。
  */
 import { describe, expect, it } from "vitest";
-import {
-  MENU_HEIGHT_RATIO,
-  MENU_WIDTH_RATIO,
-  clampMenuPosition,
-  getMenuSize,
-} from "./CharacterMenu";
+import { MENU_HEIGHT, MENU_WIDTH, clampMenuPosition, getMenuSize } from "./CharacterMenu";
 
 const WIN_W = 320;
 const WIN_H = 400;
-const MENU = getMenuSize(WIN_W, WIN_H);
+const MENU = getMenuSize();
 
 function clamp(x: number, y: number) {
   return clampMenuPosition(x, y, MENU.width, MENU.height, WIN_W, WIN_H);
 }
 
 describe("getMenuSize", () => {
-  it("设计尺寸 320×400 下为 160×128", () => {
-    expect(MENU).toEqual({ width: 160, height: 128 });
+  it("固定 160×140", () => {
+    expect(MENU).toEqual({ width: 160, height: 140 });
   });
 
-  it("随窗口等比缩放（百分比关系）", () => {
-    expect(getMenuSize(640, 800)).toEqual({ width: 320, height: 256 });
-    expect(getMenuSize(160, 200)).toEqual({ width: 80, height: 64 });
-  });
-
-  it("比例为 50% / 32%", () => {
-    expect(MENU_WIDTH_RATIO).toBe(0.5);
-    expect(MENU_HEIGHT_RATIO).toBe(0.32);
+  it("常量与函数同源", () => {
+    expect(MENU_WIDTH).toBe(160);
+    expect(MENU_HEIGHT).toBe(140);
   });
 });
 
@@ -60,5 +50,11 @@ describe("clampMenuPosition", () => {
     const pos = clamp(1000, 1000);
     expect(pos.x + MENU.width).toBeLessThanOrEqual(WIN_W - 8);
     expect(pos.y + MENU.height).toBeLessThanOrEqual(WIN_H - 8);
+  });
+
+  it("窗口比菜单更窄时不抛错且贴左缘", () => {
+    const pos = clampMenuPosition(50, 50, MENU.width, MENU.height, 120, 100);
+    expect(pos.x).toBe(8);
+    expect(pos.y).toBe(8);
   });
 });

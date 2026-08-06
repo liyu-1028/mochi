@@ -7,6 +7,7 @@
  */
 import * as PIXI from "pixi.js";
 import type { Live2DModel } from "pixi-live2d-display/cubism4";
+import { computeCharacterLayout } from "../layout/characterLayout";
 
 export type { Live2DModel };
 
@@ -28,6 +29,9 @@ export function importLive2D(): Promise<typeof import("pixi-live2d-display/cubis
 export interface StageHandle {
   app: PIXI.Application;
   model: Live2DModel;
+  /** 模型原始尺寸：布局倒置的事实源（characterLayout 据此推导 scale/窗口）。 */
+  modelWidth: number;
+  modelHeight: number;
 }
 
 /**
@@ -64,19 +68,20 @@ export async function loadCharacterStage(
       motionPreload: MotionPreloadStrategy.ALL,
     });
     app.stage.addChild(model);
-    fitModelToStage(model, app);
-    return { app, model };
+    placeModel(model, app, computeCharacterLayout(model.width, model.height).scale);
+    return { app, model, modelWidth: model.width, modelHeight: model.height };
   } catch (err) {
     app.destroy(true);
     throw err;
   }
 }
 
-/** 等比缩放模型至舞台下方（高度占比 72%，留 8% 水平边距），水平居中、底边对齐。
- * 顶部约 28% 留给对话气泡——气泡悬于角色头顶、尾三角指向头部（styles.css .bubbles）。 */
-function fitModelToStage(model: Live2DModel, app: PIXI.Application): void {
+/** 以外部推导的 scale 放置模型：水平居中、底边对齐。
+ * scale 由 characterLayout 按角色目标像素尺寸纯函数推导（不依赖 canvas）；
+ * 窗口/canvas 围绕模型包围盒构建，头顶 BUBBLE_HEADROOM 留给气泡叠层区
+ * （气泡在画布图层之上、按屏幕位置选边侧向贴头，styles.css .bubbles）。 */
+function placeModel(model: Live2DModel, app: PIXI.Application, scale: number): void {
   const { width, height } = app.screen;
-  const scale = Math.min((width * 0.92) / model.width, (height * 0.72) / model.height);
   model.scale.set(scale);
   model.anchor.set(0.5, 0.5);
   model.x = width / 2;

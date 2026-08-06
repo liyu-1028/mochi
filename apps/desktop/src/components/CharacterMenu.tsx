@@ -5,8 +5,8 @@
  * 系统托盘（S2）走原生，两套职责分离。
  *
  * 交互：光标处弹出（clamp 到窗口内）、点外部/Esc/选中即关、↑↓+Enter 键盘可达。
- * 尺寸：与 Mochi 窗口保持百分比关系（宽 50%、高 32%，见 MENU_*_RATIO），
- * CSS（styles.css .character-menu 的 vw/vh）与本文件的 clamp 估算同源。
+ * 尺寸：固定 160×140（MENU_WIDTH/HEIGHT）——窗口动态贴合角色后不再走
+ * 百分比，CSS（styles.css .character-menu 的 px）与本文件的 clamp 估算同源。
  *
  * 点外部关闭走透明 backdrop（菜单下方铺满窗口的隐形层）：菜单打开期间
  * 窗口交互被它接管，点谁都是「先关菜单」，与系统下拉菜单语义一致。
@@ -23,21 +23,17 @@ import { useI18n } from "../i18n";
 
 export type MenuItemId = "history" | "skins" | "settings";
 
-/** 菜单尺寸占 Mochi 窗口的比例（宽 50%、高 32%）。
-    与 styles.css .character-menu 的 vw/vh 取值一一对应，320×400 下即 160×128；
-    调整任一侧都需同步另一侧。 */
-export const MENU_WIDTH_RATIO = 0.5;
-export const MENU_HEIGHT_RATIO = 0.32;
+/** 菜单固定像素尺寸：窗口动态贴合角色后尺寸不再等比，固定值保证小窗下可读。
+    与 styles.css .character-menu 的 px 取值一一对应；调整任一侧都需同步另一侧。 */
+export const MENU_WIDTH = 160;
+export const MENU_HEIGHT = 140;
 
-/** 按窗口尺寸换算菜单像素尺寸（clamp 定位估算用，与 CSS 百分比一致）。 */
-export function getMenuSize(winW: number, winH: number): { width: number; height: number } {
-  return {
-    width: Math.round(winW * MENU_WIDTH_RATIO),
-    height: Math.round(winH * MENU_HEIGHT_RATIO),
-  };
+/** 菜单像素尺寸（clamp 定位估算用，与 CSS 固定尺寸一致）。 */
+export function getMenuSize(): { width: number; height: number } {
+  return { width: MENU_WIDTH, height: MENU_HEIGHT };
 }
 
-/** 纯函数：把光标坐标 clamp 到窗口内（含 pad 边距），防菜单溢出 320×400。 */
+/** 纯函数：把光标坐标 clamp 到窗口内（含 pad 边距），防菜单溢出动态窗口。 */
 export function clampMenuPosition(
   x: number,
   y: number,
@@ -80,7 +76,7 @@ export function CharacterMenu({ x, y, onSelect, onClose }: CharacterMenuProps) {
 
   const winW = window.innerWidth;
   const winH = window.innerHeight;
-  const { width: menuW, height: menuH } = getMenuSize(winW, winH);
+  const { width: menuW, height: menuH } = getMenuSize();
   const pos = clampMenuPosition(x, y, menuW, menuH, winW, winH);
 
   // 打开菜单时主动让窗口取焦。
