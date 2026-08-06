@@ -1,123 +1,49 @@
 /**
- * SettingsPanel —— 设置模态面板（M0-S2 模型管理 + M1-CTX 通用分组）。
+ * SettingsPanel —— 设置模态面板（tab 化重构）。
+ *
+ * 布局：左侧 tab 导航 + 右侧内容区（功能清单 7.1 五分组：
+ * 通用 / 模型 / 角色 / 语音 / 隐私）。tab 为本地状态，切换不跨窗口。
  *
  * 分组：
- * - 通用：界面语言（事实源在 sidecar config，切换即生效并持久化）；
- * - 模型：provider 列表 / 新增 / 编辑 / 连通性测试 / 设为默认 / 删除 / 试用模式。
- * 切换默认模型、修改 provider 信息均即热生效（sidecar registry 按回合解析），无需重启。
+ * - 通用（SettingsGeneralSection）：界面语言；
+ * - 模型（SettingsModelSection）：provider 管理（列表/新增/编辑/测试/默认/删除）；
+ * - 角色 / 语音 / 隐私（SettingsPlaceholder）：占位，人格选择随后接入（6.13）。
+ *
+ * 切换默认模型、修改 provider 均即热生效（sidecar registry 按回合解析）。
  */
-import { useCallback, useEffect, useState } from "react";
-import { emit } from "@tauri-apps/api/event";
-import {
-  TRIAL_PROVIDER_ID,
-  configApi,
-  type ProviderCreateInput,
-  type ProviderSummary,
-  type ProviderUpdateInput,
-} from "../api/configClient";
+import { useState } from "react";
 import { useI18n } from "../i18n";
-import { EVENT_PROVIDERS_CHANGED } from "../panelWindow";
-import { useSettings } from "../store/settings";
-import type { Language } from "../i18n/strings";
-import { ProviderForm } from "./ProviderForm";
+import { SettingsGeneralSection } from "./SettingsGeneralSection";
+import { SettingsModelSection } from "./SettingsModelSection";
+import { SettingsPlaceholder } from "./SettingsPlaceholder";
 
 interface SettingsPanelProps {
   onClose: () => void;
 }
 
+/** 设置 tab 标识（7.1 五分组，顺序即呈现顺序）。 */
+export type SettingsTabId = "general" | "model" | "character" | "voice" | "privacy";
+
+const TABS: ReadonlyArray<{ id: SettingsTabId; labelKey: string }> = [
+  { id: "general", labelKey: "settings.sectionGeneral" },
+  { id: "model", labelKey: "settings.sectionModel" },
+  { id: "character", labelKey: "settings.sectionCharacter" },
+  { id: "voice", labelKey: "settings.sectionVoice" },
+  { id: "privacy", labelKey: "settings.sectionPrivacy" },
+];
+
 export function SettingsPanel({ onClose }: SettingsPanelProps) {
   const { t } = useI18n();
-  const language = useSettings((s) => s.language);
-  const setLanguage = useSettings((s) => s.setLanguage);
-  const [providers, setProviders] = useState<ProviderSummary[]>([]);
-  const [defaultId, setDefaultId] = useState<string | null>(null);
-  const [showForm, setShowForm] = useState(false);
-  /** 非 null 时表示表单处于编辑模式（修改已有 provider）。 */
-  const [editing, setEditing] = useState<ProviderSummary | null>(null);
-  const [feedback, setFeedback] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
-
-  const kindLabel: Record<string, string> = {
-    ollama: t("settings.kindOllama"),
-    openai_compatible: t("settings.kindOpenAiCompat"),
-    anthropic: t("settings.kindAnthropic"),
-  };
-
-  const refresh = useCallback(async () => {
-    try {
-      const list = await configApi.listProviders();
-      setProviders(list);
-      setDefaultId(list.find((p) => p.isDefault)?.id ?? null);
-    } catch {
-      setFeedback(t("settings.feedbackUnreachable"));
-    }
-  }, [t]);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
-
-  async function handleSubmit(input: ProviderCreateInput) {
-    if (editing) {
-      // 编辑模式：只提交可变字段（id/kind 锁定；apiKey 留空 = 保留原 Key）
-      const update: ProviderUpdateInput = {
-        displayName: input.displayName,
-        baseUrl: input.baseUrl,
-        model: input.model,
-        apiKey: input.apiKey,
-      };
-      await configApi.updateProvider(editing.id, update);
-      setFeedback(t("settings.updatedFeedback", { name: input.displayName }));
-    } else {
-      await configApi.createProvider(input);
-      setFeedback(t("settings.addedFeedback", { name: input.displayName }));
-      // provider 列表变化 → 主窗口重新探测设置状态（清除待设置提示）
-      void emit(EVENT_PROVIDERS_CHANGED);
-    }
-    setShowForm(false);
-    setEditing(null);
-    await refresh();
-  }
-
-  function closeForm() {
-    setShowForm(false);
-    setEditing(null);
-  }
-
-  async function handleTest(id: string) {
-    setBusyId(id);
-    setFeedback(null);
-    try {
-      const result = await configApi.testProvider(id);
-      setFeedback(
-        result.ok
-          ? t("settings.testOk", { id })
-          : t("settings.testFail", { id, hint: result.hint ?? t("settings.unknownReason") }),
-      );
-    } catch (err) {
-      setFeedback(err instanceof Error ? err.message : t("settings.testError"));
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  async function handleSetDefault(id: string) {
-    await configApi.setDefault(id);
-    setFeedback(t("settings.switchedFeedback", { id }));
-    await refresh();
-  }
-
-  async function handleDelete(id: string) {
-    await configApi.deleteProvider(id);
-    setFeedback(t("settings.deletedFeedback", { id }));
-    // provider 列表变化（可能删空）→ 主窗口重新探测，必要时回到待设置提示
-    void emit(EVENT_PROVIDERS_CHANGED);
-    await refresh();
-  }
+  const [tab, setTab] = useState<SettingsTabId>("general");
 
   return (
     <div className="settings-overlay" onClick={onClose}>
-      <div className="settings" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="settings settings--tabbed"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-label={t("settings.title")}
+      >
         {/* data-tauri-drag-region：无边框面板窗口以头部为拖拽区（button 子元素自动豁免） */}
         <header className="settings__header" data-tauri-drag-region>
           <h2>{t("settings.title")}</h2>
@@ -126,106 +52,29 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
           </button>
         </header>
 
-        {feedback ? <p className="settings__feedback">{feedback}</p> : null}
-
-        {/* 通用分组 */}
-        <h3 className="settings__section">{t("settings.sectionGeneral")}</h3>
-        <label className="settings__field">
-          <span>{t("settings.language")}</span>
-          <select
-            value={language}
-            onChange={(e) => setLanguage(e.target.value as Language)}
-            aria-label={t("settings.language")}
-          >
-            <option value="zh-CN">{t("settings.languageZh")}</option>
-            <option value="en">{t("settings.languageEn")}</option>
-          </select>
-        </label>
-
-        {/* 模型分组 */}
-        <h3 className="settings__section">{t("settings.sectionModel")}</h3>
-        <ul className="settings__list">
-          <li className="settings__item">
-            <div className="settings__item-main">
-              <strong>{t("settings.trialMode")}</strong>
-              <span className="settings__item-sub">{t("settings.trialDesc")}</span>
-            </div>
-            {defaultId === TRIAL_PROVIDER_ID ? (
-              <span className="settings__tag">{t("settings.inUse")}</span>
-            ) : (
+        <div className="settings__body">
+          <nav className="settings__nav" aria-label={t("settings.title")}>
+            {TABS.map(({ id, labelKey }) => (
               <button
-                className="btn btn--ghost"
-                onClick={() => handleSetDefault(TRIAL_PROVIDER_ID)}
+                key={id}
+                type="button"
+                className={`settings__nav-item${tab === id ? " settings__nav-item--active" : ""}`}
+                aria-current={tab === id ? "page" : undefined}
+                onClick={() => setTab(id)}
               >
-                {t("settings.setDefault")}
+                {t(labelKey)}
               </button>
-            )}
-          </li>
-          {providers.map((p) => (
-            <li key={p.id} className="settings__item">
-              <div className="settings__item-main">
-                <strong>{p.displayName}</strong>
-                <span className="settings__item-sub">
-                  {kindLabel[p.kind] ?? p.kind} · {p.model}
-                  {p.maskedKey ? ` · Key ${p.maskedKey}` : ""}
-                </span>
-              </div>
-              <div className="settings__item-actions">
-                <button
-                  className="btn btn--ghost"
-                  disabled={showForm || busyId === p.id}
-                  onClick={() => {
-                    setEditing(p);
-                    setShowForm(true);
-                    setFeedback(null);
-                  }}
-                >
-                  {t("common.edit")}
-                </button>
-                <button
-                  className="btn btn--ghost"
-                  disabled={busyId === p.id}
-                  onClick={() => handleTest(p.id)}
-                >
-                  {busyId === p.id ? t("settings.testing") : t("settings.test")}
-                </button>
-                {p.isDefault ? (
-                  <span className="settings__tag">{t("settings.inUse")}</span>
-                ) : (
-                  <button className="btn btn--ghost" onClick={() => handleSetDefault(p.id)}>
-                    {t("settings.setDefault")}
-                  </button>
-                )}
-                <button
-                  className="btn btn--ghost settings__danger"
-                  onClick={() => handleDelete(p.id)}
-                >
-                  {t("common.delete")}
-                </button>
-              </div>
-            </li>
-          ))}
-        </ul>
+            ))}
+          </nav>
 
-        {showForm ? (
-          <ProviderForm
-            key={editing?.id ?? "__create__"}
-            initial={editing ?? undefined}
-            onSubmit={handleSubmit}
-            onCancel={closeForm}
-          />
-        ) : (
-          <button
-            className="btn"
-            onClick={() => {
-              setEditing(null);
-              setShowForm(true);
-              setFeedback(null);
-            }}
-          >
-            {t("settings.addProvider")}
-          </button>
-        )}
+          <div className="settings__content">
+            {tab === "general" ? <SettingsGeneralSection /> : null}
+            {tab === "model" ? <SettingsModelSection /> : null}
+            {tab === "character" ? <SettingsPlaceholder /> : null}
+            {tab === "voice" ? <SettingsPlaceholder /> : null}
+            {tab === "privacy" ? <SettingsPlaceholder /> : null}
+          </div>
+        </div>
       </div>
     </div>
   );
