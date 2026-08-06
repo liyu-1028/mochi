@@ -149,8 +149,9 @@ body {
    屏幕右半→头左侧）。内缘与窗口中线间距由 App 经 --head-gap 注入
    （characterLayout headGap ≈ 头半宽），顶边经 --bubble-top 注入（角色
    头顶略上移）。单侧宽度以「半窗 - headGap」clamp，防贴合窗口溢窗。
-   自动隐藏 + 悬停保持：每条气泡按字符数估算阅读延迟，超时 display: none；
-   鼠标悬停 .bubbles 区域时所有气泡重新显示并暂停定时器。
+   栈策略（SpeechBubbleArea 区域级状态）：屏上最多两条——上一条回复的
+   折叠预览（.bubble--prev：两行、半透明、可点击展开）+ 最新回复全文；
+   阅读估算超时整栈一起隐藏，悬停区域整栈显示并暂停计时。
    容器放在 .app__stage 之外（避免点击气泡误触发 Tauri 窗口拖动）。*/
 .bubbles {
   position: absolute;
@@ -190,8 +191,9 @@ body {
   animation: bubble-enter 0.25s ease-out;
 }
 
-/* 阅读超时后从布局中移除；下次 hover 重新触发 mount 流程（keyframe 入场） */
-.bubble--hidden {
+/* 阅读超时后整栈隐藏（区域级状态，见 SpeechBubbleArea）；新回复到来或
+   悬停区域时重新显示（keyframe 入场） */
+.bubbles--hidden {
   display: none;
 }
 
@@ -228,6 +230,33 @@ body {
   border-style: solid;
   border-width: 5px 7px 5px 0;
   border-color: transparent rgba(255, 250, 247, 0.92) transparent transparent;
+}
+
+/* 上一条回复的折叠预览：半透明、只显示前两行，点击展开全文（aria-expanded）。
+   line-clamp 需要 white-space: normal（覆写 .bubble 的 pre-wrap）；展开态
+   解除截断并改由 .bubble__body 内部滚动，保护气泡自身的圆角与阴影 */
+.bubble--prev {
+  opacity: 0.72;
+  cursor: pointer;
+}
+
+.bubble--prev .bubble__body {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: normal;
+}
+
+.bubble--prev.bubble--expanded {
+  opacity: 1;
+}
+
+.bubble--prev.bubble--expanded .bubble__body {
+  display: block;
+  -webkit-line-clamp: unset;
+  max-height: 140px;
+  overflow-y: auto;
 }
 
 .bubble__cursor {
