@@ -1,6 +1,6 @@
 [package]
 name = "mochi-desktop"
-version = "0.3.0"
+version = "0.4.0"
 description = "Mochi —— 会成长的桌面智能伙伴（Tauri 桌面壳）"
 authors = ["Mochi Contributors"]
 edition = "2021"
