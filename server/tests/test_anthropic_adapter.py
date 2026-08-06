@@ -237,6 +237,20 @@ async def test_429_maps_to_rate_limit_retryable() -> None:
 
 
 @pytest.mark.asyncio
+async def test_402_maps_to_quota() -> None:
+    """兼容端点（如 MiniMax）以 402 表示余额不足 → ERR_MODEL_QUOTA，不再落兜底。"""
+    adapter = _make_adapter(
+        lambda r: _error_response(402, "insufficient_balance_error", "insufficient balance (1008)")
+    )
+    with pytest.raises(AgentError) as exc_info:
+        await _collect(adapter)
+    payload = exc_info.value.payload
+    assert payload.code == ErrorCode.MODEL_QUOTA
+    assert payload.retryable is False
+    assert "余额" in payload.message
+
+
+@pytest.mark.asyncio
 async def test_404_maps_to_model_unavailable() -> None:
     adapter = _make_adapter(
         lambda r: _error_response(404, "not_found_error", "model not found"), model="ghost"

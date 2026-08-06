@@ -145,6 +145,7 @@ export const ERROR_CODES = {
   ModelAuth: "ERR_MODEL_AUTH",
   ModelUnavailable: "ERR_MODEL_UNAVAILABLE",
   ModelRateLimit: "ERR_MODEL_RATE_LIMIT",
+  ModelQuota: "ERR_MODEL_QUOTA",
   Network: "ERR_NETWORK",
   ContextOverflow: "ERR_CONTEXT_OVERFLOW",
   ToolDenied: "ERR_TOOL_DENIED",

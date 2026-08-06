@@ -181,6 +181,16 @@ def _translate_sdk_error(exc: Exception, *, model: str) -> AgentError:
                 hint="请稍等片刻再试",
             )
         )
+    if isinstance(exc, APIStatusError) and exc.status_code == 402:
+        # MiniMax 等兼容端点以 402 表示余额/配额不足（实测 2026-08-05）
+        return AgentError(
+            ErrorPayload(
+                code=ErrorCode.MODEL_QUOTA,
+                message="模型服务账户余额不足",
+                retryable=False,
+                hint="请到服务商控制台充值或检查套餐状态后重试",
+            )
+        )
     if isinstance(exc, APITimeoutError):  # APITimeoutError 是 APIConnectionError 子类
         return AgentError(
             ErrorPayload(

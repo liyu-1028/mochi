@@ -153,6 +153,7 @@ state   ∈ idle | talking | thinking | working | error | sleeping
 | `ERR_MODEL_AUTH`        | Key 无效/过期                          | false          |
 | `ERR_MODEL_UNAVAILABLE` | 模型服务不可达（含 Ollama 未启动）     | true           |
 | `ERR_MODEL_RATE_LIMIT`  | 限流                                   | true           |
+| `ERR_MODEL_QUOTA`       | 账户余额/配额不足（如兼容端点 402）    | false          |
 | `ERR_NETWORK`           | 一般网络错误                           | true           |
 | `ERR_CONTEXT_OVERFLOW`  | 上下文超限（应自动摘要，兜底才报此错） | false          |
 | `ERR_TOOL_DENIED`       | 用户拒绝危险操作授权                   | false          |
@@ -207,3 +208,4 @@ run.finished(reason: "cancelled")   ← 已输出的 delta 前端保留展示
 | ---- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | 0.1  | 2026-08-03 | 初版冻结：信封、握手、5 类命令、16 类事件、错误码表                                                                                |
 | 0.1  | 2026-08-03 | 类型收窄（线上格式不变）：`usage`/`client`/`server` 结构化为 UsageInfo/ClientInfo/ServerInfo；`tool.call.start` 的 `args` 双端必填 |
+| 0.1  | 2026-08-06 | 错误码表新增 `ERR_MODEL_QUOTA`（账户余额/配额不足）                                                                                |
