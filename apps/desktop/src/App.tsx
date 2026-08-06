@@ -13,9 +13,10 @@
  * - 浏览器环境（dev:web 等无 Tauri runtime）无法建独立窗口，面板与
  *   引导向导降级为窗口内内联模态（IS_TAURI 分支）；OS resize 同样 no-op
  */
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { configApi } from "./api/configClient";
+import { resolveSkinId, skinsApi, type SkinSummary } from "./api/skinsClient";
 import { initRuntimePortListener, subscribeRuntimePort } from "./api/sidecarRuntime";
 import { CharacterMenu, type MenuItemId } from "./components/CharacterMenu";
 import { CharacterStage } from "./components/CharacterStage";
@@ -39,6 +40,7 @@ import {
   EVENT_ACTIVE_SESSION_DELETED,
   EVENT_ONBOARDING_DONE,
   EVENT_PROVIDERS_CHANGED,
+  EVENT_SKIN_CHANGED,
   openPanelWindow,
   type PanelId,
 } from "./panelWindow";
@@ -84,6 +86,41 @@ export default function App() {
   useEffect(() => {
     void applyCharacterLayout(layout);
   }, [layout]);
+
+  // 皮肤（M1-S1，3.3）：active_skin 事实源在 sidecar config；连接就绪后拉取，
+  // 衣橱面板换肤经 EVENT_SKIN_CHANGED 跨窗口同步（zustand 不跨窗口）
+  const [activeSkinId, setActiveSkinId] = useState("default");
+  const [skins, setSkins] = useState<SkinSummary[]>([]);
+  const refreshSkins = useCallback(() => {
+    Promise.all([configApi.getCharacter(), skinsApi.listSkins()])
+      .then(([character, list]) => {
+        setActiveSkinId(character.activeSkin);
+        setSkins(list);
+      })
+      .catch(() => {
+        // sidecar 未就绪：等下一次连接成功再拉
+      });
+  }, []);
+  useEffect(() => {
+    if (status === "connected") refreshSkins();
+  }, [status, refreshSkins]);
+  useEffect(() => {
+    if (!IS_TAURI) return;
+    const unlisten = listen<string>(EVENT_SKIN_CHANGED, (e) => {
+      setActiveSkinId(e.payload);
+      skinsApi
+        .listSkins()
+        .then(setSkins)
+        .catch(() => {});
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+  const activeSkin = useMemo(
+    () => skins.find((s) => s.id === resolveSkinId(activeSkinId)) ?? null,
+    [skins, activeSkinId],
+  );
 
   // 语言设置事实源在 sidecar config；启动时同步，sidecar 未就绪则重试数次
   useSettingsHydration();
@@ -199,6 +236,7 @@ export default function App() {
           浏览器环境下该属性无副作用。气泡区放在拖拽区外，避免点击气泡误触发拖动 */}
       <div className="app__stage" data-tauri-drag-region>
         <CharacterStage
+          skin={activeSkin}
           onActivate={() => setChatOpen(true)}
           onContextMenu={(x, y) => setMenu({ x, y })}
           onModelReady={handleModelReady}
