@@ -298,7 +298,7 @@ export default function App() {
         <HistoryPanel onClose={() => setInlinePanel(null)} />
       ) : null}
       {!IS_TAURI && inlinePanel === "skins" ? (
-        <SkinsPanel onClose={() => setInlinePanel(null)} />
+        <SkinsPanel onClose={() => setInlinePanel(null)} onSkinActivated={() => refreshSkins()} />
       ) : null}
     </main>
   );

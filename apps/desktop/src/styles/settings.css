@@ -427,7 +427,27 @@
   margin: 0 0 4px;
 }
 
-/* ---- 衣橱预告面板（M1-CTX） ---- */
+/* ---- 衣橱（M1-S1：换肤/导入/删除） ---- */
+.skins__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skins__import {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.skins__hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #8a7580;
+  line-height: 1.5;
+}
+
 .skins__credits {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -448,10 +468,6 @@
 .skins__license {
   color: #8a7580;
   line-height: 1.4;
-}
-
-.skins__soon {
-  text-align: center;
 }
 
 /* ---- 引导向导 ---- */
