@@ -66,18 +66,15 @@ class SkinManifest(BaseModel):
     model_config = {"populate_by_name": True}
 
 
-class SkinSummary(BaseModel):
-    """GET /skins 列表条目：展示字段 + 来源 + 资源基址（前端不拼路径）。"""
+class SkinSummary(SkinManifest):
+    """GET /skins 列表条目：完整清单 + 来源 + 资源基址。
 
-    id: str
-    name: str
-    resource_type: ResourceType = Field(alias="resourceType")
+    前端渲染双路径依赖 modelFile/imageFile/capabilities/animation 等清单
+    字段（拼资源 URL、选动作档案），列表必须带全量清单而非仅展示字段。
+    """
+
     source: SkinSource
     resource_base_url: str = Field(alias="resourceBaseUrl")
-    license: str = ""
-    credits: dict[str, str] = Field(default_factory=dict)
-
-    model_config = {"populate_by_name": True}
 
 
 # 静态皮肤逐状态动画默认表（内置/导入共用，参数理由见 ADR-0006 D9）。
@@ -110,11 +107,7 @@ def manifest_to_summary(
     manifest: SkinManifest, *, source: SkinSource, base_url: str
 ) -> SkinSummary:
     return SkinSummary(
-        id=manifest.id,
-        name=manifest.name,
-        resourceType=manifest.resource_type,
         source=source,
         resourceBaseUrl=base_url,
-        license=manifest.license,
-        credits=manifest.credits,
+        **manifest.model_dump(by_alias=True, exclude_none=True),
     )

@@ -100,6 +100,23 @@ def test_manifest_to_summary():
     assert dumped["resourceType"] == "static"
 
 
+def test_summary_carries_full_manifest_for_rendering():
+    """前端双路径渲染依赖清单字段：摘要必须带全量清单（回归防线）。"""
+    m = SkinManifest.model_validate(
+        _minimal(
+            imageFile="avatar.png",
+            capabilities={"motionGroups": ["Idle"]},
+            animation={"idle": {"float": True}},
+        )
+    )
+    dumped = manifest_to_summary(
+        m, source="user", base_url="http://127.0.0.1:8199/user-skins/t"
+    ).model_dump(by_alias=True, exclude_none=True)
+    assert dumped["imageFile"] == "avatar.png"
+    assert dumped["capabilities"]["motionGroups"] == ["Idle"]
+    assert dumped["animation"]["idle"]["float"] is True
+
+
 # ---------------------------------------------------------------------------
 # hiyori 内置清单读回（v1 升级后）
 # ---------------------------------------------------------------------------
