@@ -7,7 +7,9 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { sessionApi, type HistoryMessage, type SessionSummary } from "../api/configClient";
+import { DEFAULT_SESSION_ID } from "../hooks/useMochiConnection";
 import { useI18n } from "../i18n";
+import { useConversation } from "../store/conversation";
 import { MarkdownBody } from "./MarkdownBody";
 
 interface HistoryPanelProps {
@@ -70,6 +72,11 @@ export function HistoryPanel({ onClose }: HistoryPanelProps) {
     if (selectedId === id) {
       setSelectedId(null);
       setMessages([]);
+    }
+    // 删除的是主界面活跃会话 → 同步清空内存消息，避免"后端已删、
+    // 前端残留"的状态脱节（测试报告 2026-08-06 问题 2）
+    if (id === DEFAULT_SESSION_ID) {
+      useConversation.getState().resetMessages();
     }
     await loadSessions();
   }

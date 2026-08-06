@@ -326,7 +326,16 @@ body {
 }
 .bubble__link {
   color: var(--mochi-pink-deep);
-  text-decoration: underline; /* 链接降级为纯文本，仅保留视觉提示，不可跳转 */
+  text-decoration: underline; /* 点击经 openExternal 交系统浏览器打开（不在 webview 内跳转） */
+  cursor: pointer;
+}
+.bubble__link:hover {
+  opacity: 0.75;
+}
+.bubble__link:focus-visible {
+  outline: 2px solid var(--mochi-pink-deep);
+  outline-offset: 1px;
+  border-radius: 2px;
 }
 .bubble__body table {
   border-collapse: collapse;

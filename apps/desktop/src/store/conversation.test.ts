@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   MAX_IN_MEMORY_MESSAGES,
   appendCapped,
+  finalizeStreamingMessages,
   historyToMessages,
   useConversation,
 } from "./conversation";
@@ -148,6 +149,85 @@ describe("回合与错误", () => {
     expect(after.messages).toEqual(before.messages);
     expect(after.characterState).toBe(before.characterState);
     expect(after.activeRunId).toBe(before.activeRunId);
+  });
+});
+
+describe("run 终态 streaming 收口（测试报告 2026-08-05：光标残留）", () => {
+  /** 模拟异常路径：text.start/delta 后后端跳过 text.end 直接终态。 */
+  function startStreamingWithoutEnd(runId: string, messageId: string) {
+    const { applyEvent } = useConversation.getState();
+    applyEvent(ev("run.started", { runId, sessionId: "s" }));
+    applyEvent(ev("text.start", { runId, messageId, role: "assistant" }));
+    applyEvent(ev("text.delta", { runId, messageId, delta: "半句回复" }));
+  }
+
+  it("finalizeStreamingMessages 收口 streaming 消息并保留文本", () => {
+    const msgs: ChatMessage[] = [
+      { id: "u1", role: "user", text: "hi", streaming: false },
+      { id: "a1", role: "assistant", text: "半句", streaming: true },
+    ];
+    const out = finalizeStreamingMessages(msgs);
+    expect(out[1]).toMatchObject({ text: "半句", streaming: false });
+    expect(out[0]).toBe(msgs[0]); // 未变消息保持原引用
+  });
+
+  it("finalizeStreamingMessages 无 streaming 消息时返回原数组", () => {
+    const msgs: ChatMessage[] = [{ id: "u1", role: "user", text: "hi", streaming: false }];
+    expect(finalizeStreamingMessages(msgs)).toBe(msgs);
+  });
+
+  it("run.finished 缺失 text.end 时兜底关闭 streaming 与口型", () => {
+    startStreamingWithoutEnd("r1", "m1");
+    expect(useConversation.getState().messages[0].streaming).toBe(true);
+
+    useConversation.getState().applyEvent(ev("run.finished", { runId: "r1", reason: "error" }));
+    const s = useConversation.getState();
+    expect(s.activeRunId).toBeNull();
+    expect(s.messages[0]).toMatchObject({ text: "半句回复", streaming: false });
+    expect(s.isSpeaking).toBe(false);
+  });
+
+  it("run.error 同样收口 streaming，已生成内容与错误提示并存", () => {
+    startStreamingWithoutEnd("r1", "m1");
+    useConversation
+      .getState()
+      .applyEvent(
+        ev("run.error", { runId: "r1", error: { code: "ERR_MODEL", message: "模型过载" } }),
+      );
+    const s = useConversation.getState();
+    expect(s.notice).toBe("模型过载");
+    expect(s.messages[0]).toMatchObject({ text: "半句回复", streaming: false });
+    expect(s.isSpeaking).toBe(false);
+  });
+
+  it("正常路径（text.end 已闭合）run.finished 不改变消息内容", () => {
+    streamAssistant("r1", "m1", ["完整回复"]);
+    const before = useConversation.getState().messages;
+    useConversation.getState().applyEvent(ev("run.finished", { runId: "r1", reason: "complete" }));
+    const after = useConversation.getState().messages;
+    expect(after).toEqual(before);
+    expect(after[0]).toMatchObject({ text: "完整回复", streaming: false });
+  });
+});
+
+describe("主界面消息重置（测试报告 2026-08-06：删除会话状态脱节）", () => {
+  it("resetMessages 清空内存消息并归零口型信号", () => {
+    streamAssistant("r1", "m1", ["旧会话内容"]);
+    useConversation.setState({ isSpeaking: true });
+    expect(useConversation.getState().messages).toHaveLength(1);
+
+    useConversation.getState().resetMessages();
+    const s = useConversation.getState();
+    expect(s.messages).toEqual([]);
+    expect(s.isSpeaking).toBe(false);
+  });
+
+  it("resetMessages 不影响连接状态与提示横幅", () => {
+    useConversation.setState({ status: "connected", notice: "某提示" });
+    useConversation.getState().resetMessages();
+    const s = useConversation.getState();
+    expect(s.status).toBe("connected");
+    expect(s.notice).toBe("某提示");
   });
 });
 

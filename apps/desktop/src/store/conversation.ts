@@ -31,6 +31,16 @@ export function appendCapped(
   return appended.length > max ? appended.slice(appended.length - max) : appended;
 }
 
+/** 纯函数：run 终态兜底收口——把仍处于 streaming 的消息统一置为完成。
+    异常路径（超时/限流/Key 失效）后端会跳过 text.end 直接发 run.error /
+    run.finished，若不清理则气泡光标 ▍ 与口型状态永久残留
+    （测试报告 2026-08-05：streaming 状态未闭合）。 */
+export function finalizeStreamingMessages(messages: ChatMessage[]): ChatMessage[] {
+  return messages.some((m) => m.streaming)
+    ? messages.map((m) => (m.streaming ? { ...m, streaming: false } : m))
+    : messages;
+}
+
 /** 纯函数：把后端历史消息映射为 UI 消息（用于重启后回显）。
     全部打 fromHistory 标记：气泡区据此过滤，避免历史批量闪现。 */
 export function historyToMessages(
@@ -65,6 +75,9 @@ export interface ConversationState {
   clearNotice: () => void;
   /** 重启后从 sidecar 拉取历史回显（仅当当前无消息时生效，避免重连重复）。 */
   hydrateHistory: (messages: ChatMessage[]) => void;
+  /** 清空主界面内存消息：回忆面板删除活跃会话后调用，保证前端内存状态
+      与 sidecar 持久化一致（测试报告 2026-08-06 问题 2：删除后状态脱节）。 */
+  resetMessages: () => void;
 }
 
 export const useConversation = create<ConversationState>()((set, get) => ({
@@ -102,6 +115,8 @@ export const useConversation = create<ConversationState>()((set, get) => ({
       return { messages: capped };
     }),
 
+  resetMessages: () => set({ messages: [], isSpeaking: false }),
+
   applyEvent: (event) => {
     const data = event.data as Record<string, unknown>;
 
@@ -111,13 +126,24 @@ export const useConversation = create<ConversationState>()((set, get) => ({
         break;
 
       case EVENT_TYPES.RunFinished:
-        set({ activeRunId: null });
+        // 终态兜底收口：异常路径可能缺失 text.end，统一归零残留的 streaming
+        // 与口型信号，杜绝"生成中"假象（测试报告 2026-08-05）
+        set((s) => ({
+          activeRunId: null,
+          messages: finalizeStreamingMessages(s.messages),
+          isSpeaking: false,
+        }));
         break;
 
       case EVENT_TYPES.RunError: {
         const error = data.error as { message?: string; hint?: string } | undefined;
-        // hint 优先：适配层针对 Key/网络/限流的引导文案（功能清单 6.7）
-        set({ notice: error?.hint ?? error?.message ?? "出了点问题，请重试" });
+        // hint 优先：适配层针对 Key/网络/限流的引导文案（功能清单 6.7）；
+        // 同样收口 streaming——错误常发生在 text.start 之后、text.end 之前
+        set((s) => ({
+          notice: error?.hint ?? error?.message ?? "出了点问题，请重试",
+          messages: finalizeStreamingMessages(s.messages),
+          isSpeaking: false,
+        }));
         break;
       }
 
