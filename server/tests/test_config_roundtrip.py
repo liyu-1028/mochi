@@ -77,6 +77,34 @@ def test_saved_toml_contains_no_none_literals(tmp_path):
     assert "key_ref" in text  # key_ref 正常持久化
 
 
+def test_persona_roundtrip(tmp_path):
+    from mochi_server.config import PersonaConfig
+
+    path = tmp_path / "config.toml"
+    original = _sample_config()
+    original.character.persona = PersonaConfig(soul_preset="warm_sun", style_custom="说话像海盗")
+    save_config(path, original)
+    loaded = load_config(path)
+    assert loaded.character.persona.soul_preset == "warm_sun"
+    assert loaded.character.persona.style_custom == "说话像海盗"
+    assert loaded.character.persona.personality_preset == ""  # 未设置字段默认空
+
+
+def test_legacy_config_without_persona_gets_default(tmp_path):
+    """旧版 config.toml 无 [character.persona]：读取后 pydantic 默认值补齐，无需迁移。"""
+    import tomli_w
+
+    from mochi_server.config import PersonaConfig
+
+    raw = _sample_config().model_dump(mode="json", exclude_none=True)
+    del raw["character"]["persona"]  # 模拟旧版本落盘的文件
+    path = tmp_path / "config.toml"
+    path.write_text(tomli_w.dumps(raw), encoding="utf-8")
+
+    loaded = load_config(path)
+    assert loaded.character.persona == PersonaConfig()
+
+
 def test_corrupt_toml_backed_up_and_default_used(tmp_path):
     path = tmp_path / "config.toml"
     path.write_text("这不是合法的 TOML [", encoding="utf-8")

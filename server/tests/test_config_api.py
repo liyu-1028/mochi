@@ -222,6 +222,87 @@ def test_put_voice_out_of_range_rejected(client):
 
 
 # ---------------------------------------------------------------------------
+# [character.persona] 人格配置（功能清单 6.13）
+# ---------------------------------------------------------------------------
+
+
+def test_get_persona_returns_current_and_presets(client):
+    resp = client.get("/config/persona")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["current"] == {
+        "soulPreset": "",
+        "soulCustom": "",
+        "personalityPreset": "",
+        "personalityCustom": "",
+        "stylePreset": "",
+        "styleCustom": "",
+    }
+    presets = data["presets"]
+    assert set(presets.keys()) == {"soul", "personality", "style"}
+    for dimension in presets.values():
+        assert len(dimension) >= 4
+        assert dimension[0]["name"]["zh-CN"] and dimension[0]["name"]["en"]
+
+
+def test_put_persona_partial_update_persists(client):
+    resp = client.put("/config/persona", json={"soulPreset": "warm_sun"})
+    assert resp.status_code == 200
+    assert resp.json()["soulPreset"] == "warm_sun"
+    assert resp.json()["personalityPreset"] == ""  # 未传字段保持
+    assert client.app.state.registry.config.character.persona.soul_preset == "warm_sun"
+    on_disk = load_config(client.app.state.config_path)
+    assert on_disk.character.persona.soul_preset == "warm_sun"
+
+
+def test_put_persona_custom_text(client):
+    resp = client.put("/config/persona", json={"styleCustom": "说话像海盗"})
+    assert resp.status_code == 200
+    assert resp.json()["styleCustom"] == "说话像海盗"
+
+
+def test_put_persona_invalid_preset_rejected(client):
+    resp = client.put("/config/persona", json={"soulPreset": "no_such_id"})
+    assert resp.status_code == 422
+    # 跨维度引用同样非法：warm_sun 是 soul 预设，不属于 style
+    resp = client.put("/config/persona", json={"stylePreset": "warm_sun"})
+    assert resp.status_code == 422
+    assert client.app.state.registry.config.character.persona.soul_preset == ""
+
+
+def test_put_persona_custom_too_long_rejected(client):
+    resp = client.put("/config/persona", json={"soulCustom": "字" * 501})
+    assert resp.status_code == 422
+
+
+def test_put_persona_reset_to_default(client):
+    client.put(
+        "/config/persona",
+        json={"soulPreset": "warm_sun", "styleCustom": "自定义风格"},
+    )
+    resp = client.put(
+        "/config/persona",
+        json={
+            "soulPreset": "",
+            "soulCustom": "",
+            "personalityPreset": "",
+            "personalityCustom": "",
+            "stylePreset": "",
+            "styleCustom": "",
+        },
+    )
+    assert resp.status_code == 200
+    assert all(value == "" for value in resp.json().values())
+
+
+def test_get_config_includes_persona(client):
+    client.put("/config/persona", json={"personalityPreset": "tsundere_cat"})
+    resp = client.get("/config")
+    # /config 为原始 dump（snake_case，专属端点才出 camelCase——与 voice/general 一致）
+    assert resp.json()["character"]["persona"]["personality_preset"] == "tsundere_cat"
+
+
+# ---------------------------------------------------------------------------
 # 连通性测试与 Ollama 状态
 # ---------------------------------------------------------------------------
 

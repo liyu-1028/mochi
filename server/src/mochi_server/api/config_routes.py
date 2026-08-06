@@ -27,6 +27,7 @@ from ..config import (
     save_config,
 )
 from ..events import CamelModel
+from ..persona import CATALOG, valid_preset_id
 from ..secrets import KeyStore, KeyStoreError, key_ref_for
 from .security import localhost_only
 
@@ -108,6 +109,37 @@ class VoiceView(CamelModel):
 
 def _voice_view(config: AppConfig) -> dict:
     return VoiceView.model_validate(config.voice.model_dump()).model_dump(by_alias=True)
+
+
+class PersonaUpdate(CamelModel):
+    """[character.persona] 部分更新（6.13 人格系统）：仅传入需变更的字段。
+
+    None = 不变；空串 = 清空该维度选择（恢复默认用全空 PUT）。
+    """
+
+    soul_preset: str | None = None
+    soul_custom: str | None = Field(default=None, max_length=500)
+    personality_preset: str | None = None
+    personality_custom: str | None = Field(default=None, max_length=500)
+    style_preset: str | None = None
+    style_custom: str | None = Field(default=None, max_length=500)
+
+
+class PersonaView(CamelModel):
+    """[character.persona] 当前值视图（camelCase 响应，与 VoiceView 同款）。"""
+
+    soul_preset: str
+    soul_custom: str
+    personality_preset: str
+    personality_custom: str
+    style_preset: str
+    style_custom: str
+
+
+def _persona_view(config: AppConfig) -> dict:
+    return PersonaView.model_validate(config.character.persona.model_dump()).model_dump(
+        by_alias=True
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -355,6 +387,39 @@ async def update_voice(body: VoiceUpdate, request: Request) -> dict:
         new_config.voice.tts_enabled,
     )
     return _voice_view(new_config)
+
+
+@router.get("/persona")
+async def get_persona(request: Request) -> dict:
+    """人格当前配置 + 内置预设目录（6.13）：一次拉齐供角色 tab 渲染。"""
+    registry = _registry(request)
+    return {"current": _persona_view(registry.config), "presets": CATALOG.view()}
+
+
+@router.put("/persona")
+async def update_persona(body: PersonaUpdate, request: Request) -> dict:
+    """更新 [character.persona]：preset 合法性校验 → 原子落盘 → registry 热更新。
+
+    下一回合 agent 重建即生效（无需重启，与模型切换同机制）。
+    """
+    registry = _registry(request)
+    for dimension, preset_id in (
+        ("soul", body.soul_preset),
+        ("personality", body.personality_preset),
+        ("style", body.style_preset),
+    ):
+        if preset_id is not None and not valid_preset_id(dimension, preset_id):
+            raise HTTPException(status_code=422, detail=f"{dimension} 预设不存在：{preset_id}")
+
+    def mutate(config: AppConfig) -> None:
+        persona = config.character.persona
+        # model_dump 默认 snake_case 字段名，与 PersonaConfig 一致；exclude_none 保持部分更新语义
+        for field_name, value in body.model_dump(exclude_none=True).items():
+            setattr(persona, field_name, value)
+
+    new_config = _apply(registry, _config_path(request), mutate)
+    logger.info("更新人格设置：persona 已落盘并热生效")
+    return _persona_view(new_config)
 
 
 @router.post("/providers/{provider_id}/test")
