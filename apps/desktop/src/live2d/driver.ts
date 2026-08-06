@@ -28,6 +28,8 @@ export interface CubismParamAPI {
 export type FrameOverride = (params: CubismParamAPI, nowSec: number) => void;
 
 export interface CharacterDriver {
+  /** 判别字段：组件层按皮肤类型分流驱动（M1-S1 双路径）。 */
+  readonly kind: "live2d";
   /** 应用动画计划：切换动作与表情/参数预设，调整目标帧率 */
   applyPlan(plan: AnimationPlan): void;
   /** 注册每帧参数覆写（口型/视线用）；返回注销函数 */
@@ -75,6 +77,7 @@ export function createDriver(stage: StageHandle): CharacterDriver {
   internal.on("beforeModelUpdate", onBeforeModelUpdate);
 
   return {
+    kind: "live2d",
     params,
 
     applyPlan(next) {
