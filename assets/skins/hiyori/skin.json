@@ -1,12 +1,23 @@
 {
-  "$comment": "M0-S3 最小清单；完整 skin.json 规范为功能清单 3.1（M1）",
   "id": "hiyori",
   "name": "Hiyori（桃瀬ひより）",
   "version": "1.0.0",
   "resourceType": "live2d",
   "license": "Live2D Free Material License Agreement + Terms of Use for Live2D Cubism Sample Data",
-  "modelFile": "hiyori_pro_t11.model3.json",
   "cubismVersion": 3,
+  "modelFile": "hiyori_pro_t11.model3.json",
+  "capabilities": {
+    "motionGroups": [
+      "Idle",
+      "Flick",
+      "FlickDown",
+      "FlickUp",
+      "Tap",
+      "Tap@Body",
+      "Flick@Body"
+    ],
+    "expressions": []
+  },
   "credits": {
     "illustration": "Kani Biimu",
     "model": "Live2D Inc."
