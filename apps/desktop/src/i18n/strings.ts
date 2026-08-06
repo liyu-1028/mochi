@@ -136,6 +136,7 @@ const zhCN: StringTable = {
   "skins.import": "导入皮肤（PNG / zip）",
   "skins.importing": "导入中…",
   "skins.transparencyHint": "透明底 PNG 穿上更好看；带底图的图片会原样展示。",
+  "skins.smallImageHint": "图片分辨率较低，穿上后可能不够清晰",
   "skins.errorLoad": "皮肤列表加载失败",
   "skins.errorSave": "皮肤操作失败",
   "skins.creditIllustration": "原画",
@@ -289,6 +290,7 @@ const en: StringTable = {
   "skins.importing": "Importing…",
   "skins.transparencyHint":
     "Transparent-background PNGs look best; images with a background are shown as-is.",
+  "skins.smallImageHint": "Low-resolution image — it may look blurry when worn",
   "skins.errorLoad": "Failed to load skins",
   "skins.errorSave": "Skin operation failed",
   "skins.creditIllustration": "Illustration",
