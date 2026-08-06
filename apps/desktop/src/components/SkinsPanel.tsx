@@ -28,6 +28,8 @@ export function SkinsPanel({ onClose, onSkinActivated }: SkinsPanelProps) {
   const [switching, setSwitching] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 删除两步确认（内联，与 HistoryPanel 同模式；Tauri webview 不依赖 JS 对话框）
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -81,7 +83,7 @@ export function SkinsPanel({ onClose, onSkinActivated }: SkinsPanelProps) {
   }
 
   async function handleDelete(skinId: string) {
-    if (!window.confirm(t("skins.deleteConfirm"))) return;
+    setConfirmDeleteId(null);
     setError(null);
     try {
       await skinsApi.deleteSkin(skinId);
@@ -129,13 +131,29 @@ export function SkinsPanel({ onClose, onSkinActivated }: SkinsPanelProps) {
                     </button>
                   )}
                   {skin.source === "user" ? (
-                    <button
-                      className="btn btn--ghost settings__danger"
-                      disabled={switching !== null}
-                      onClick={() => void handleDelete(skin.id)}
-                    >
-                      {t("common.delete")}
-                    </button>
+                    confirmDeleteId === skin.id ? (
+                      <>
+                        <button
+                          className="btn btn--ghost settings__danger"
+                          disabled={switching !== null}
+                          onClick={() => void handleDelete(skin.id)}
+                        >
+                          {t("common.delete")}
+                        </button>
+                        <button className="btn btn--ghost" onClick={() => setConfirmDeleteId(null)}>
+                          {t("common.cancel")}
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        className="btn btn--ghost settings__danger"
+                        disabled={switching !== null}
+                        onClick={() => setConfirmDeleteId(skin.id)}
+                        aria-label={t("common.delete")}
+                      >
+                        🗑
+                      </button>
+                    )
                   ) : null}
                 </div>
               </div>

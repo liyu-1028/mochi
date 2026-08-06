@@ -135,7 +135,6 @@ const zhCN: StringTable = {
   "skins.switching": "换装中…",
   "skins.import": "导入皮肤（PNG / zip）",
   "skins.importing": "导入中…",
-  "skins.deleteConfirm": "删除这个皮肤？",
   "skins.transparencyHint": "透明底 PNG 穿上更好看；带底图的图片会原样展示。",
   "skins.errorLoad": "皮肤列表加载失败",
   "skins.errorSave": "皮肤操作失败",
@@ -288,7 +287,6 @@ const en: StringTable = {
   "skins.switching": "Switching…",
   "skins.import": "Import skin (PNG / zip)",
   "skins.importing": "Importing…",
-  "skins.deleteConfirm": "Delete this skin?",
   "skins.transparencyHint":
     "Transparent-background PNGs look best; images with a background are shown as-is.",
   "skins.errorLoad": "Failed to load skins",
