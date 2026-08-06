@@ -36,16 +36,13 @@ def test_list_skins_includes_builtins(client):
     assert resp.status_code == 200
     skins = resp.json()
     ids = {s["id"] for s in skins}
-    assert {"hiyori", "mochi-julia", "mochi-snj"} <= ids
+    assert "hiyori" in ids
     hiyori = next(s for s in skins if s["id"] == "hiyori")
     assert hiyori["source"] == "builtin"
     assert hiyori["resourceBaseUrl"] == "/skins/hiyori"
     # 渲染必需字段随列表下发（前端拼 URL / 选动作档案）
     assert hiyori["modelFile"] == "hiyori_pro_t11.model3.json"
     assert hiyori["capabilities"]["motionGroups"]
-    julia = next(s for s in skins if s["id"] == "mochi-julia")
-    assert julia["imageFile"] == "avatar.png"
-    assert julia["animation"]["idle"]["float"] is True
 
 
 def test_list_skins_includes_user_with_absolute_base_url(client):

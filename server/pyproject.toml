@@ -23,7 +23,6 @@ dependencies = [
 [dependency-groups]
 dev = [
     "httpx2>=0.1",
-    "pillow>=10.4",  # 仅 dev：内置静态皮肤抠图脚本（scripts/make_static_skins.py）
     "pyinstaller>=6.6",
     "pytest>=8.3",
     "pytest-asyncio>=0.24",

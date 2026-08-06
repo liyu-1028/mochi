@@ -34,7 +34,7 @@
 
 键：`idle / talking / thinking / working / error / sleeping`；
 值：`{float, breathe, sway}` 布尔（漂浮 / 呼吸缩放 / 微旋摇摆）。
-推荐基线（与内置静态皮肤一致）：idle/talking 漂浮+呼吸、thinking 漂浮、
+推荐基线（与导入静态皮肤默认表一致）：idle/talking 漂浮+呼吸、thinking 漂浮、
 working 呼吸+摇摆、error 全关、sleeping 呼吸。
 
 ### `capabilities`（live2d）

@@ -23,7 +23,7 @@ def _write_user_skin(skin_id: str, **over) -> None:
 
 def test_resolve_skin_id_default():
     assert resolve_skin_id("default") == "hiyori"
-    assert resolve_skin_id("mochi-julia") == "mochi-julia"
+    assert resolve_skin_id("my-skin") == "my-skin"
 
 
 # ---------------------------------------------------------------------------
@@ -32,18 +32,16 @@ def test_resolve_skin_id_default():
 
 
 def test_builtin_catalog_shape():
-    assert set(BUILTIN_SKINS) == {"hiyori", "mochi-julia", "mochi-snj"}
-    statics = [m for m in BUILTIN_SKINS.values() if m.resource_type == "static"]
-    assert len(statics) >= 2, "3.2 验收：内置 ≥2 静态皮肤"
-    for m in statics:
-        assert m.image_file, "静态皮肤必须有 imageFile"
-        assert m.animation.get("idle") is not None
+    # 开发期内置静态皮肤已撤回（素材不随版）；静态路径由用户导入承载
+    assert set(BUILTIN_SKINS) == {"hiyori"}
+    assert BUILTIN_SKINS["hiyori"].resource_type == "live2d"
+    assert BUILTIN_SKINS["hiyori"].model_file
 
 
 def test_list_all_includes_builtin_with_relative_base_url():
     registry = SkinRegistry(http_base_url="http://127.0.0.1:8199")
     summaries = registry.list_all()
-    assert len(summaries) >= 3
+    assert len(summaries) >= 1
     hiyori = next(s for s in summaries if s.id == "hiyori")
     assert hiyori.source == "builtin"
     assert hiyori.resource_base_url == "/skins/hiyori"
@@ -73,7 +71,7 @@ def test_scan_skips_corrupt_manifest():
 
     registry = SkinRegistry()
     assert not registry.has("broken")
-    assert len(registry.list_all()) >= 3  # 内置仍在
+    assert len(registry.list_all()) >= 1  # 内置仍在
 
 
 # ---------------------------------------------------------------------------

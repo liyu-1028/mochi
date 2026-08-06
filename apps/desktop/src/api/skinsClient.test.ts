@@ -22,7 +22,7 @@ afterEach(() => {
 describe("resolveSkinId", () => {
   it("default 解析为内置默认皮肤，其余原样", () => {
     expect(resolveSkinId("default")).toBe("hiyori");
-    expect(resolveSkinId("mochi-julia")).toBe("mochi-julia");
+    expect(resolveSkinId("my-skin")).toBe("my-skin");
   });
 });
 

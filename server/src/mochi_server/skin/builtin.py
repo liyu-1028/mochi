@@ -4,18 +4,15 @@ release 下 sidecar 经 PyInstaller 打包，看不到 Tauri frontendDist 内嵌
 内置皮肤资源，故内置清单以常量表登记（与 persona.CATALOG 同构）；皮肤资源
 本身由前端资产链路分发（vite skinAssets / frontendDist），base URL 为
 ``/skins/<id>``。新增内置皮肤 = 改本表 + assets/skins/ 加资源，低频事件。
+
+内置静态皮肤曾登记 mochi-julia/mochi-snj（用户开发期素材），按产品决策
+撤回——素材仅开发验证用，不随版提供；静态皮肤路径由用户导入（3.4）承载，
+正式内置静态美术待后续专项（功能清单 3.2）。
 """
 
 from __future__ import annotations
 
-from ..skin_manifest import (
-    SkinCapabilities,
-    SkinManifest,
-    default_static_animation,
-    default_static_emotion_mapping,
-)
-
-_USER_PROVIDED_LICENSE = "用户提供的原创素材，版权归提供者所有"
+from ..skin_manifest import SkinCapabilities, SkinManifest
 
 BUILTIN_SKINS: dict[str, SkinManifest] = {
     "hiyori": SkinManifest(
@@ -39,27 +36,5 @@ BUILTIN_SKINS: dict[str, SkinManifest] = {
             expressions=[],
         ),
         credits={"illustration": "Kani Biimu", "model": "Live2D Inc."},
-    ),
-    "mochi-julia": SkinManifest(
-        id="mochi-julia",
-        name="Julia",
-        version="1.0.0",
-        resourceType="static",
-        license=_USER_PROVIDED_LICENSE,
-        imageFile="avatar.png",
-        animation=default_static_animation(),
-        emotionMapping=default_static_emotion_mapping(),
-        credits={"illustration": "Mochi 用户"},
-    ),
-    "mochi-snj": SkinManifest(
-        id="mochi-snj",
-        name="Snj",
-        version="1.0.0",
-        resourceType="static",
-        license=_USER_PROVIDED_LICENSE,
-        imageFile="avatar.png",
-        animation=default_static_animation(),
-        emotionMapping=default_static_emotion_mapping(),
-        credits={"illustration": "Mochi 用户"},
     ),
 }
