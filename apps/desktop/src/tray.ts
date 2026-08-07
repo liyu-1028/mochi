@@ -15,6 +15,7 @@ import { TrayIcon } from "@tauri-apps/api/tray";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { configApi } from "./api/configClient";
 import { translate, type Language } from "./i18n";
+import { notifyVoiceChanged } from "./store/voiceEvents";
 import { TRAY_ICON_COLOR_B64, TRAY_ICON_TEMPLATE_B64 } from "./trayIcons";
 
 function base64ToBytes(b64: string): Uint8Array {
@@ -97,6 +98,7 @@ export async function setupTray(
         const next = await mute.isChecked();
         try {
           await configApi.putVoice({ muted: next });
+          notifyVoiceChanged(); // useTTS 立即停播/恢复（M1-S2）
         } catch {
           await mute.setChecked(!next);
         }

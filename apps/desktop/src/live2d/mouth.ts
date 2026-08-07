@@ -1,9 +1,11 @@
 /**
- * 口型驱动（功能清单 2.3 简化方案：text.delta 到达节奏 → 嘴巴开合）。
+ * 口型驱动（功能清单 2.3 简化方案：text.delta 到达节奏 → 嘴巴开合；
+ * M1-S2 起 2.7 音量驱动：播报期 RMS 音量经 volumeToOpen 直驱开度）。
  *
- * 不做音量/音素同步（2.7 P1）。算法纯函数化便于 vitest：
+ * 算法纯函数化便于 vitest：
  * - onDelta：每个 delta 触发张嘴，幅度 ∝ delta 长度，进入衰减窗口
  * - stepMouth：窗口内保持张嘴，窗口结束按帧指数衰减平滑闭合（~200ms）
+ * - volumeToOpen：AnalyserNode RMS 音量 → 开度（线性放大封顶）
  */
 
 /** 张嘴保持窗口：连续流式 delta（30–80ms 间隔）内维持开度 */
@@ -28,6 +30,11 @@ export const MOUTH_CLOSED: MouthState = { open: 0, target: 0, decayMs: 0 };
 export function onDelta(state: MouthState, deltaText: string): MouthState {
   const target = Math.min(1, 0.35 + deltaText.length / 4);
   return { open: state.open, target, decayMs: MOUTH_DECAY_WINDOW_MS };
+}
+
+/** 音量驱动口型（2.7）：RMS 音量 0..1 → 开度，线性放大封顶；纯函数直测。 */
+export function volumeToOpen(level: number): number {
+  return Math.max(0, Math.min(1, level * 1.6));
 }
 
 /** 每帧推进：窗口内逼近目标，窗口外平滑闭合 */

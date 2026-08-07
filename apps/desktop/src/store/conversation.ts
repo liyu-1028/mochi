@@ -68,6 +68,10 @@ export interface ConversationState {
   lastTextDeltaAt: number;
   lastTextDelta: string;
   isSpeaking: boolean;
+  /** TTS（M1-S2，5.1）：最近完成回合全文+时间戳（合成触发）、run 终态原因（停播） */
+  lastSpokenText: string | null;
+  lastTextEndAt: number;
+  lastFinishReason: string | null;
 
   setStatus: (status: ConnectionStatus) => void;
   addUserMessage: (text: string) => void;
@@ -90,6 +94,9 @@ export const useConversation = create<ConversationState>()((set, get) => ({
   lastTextDeltaAt: 0,
   lastTextDelta: "",
   isSpeaking: false,
+  lastSpokenText: null,
+  lastTextEndAt: 0,
+  lastFinishReason: null,
 
   setStatus: (status) => set({ status }),
 
@@ -132,6 +139,7 @@ export const useConversation = create<ConversationState>()((set, get) => ({
           activeRunId: null,
           messages: finalizeStreamingMessages(s.messages),
           isSpeaking: false,
+          lastFinishReason: (data.reason as string) ?? null,
         }));
         break;
 
@@ -182,6 +190,8 @@ export const useConversation = create<ConversationState>()((set, get) => ({
               : m,
           ),
           isSpeaking: false,
+          lastSpokenText: (data.fullText as string) || null,
+          lastTextEndAt: Date.now(),
         }));
         break;
 

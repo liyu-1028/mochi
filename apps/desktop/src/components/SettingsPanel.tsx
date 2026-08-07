@@ -8,7 +8,8 @@
  * - 通用（SettingsGeneralSection）：界面语言；
  * - 模型（SettingsModelSection）：provider 管理（列表/新增/编辑/测试/默认/删除）；
  * - 角色（PersonaSection）：人格灵魂/性格/说话风格选择与自定义（6.13）；
- * - 语音 / 隐私（SettingsPlaceholder）：敬请期待。
+ * - 语音（SettingsVoiceSection）：TTS 启用/静音/音色/音量/语速/试听（M1-S2，5.1）；
+ * - 隐私（SettingsPlaceholder）：敬请期待。
  *
  * 切换默认模型、修改 provider、保存人格均即热生效（sidecar registry 按回合解析）。
  */
@@ -18,6 +19,7 @@ import { PersonaSection } from "./PersonaSection";
 import { SettingsGeneralSection } from "./SettingsGeneralSection";
 import { SettingsModelSection } from "./SettingsModelSection";
 import { SettingsPlaceholder } from "./SettingsPlaceholder";
+import { SettingsVoiceSection } from "./SettingsVoiceSection";
 
 interface SettingsPanelProps {
   onClose: () => void;
@@ -73,7 +75,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
             {tab === "general" ? <SettingsGeneralSection /> : null}
             {tab === "model" ? <SettingsModelSection /> : null}
             {tab === "character" ? <PersonaSection /> : null}
-            {tab === "voice" ? <SettingsPlaceholder /> : null}
+            {tab === "voice" ? <SettingsVoiceSection /> : null}
             {tab === "privacy" ? <SettingsPlaceholder /> : null}
           </div>
         </div>

@@ -2,7 +2,7 @@
  * 口型驱动单测（功能清单 2.3）。纯函数，node 环境。
  */
 import { describe, expect, it } from "vitest";
-import { MOUTH_CLOSED, MOUTH_DECAY_WINDOW_MS, onDelta, stepMouth } from "./mouth";
+import { MOUTH_CLOSED, MOUTH_DECAY_WINDOW_MS, onDelta, stepMouth, volumeToOpen } from "./mouth";
 
 describe("onDelta：delta 到达触发张嘴", () => {
   it("单字 delta 轻张，长 delta 满张（上限 1）", () => {
@@ -51,5 +51,15 @@ describe("stepMouth：窗口内保持，窗口外平滑闭合", () => {
       expect(s.open).toBeLessThanOrEqual(prev);
       prev = s.open;
     }
+  });
+});
+
+describe("volumeToOpen：音量驱动口型（2.7，M1-S2）", () => {
+  it("线性放大封顶，非法值夹紧", () => {
+    expect(volumeToOpen(0)).toBe(0);
+    expect(volumeToOpen(0.5)).toBeCloseTo(0.8);
+    expect(volumeToOpen(1)).toBe(1);
+    expect(volumeToOpen(2)).toBe(1);
+    expect(volumeToOpen(-1)).toBe(0);
   });
 });

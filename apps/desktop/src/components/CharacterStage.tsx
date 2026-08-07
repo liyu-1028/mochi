@@ -18,7 +18,9 @@ import { CharacterBadge } from "./CharacterBadge";
 import { disposeStage, loadCharacterStage, type StageHandle } from "../live2d/core";
 import { createDriver, type CharacterDriver } from "../live2d/driver";
 import { lerpGaze, normalizeGaze, type GazeTarget } from "../live2d/gaze";
-import { MOUTH_CLOSED, onDelta, stepMouth, type MouthState } from "../live2d/mouth";
+import { MOUTH_CLOSED, onDelta, stepMouth, volumeToOpen, type MouthState } from "../live2d/mouth";
+import { ttsPlayer } from "../live2d/ttsPlayer";
+import { useTTSState } from "../hooks/useTTS";
 import { MAX_STATIC_UPSCALE } from "../layout/characterLayout";
 import { disposeStaticStage, loadStaticStage, type StaticStageHandle } from "../live2d/staticCore";
 import { createStaticDriver, type StaticDriver } from "../live2d/staticDriver";
@@ -75,6 +77,9 @@ export function CharacterStage({
   const [ready, setReady] = useState(false);
 
   const characterState = useConversation((s) => s.characterState);
+  // 播报期服务端已 idle（text.end 即回落）：前端取有效态保持 talking（M1-S2）
+  const ttsPlaying = useTTSState((s) => s.playing);
+  const effectiveState = ttsPlaying ? "talking" : characterState;
   const emotion = useConversation((s) => s.emotion);
   const lastTextDeltaAt = useConversation((s) => s.lastTextDeltaAt);
   const lastTextDelta = useConversation((s) => s.lastTextDelta);
@@ -159,18 +164,18 @@ export function CharacterStage({
     [],
   );
 
-  // 状态机：(状态, 情绪) → 动画计划（双路径）
+  // 状态机：(有效状态, 情绪) → 动画计划（双路径）
   useEffect(() => {
     const driver = driverRef.current;
     if (!driver || !ready || !skin) return;
     if (driver.kind === "live2d") {
-      const plan = resolveAnimation(characterState, emotion, profileForSkin(skin));
+      const plan = resolveAnimation(effectiveState, emotion, profileForSkin(skin));
       planRef.current = plan;
       driver.applyPlan(plan);
     } else {
-      driver.applyPlan(resolveStaticAnimation(characterState, emotion, skin));
+      driver.applyPlan(resolveStaticAnimation(effectiveState, emotion, skin));
     }
-  }, [characterState, emotion, ready, skin]);
+  }, [effectiveState, emotion, ready, skin]);
 
   // 口型（2.3，仅 live2d）：每个 text.delta 触发一次张嘴；帧覆写负责衰减与闭合
   useEffect(() => {
@@ -202,10 +207,16 @@ export function CharacterStage({
       lastNow = now;
       const plan = planRef.current;
 
-      // 口型：非说话期也继续衰减，保证平滑闭合
-      mouthRef.current = stepMouth(mouthRef.current, deltaMs);
-      if (mouthRef.current.open > 0) {
-        driver.setParam("ParamMouthOpenY", mouthRef.current.open);
+      // 口型：播报期音量驱动（2.7），否则 delta 节奏 + 平滑衰减
+      if (ttsPlaying) {
+        const open = volumeToOpen(ttsPlayer.level());
+        if (open > 0) driver.setParam("ParamMouthOpenY", open);
+        mouthRef.current = MOUTH_CLOSED;
+      } else {
+        mouthRef.current = stepMouth(mouthRef.current, deltaMs);
+        if (mouthRef.current.open > 0) {
+          driver.setParam("ParamMouthOpenY", mouthRef.current.open);
+        }
       }
 
       // 视线：sleeping/error 状态由状态机禁用
@@ -215,7 +226,7 @@ export function CharacterStage({
         driver.setParam("ParamEyeBallY", gazeCurrentRef.current.y + plan.gazeOffsetY);
       }
     });
-  }, [ready, isLive2D]);
+  }, [ready, isLive2D, ttsPlaying]);
 
   // 性能护栏（2.1 空闲 CPU≤8% / 2.6 简化）：窗口隐藏时停 ticker。
   // 其余策略已分布就位：空闲 30fps/说话 60fps（stateMachine.tickerFps）、

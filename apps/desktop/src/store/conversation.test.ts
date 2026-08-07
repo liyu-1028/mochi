@@ -38,6 +38,26 @@ beforeEach(() => {
     lastTextDeltaAt: 0,
     lastTextDelta: "",
     isSpeaking: false,
+    lastSpokenText: null,
+    lastTextEndAt: 0,
+    lastFinishReason: null,
+  });
+});
+
+describe("TTS 挂钩（M1-S2，5.1）", () => {
+  it("text.end 记录合成触发全文与时间戳", () => {
+    streamAssistant("r1", "m1", ["你好"]);
+    const s = useConversation.getState();
+    expect(s.lastSpokenText).toBe("你好");
+    expect(s.lastTextEndAt).toBeGreaterThan(0);
+    expect(s.lastFinishReason).toBe("complete");
+  });
+
+  it("run.finished 非 complete 记录终态原因供停播", () => {
+    useConversation
+      .getState()
+      .applyEvent(ev("run.finished", { runId: "r", reason: "interrupted" }));
+    expect(useConversation.getState().lastFinishReason).toBe("interrupted");
   });
 });
 

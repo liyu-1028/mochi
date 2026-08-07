@@ -527,3 +527,17 @@
 .settings__danger:hover:not(:disabled) {
   background: #ffe0e0;
 }
+
+/* ---- 语音 tab（M1-S2，5.1）---- */
+.settings__voice {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings__hint {
+  font-size: 12px;
+  color: #8a7580;
+  border-top: 1px solid #f3e3e7;
+  padding-top: 12px;
+}

@@ -29,6 +29,8 @@ import { SpeechBubbleArea } from "./components/SpeechBubbleArea";
 import { DEFAULT_SESSION_ID, resolveWsUrl, useMochiConnection } from "./hooks/useMochiConnection";
 import { useSettingsHydration } from "./hooks/useSettingsHydration";
 import { useSidecarStatus } from "./hooks/useSidecarStatus";
+import { useTTS } from "./hooks/useTTS";
+import { ttsPlayer } from "./live2d/ttsPlayer";
 import { useI18n } from "./i18n";
 import { applyCharacterLayout } from "./layout/applyWindowLayout";
 import {
@@ -124,6 +126,14 @@ export default function App() {
 
   // 语言设置事实源在 sidecar config；启动时同步，sidecar 未就绪则重试数次
   useSettingsHydration();
+
+  // TTS 播报编排（M1-S2，5.1）；任意点击解锁 AudioContext（autoplay 策略）
+  useTTS();
+  useEffect(() => {
+    const unlock = () => ttsPlayer.unlock();
+    window.addEventListener("pointerdown", unlock);
+    return () => window.removeEventListener("pointerdown", unlock);
+  }, []);
 
   // 系统托盘（1.4）：菜单文案随语言切换重建（setupTray 幂等）；
   // 非 Tauri 环境整体 no-op
