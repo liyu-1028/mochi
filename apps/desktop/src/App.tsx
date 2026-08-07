@@ -229,6 +229,10 @@ export default function App() {
         {
           "--bubble-top": `${layout.bubbleTop}px`,
           "--head-gap": `${layout.headGap}px`,
+          // 浏览器环境 OS resize no-op：布局尺寸直接落到 .app 并页面居中，
+          // 降级视图与桌面小部件一致（否则 100vh 画布底边对齐致角色贴底）；
+          // 桌面端不设内联尺寸，仍由 applyCharacterLayout 同步 OS 窗口
+          ...(!IS_TAURI ? { width: layout.winW, height: layout.winH } : null),
         } as CSSProperties
       }
     >

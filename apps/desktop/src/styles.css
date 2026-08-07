@@ -19,13 +19,25 @@ body {
   color: var(--ink);
 }
 
+/* 浏览器降级（dev:web）：#root 作居中容器，.app 带布局尺寸后 margin auto
+   页面居中；桌面端 .app 100vh 与窗口同高，auto margin 归零无副作用 */
+#root {
+  min-height: 100vh;
+  display: flex;
+}
+
 .app {
+  /* #root 是 flex 容器：flex item 宽度默认随内容 max-content，
+     宽内容（输入条）会撑宽 .app 致画布重适配、角色偏移（窄窗口缺陷）；
+     宽度恒等于容器，桌面端即窗口宽；浏览器降级由内联 width 覆盖 */
+  width: 100%;
   height: 100vh;
   display: flex;
   flex-direction: column;
   gap: 4px;
   padding: 8px;
   position: relative; /* 让 .chat-toggle 可以相对窗口绝对定位 */
+  margin: auto; /* 浏览器降级时整个小部件页面居中 */
 }
 
 /* ---- 角色舞台（占满垂直空间；气泡在角色图层之上侧向贴头，见 .bubbles） ---- */
@@ -356,6 +368,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden; /* 防输入条内容溢出撑宽窗口导致角色水平偏移 */
 }
 
 /* 输入条容器：占据 dock 槽位（流内布局，不再绝对定位悬浮于角色之上） */
@@ -407,7 +420,7 @@ body {
 
 .chat-toggle__input {
   flex: 1;
-  min-width: 160px;
+  min-width: 0; /* 允许在窄窗口下弹性收缩（原 160px 会溢出竖版模型窗口） */
   border: none;
   outline: none;
   background: transparent;
@@ -419,6 +432,7 @@ body {
 .chat-toggle__btn {
   width: 32px;
   height: 32px;
+  flex-shrink: 0; /* 窄窗口下按钮不被压缩 */
   border: none;
   border-radius: 50%;
   font-size: 14px;
@@ -442,6 +456,7 @@ body {
 .chat-toggle__close {
   width: 28px;
   height: 28px;
+  flex-shrink: 0; /* 窄窗口下关闭按钮不被压缩 */
   border: none;
   border-radius: 50%;
   background: transparent;
