@@ -34,6 +34,11 @@ export interface PngNormalization {
 
 /** 导入尺寸决策纯函数（vitest 直测）：长边超限 → 压缩目标；小图 → 提示。 */
 export function decidePngNormalization(w: number, h: number): PngNormalization {
+  // 宽高非法（非有限正数，如 0/负/NaN/Infinity）：跳过客户端归一化，
+  // 否则下游除零/NaN 污染 canvas 尺寸；原样交服务端硬校验兜底（同读取失败路径）
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) {
+    return { downscaleTo: null, small: false };
+  }
   const longEdge = Math.max(w, h);
   return {
     downscaleTo: longEdge > IMPORT_MAX_EDGE ? IMPORT_MAX_EDGE : null,

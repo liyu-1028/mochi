@@ -30,4 +30,14 @@ describe("decidePngNormalization", () => {
     expect(d.small).toBe(true);
     expect(d.downscaleTo).toBeNull();
   });
+
+  it("宽高非法：跳过归一化（防除零/NaN/Infinity，交服务端硬校验兜底）", () => {
+    // BUG-001：(0,0) 曾致 small=true 误判、下游除零 Infinity
+    expect(decidePngNormalization(0, 0)).toEqual({ downscaleTo: null, small: false });
+    expect(decidePngNormalization(0, 1920)).toEqual({ downscaleTo: null, small: false });
+    expect(decidePngNormalization(-1, 4096)).toEqual({ downscaleTo: null, small: false });
+    expect(decidePngNormalization(NaN, NaN)).toEqual({ downscaleTo: null, small: false });
+    // Infinity 曾致 downscaleTo=2048 → 下游 scale=0、尺寸为 NaN
+    expect(decidePngNormalization(Infinity, 100)).toEqual({ downscaleTo: null, small: false });
+  });
 });
