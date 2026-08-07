@@ -32,10 +32,16 @@ def test_resolve_skin_id_default():
 
 
 def test_builtin_catalog_shape():
-    # 开发期内置静态皮肤已撤回（素材不随版）；静态路径由用户导入承载
-    assert set(BUILTIN_SKINS) == {"hiyori"}
+    # 3.2：1 个 Live2D + ≥2 静态；静态美术为 CC0 chibi 系列（版权干净红线）
+    assert set(BUILTIN_SKINS) == {"hiyori", "ruby", "spade"}
     assert BUILTIN_SKINS["hiyori"].resource_type == "live2d"
     assert BUILTIN_SKINS["hiyori"].model_file
+    for skin_id in ("ruby", "spade"):
+        skin = BUILTIN_SKINS[skin_id]
+        assert skin.resource_type == "static"
+        assert skin.image_file
+        assert skin.license  # 内置皮肤版权说明必填
+        assert skin.animation and skin.emotion_mapping
 
 
 def test_list_all_includes_builtin_with_relative_base_url():
