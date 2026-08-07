@@ -18,6 +18,7 @@ dependencies = [
     # M1-S1 会话持久化（4.3/6.2）：异步 SQLite，轻量迁移不用 Alembic
     "aiosqlite>=0.20",
     "python-multipart>=0.0.9",  # FastAPI UploadFile（M1-S1 皮肤导入）
+    "edge-tts>=6.1",
 ]
 
 [dependency-groups]

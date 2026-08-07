@@ -25,7 +25,7 @@ from .agent import RunManager
 from .agent.ollama_probe import probe_ollama
 from .agent.registry import ProviderRegistry
 from .agent.service import AgentService
-from .api import config_router, session_router, skin_router
+from .api import config_router, session_router, skin_router, tts_router
 from .api.security import ALLOWED_CORS_ORIGINS, SensitiveDataFilter
 from .config import AppConfig, load_config
 from .events import (
@@ -183,6 +183,7 @@ def create_app(
     app.include_router(config_router)
     app.include_router(session_router)
     app.include_router(skin_router)
+    app.include_router(tts_router)
     _install_log_filter()
 
     @app.get("/health")

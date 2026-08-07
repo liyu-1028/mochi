@@ -23,12 +23,19 @@ hiddenimports = [
 hiddenimports += collect_submodules("keyring.backends")
 # python-multipart 由 FastAPI 运行时按需导入（UploadFile，M1-S1 皮肤导入）
 hiddenimports += ["multipart", "multipart.multipart"]
+# edge-tts（M1-S2 TTS）：aiohttp 按平台动态挑选子模块，静态分析易漏；
+# certifi 的 CA 包是数据文件，不 collect 则 HTTPS 握手失败
+hiddenimports += ["edge_tts", "aiohttp", "certifi"]
+hiddenimports += collect_submodules("aiohttp")
+
+datas = collect_data_files("keyring")  # backends.toml 等优先级配置
+datas += collect_data_files("certifi")  # cacert.pem
 
 a = Analysis(
     ["entry.py"],
     pathex=["../src"],  # 相对 spec 文件目录 → server/src
     binaries=[],
-    datas=collect_data_files("keyring"),  # backends.toml 等优先级配置
+    datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
