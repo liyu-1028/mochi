@@ -69,7 +69,8 @@ _MIGRATIONS: dict[int, list[str]] = {
 _TITLE_MAX_CHARS = 30
 
 # 关键词提取的通用停用词（避免高频虚词产生噪声匹配）。
-_STOPWORDS = frozenset(["的了吗呢吧啊呀哦是在有和与及了一个这那我你他她它们你您"])
+# frozenset(str) 逐字符拆分：中文无空格，须如此才能得到单字集合。
+_STOPWORDS = frozenset("的了吗呢吧啊呀哦是在有和与及了一个这那我你他她它们你您")
 
 
 def _extract_keywords(text: str) -> list[str]:
@@ -97,10 +98,10 @@ def _extract_keywords(text: str) -> list[str]:
                 if ch not in _STOPWORDS and ch not in seen:
                     keywords.append(ch)
                     seen.add(ch)
-            # CJK 2-gram
+            # CJK 2-gram（过滤含停用词的组合）
             for i in range(len(tok) - 1):
                 gram = tok[i : i + 2]
-                if gram not in seen:
+                if gram[0] not in _STOPWORDS and gram[1] not in _STOPWORDS and gram not in seen:
                     keywords.append(gram)
                     seen.add(gram)
     return keywords

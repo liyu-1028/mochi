@@ -154,7 +154,7 @@ const zhCN: StringTable = {
 
   // 记忆管理（M1-S3，功能清单 6.4）
   "memory.title": "Mochi 的记忆",
-  "memory.empty": "还没有记忆。和 Mochi 聊天时会自动记住关于你的重要信息。",
+  "memory.empty": "还没有记忆。手动添加关于你的信息，Mochi 会在对话中参考。",
   "memory.loading": "加载中…",
   "memory.add": "添加",
   "memory.addPlaceholder": "手动添加一条记忆…",
@@ -335,7 +335,7 @@ const en: StringTable = {
   // Memories (M1-S3, feature 6.4)
   "memory.title": "Mochi's Memories",
   "memory.empty":
-    "No memories yet. Mochi will automatically remember important things about you as you chat.",
+    "No memories yet. Add information about yourself and Mochi will reference it in conversations.",
   "memory.loading": "Loading…",
   "memory.add": "Add",
   "memory.addPlaceholder": "Add a memory manually…",

@@ -142,9 +142,7 @@ class LLMAgentService(AgentService):
         full_text = "".join(parts)
         # 落盘本轮（4.3）：仅完整回合入库，取消/出错不落盘
         await self._persist_turn(ctx.session_id, ctx.text, full_text)
-        # 记忆沉淀（6.4）：异步提取值得记住的事实/偏好，失败静默降级
-        if self._memory is not None:
-            await self._memory.extract_and_store(self._adapter, ctx.text, full_text)
+        # 记忆沉淀（6.4）：当前版本仅手动添加，自动提取留后续版本
         yield (
             "text.end",
             TextEndData(run_id=ctx.run_id, message_id=message_id, full_text=full_text),
