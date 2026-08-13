@@ -6,6 +6,8 @@
 
 皮肤包 = 一个目录，内含 `skin.json` 清单 + 资源文件。内置皮肤随前端资产分发
 （`assets/skins/<id>/` → `dist/skins/<id>/`），用户皮肤位于 `<userData>/skins/<id>/`。
+内置皮肤精灵图来源 [pokesprite](https://github.com/msikma/pokesprite)（© Nintendo /
+Creatures Inc. / GAME FREAK inc.）。
 
 ## 目录与 id
 

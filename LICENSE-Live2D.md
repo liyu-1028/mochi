@@ -24,8 +24,9 @@ Live2D Cubism SDK 及其 Core 库为 Live2D Inc. 的**专有软件**，受
 
 | 资产目录 | 名称 | 作者 | 许可条款 | 备注 |
 | --- | --- | --- | --- | --- |
-| `assets/skins/hiyori/` | Hiyori（桃瀬ひより，PRO 版 t11） | 插画：Kani Biimu；模型：Live2D Inc. | Live2D Free Material License Agreement + Terms of Use for Live2D Cubism Sample Data（条款见 <https://www.live2d.com/zh-CHS/download/sample-data/>） | M0-S3 内置默认 Live2D 角色；仅含 runtime 文件，不含编辑器工程文件；上游 ReadMe 见目录内 `UPSTREAM-ReadMe.txt` |
-| `assets/skins/`（静态皮肤） | （待定） | （待定） | （待定） | 内置静态皮肤（功能清单 3.2，M1） |
+| `assets/skins/pikachu/` | 皮卡丘 Pikachu | pokesprite（msikma） | © Nintendo / Creatures Inc. / GAME FREAK inc.（精灵图来源：<https://github.com/msikma/pokesprite>） | 内置默认静态皮肤（功能清单 3.2）；68×56 透明底 PNG |
+| `assets/skins/eevee/` | 伊布 Eevee | pokesprite（msikma） | © Nintendo / Creatures Inc. / GAME FREAK inc.（精灵图来源：<https://github.com/msikma/pokesprite>） | 内置静态皮肤（功能清单 3.2）；68×56 透明底 PNG |
+| `assets/skins/snorlax/` | 卡比兽 Snorlax | pokesprite（msikma） | © Nintendo / Creatures Inc. / GAME FREAK inc.（精灵图来源：<https://github.com/msikma/pokesprite>） | 内置静态皮肤（功能清单 3.2）；68×56 透明底 PNG |
 
 ## 3. 第三方皮肤包（skin.json 许可字段）
 

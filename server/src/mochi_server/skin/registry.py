@@ -19,7 +19,7 @@ from .builtin import BUILTIN_SKINS
 logger = logging.getLogger(__name__)
 
 # 历史配置中 active_skin 的占位值；解析为默认内置皮肤（ADR-0006 D7）。
-DEFAULT_SKIN_ID = "hiyori"
+DEFAULT_SKIN_ID = "pikachu"
 
 
 def resolve_skin_id(skin_id: str) -> str:

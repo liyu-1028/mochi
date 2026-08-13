@@ -1,9 +1,9 @@
 {
-  "id": "ruby",
-  "name": "Ruby（红发·抱熊）",
+  "id": "pikachu",
+  "name": "皮卡丘 Pikachu",
   "version": "1.0.0",
   "resourceType": "static",
-  "license": "CC0 Public Domain Dedication（Pixabay，作者 DG-RA）",
+  "license": "© Nintendo / Creatures Inc. / GAME FREAK inc.（精灵图来源：pokesprite，https://github.com/msikma/pokesprite）",
   "imageFile": "avatar.png",
   "animation": {
     "idle": { "float": true, "breathe": true, "sway": false },
@@ -13,5 +13,5 @@
     "error": { "float": false, "breathe": false, "sway": false },
     "sleeping": { "float": false, "breathe": true, "sway": false }
   },
-  "credits": { "illustration": "DG-RA" }
+  "credits": { "sprite": "pokesprite (msikma)", "character": "© Nintendo / Creatures Inc. / GAME FREAK inc." }
 }

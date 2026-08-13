@@ -36,13 +36,13 @@ def test_list_skins_includes_builtins(client):
     assert resp.status_code == 200
     skins = resp.json()
     ids = {s["id"] for s in skins}
-    assert "hiyori" in ids
-    hiyori = next(s for s in skins if s["id"] == "hiyori")
-    assert hiyori["source"] == "builtin"
-    assert hiyori["resourceBaseUrl"] == "/skins/hiyori"
+    assert "pikachu" in ids
+    pikachu = next(s for s in skins if s["id"] == "pikachu")
+    assert pikachu["source"] == "builtin"
+    assert pikachu["resourceBaseUrl"] == "/skins/pikachu"
     # 渲染必需字段随列表下发（前端拼 URL / 选动作档案）
-    assert hiyori["modelFile"] == "hiyori_pro_t11.model3.json"
-    assert hiyori["capabilities"]["motionGroups"]
+    assert pikachu["imageFile"] == "avatar.png"
+    assert pikachu["animation"]
 
 
 def test_list_skins_includes_user_with_absolute_base_url(client):
@@ -61,7 +61,7 @@ def test_list_skins_includes_user_with_absolute_base_url(client):
 
 
 def test_delete_builtin_forbidden(client):
-    assert client.delete("/skins/hiyori").status_code == 403
+    assert client.delete("/skins/pikachu").status_code == 403
 
 
 def test_delete_unknown_404(client):

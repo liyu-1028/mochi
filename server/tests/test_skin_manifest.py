@@ -1,9 +1,9 @@
-"""skin.json v1 清单模型测试（功能清单 3.1）：校验/默认值/别名/hiyori 读回。"""
+"""skin.json v1 清单模型测试（功能清单 3.1）：校验/默认值/别名/内置读回。"""
 
 from __future__ import annotations
 
 import json
-from pathlib import Path
+import pathlib
 
 import pytest
 from pydantic import ValidationError
@@ -15,7 +15,7 @@ from mochi_server.skin_manifest import (
     manifest_to_summary,
 )
 
-HIYORI_SKIN_JSON = Path(__file__).parents[2] / "assets" / "skins" / "hiyori" / "skin.json"
+BUILTIN_SKIN_JSON = pathlib.Path(__file__).parents[2] / "assets" / "skins" / "pikachu" / "skin.json"
 
 
 def _minimal(**over) -> dict:
@@ -118,18 +118,18 @@ def test_summary_carries_full_manifest_for_rendering():
 
 
 # ---------------------------------------------------------------------------
-# hiyori 内置清单读回（v1 升级后）
+# 内置静态清单读回（pikachu）
 # ---------------------------------------------------------------------------
 
 
-def test_hiyori_skin_json_loads_as_v1():
-    raw = json.loads(HIYORI_SKIN_JSON.read_text(encoding="utf-8"))
+def test_builtin_skin_json_loads_as_v1():
+    raw = json.loads(BUILTIN_SKIN_JSON.read_text(encoding="utf-8"))
     m = SkinManifest.model_validate(raw)
-    assert m.id == "hiyori"
-    assert m.resource_type == "live2d"
-    assert m.model_file == "hiyori_pro_t11.model3.json"
-    assert "Idle" in m.capabilities.motion_groups
-    assert len(m.capabilities.motion_groups) >= 7
+    assert m.id == "pikachu"
+    assert m.resource_type == "static"
+    assert m.image_file == "avatar.png"
+    assert m.animation  # 静态皮肤有动画配置
+    assert m.license  # 版权归属必填
 
 
 def test_m0_minimal_manifest_still_loads():

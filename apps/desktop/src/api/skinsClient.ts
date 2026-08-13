@@ -46,7 +46,7 @@ export interface SkinSummary extends SkinManifest {
 }
 
 /** 历史配置占位 "default" 解析为默认内置皮肤（服务端 resolve_skin_id 同构）。 */
-export const DEFAULT_BUILTIN_SKIN_ID = "hiyori";
+export const DEFAULT_BUILTIN_SKIN_ID = "pikachu";
 
 export function resolveSkinId(skinId: string): string {
   return skinId === "default" ? DEFAULT_BUILTIN_SKIN_ID : skinId;

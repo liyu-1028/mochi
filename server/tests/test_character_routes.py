@@ -25,13 +25,13 @@ def test_get_character_default(client):
 
 
 def test_put_character_persists(client):
-    resp = client.put("/config/character", json={"activeSkin": "hiyori"})
+    resp = client.put("/config/character", json={"activeSkin": "pikachu"})
     assert resp.status_code == 200
-    assert resp.json() == {"activeSkin": "hiyori"}
+    assert resp.json() == {"activeSkin": "pikachu"}
 
     # 落盘校验（config.toml 为 snake_case 原始 dump，既有约定）
     raw = tomllib.load(get_config_path().open("rb"))
-    assert raw["character"]["active_skin"] == "hiyori"
+    assert raw["character"]["active_skin"] == "pikachu"
 
 
 def test_put_character_unknown_skin_422(client):

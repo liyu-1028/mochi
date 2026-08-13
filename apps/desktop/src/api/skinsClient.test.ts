@@ -21,14 +21,14 @@ afterEach(() => {
 
 describe("resolveSkinId", () => {
   it("default 解析为内置默认皮肤，其余原样", () => {
-    expect(resolveSkinId("default")).toBe("hiyori");
+    expect(resolveSkinId("default")).toBe("pikachu");
     expect(resolveSkinId("my-skin")).toBe("my-skin");
   });
 });
 
 describe("skinsApi", () => {
   it("listSkins GET /skins", async () => {
-    const fetchMock = mockFetch([{ id: "hiyori", source: "builtin" }]);
+    const fetchMock = mockFetch([{ id: "pikachu", source: "builtin" }]);
     const list = await skinsApi.listSkins();
     expect(list).toHaveLength(1);
     expect(fetchMock.mock.calls[0][0]).toBe("http://127.0.0.1:8199/skins");

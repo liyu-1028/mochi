@@ -11,8 +11,8 @@ import { computeCharacterLayout } from "../layout/characterLayout";
 
 export type { Live2DModel };
 
-/** 内置默认角色（assets/skins/hiyori，LICENSE-Live2D.md §2 已登记）。 */
-export const DEFAULT_MODEL_URL = "/skins/hiyori/hiyori_pro_t11.model3.json";
+/** 内置 Live2D 默认模型 URL（用户可自行导入 Live2D 皮肤包替换）。 */
+export const DEFAULT_MODEL_URL = "/skins/pikachu/avatar.png";
 
 export function isCubismCoreReady(): boolean {
   return typeof window !== "undefined" && (window as { Live2D?: unknown }).Live2D !== undefined;

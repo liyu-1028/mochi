@@ -22,7 +22,7 @@ def _write_user_skin(skin_id: str, **over) -> None:
 
 
 def test_resolve_skin_id_default():
-    assert resolve_skin_id("default") == "hiyori"
+    assert resolve_skin_id("default") == "pikachu"
     assert resolve_skin_id("my-skin") == "my-skin"
 
 
@@ -32,11 +32,9 @@ def test_resolve_skin_id_default():
 
 
 def test_builtin_catalog_shape():
-    # 3.2：1 个 Live2D + ≥2 静态；静态美术为 CC0 chibi 系列（版权干净红线）
-    assert set(BUILTIN_SKINS) == {"hiyori", "ruby", "spade"}
-    assert BUILTIN_SKINS["hiyori"].resource_type == "live2d"
-    assert BUILTIN_SKINS["hiyori"].model_file
-    for skin_id in ("ruby", "spade"):
+    # 3.2：≥3 个静态皮肤（pokesprite 精灵图）
+    assert set(BUILTIN_SKINS) == {"pikachu", "eevee", "snorlax"}
+    for skin_id in ("pikachu", "eevee", "snorlax"):
         skin = BUILTIN_SKINS[skin_id]
         assert skin.resource_type == "static"
         assert skin.image_file
@@ -48,9 +46,9 @@ def test_list_all_includes_builtin_with_relative_base_url():
     registry = SkinRegistry(http_base_url="http://127.0.0.1:8199")
     summaries = registry.list_all()
     assert len(summaries) >= 1
-    hiyori = next(s for s in summaries if s.id == "hiyori")
-    assert hiyori.source == "builtin"
-    assert hiyori.resource_base_url == "/skins/hiyori"
+    pikachu = next(s for s in summaries if s.id == "pikachu")
+    assert pikachu.source == "builtin"
+    assert pikachu.resource_base_url == "/skins/pikachu"
 
 
 # ---------------------------------------------------------------------------
@@ -87,8 +85,8 @@ def test_scan_skips_corrupt_manifest():
 
 def test_delete_builtin_forbidden():
     registry = SkinRegistry()
-    assert registry.delete("hiyori") is False
-    assert registry.is_builtin("hiyori")
+    assert registry.delete("pikachu") is False
+    assert registry.is_builtin("pikachu")
 
 
 def test_delete_user_skin_removes_dir():
