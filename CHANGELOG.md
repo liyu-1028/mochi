@@ -5,6 +5,24 @@
 > release.yml 发布时自动提取对应段落作为 GitHub Release Notes，
 > 缺少条目会在构建前拦截（先写 changelog 再打 tag）。
 
+## v0.6.0 - 2026-08-13
+
+内置皮肤换新：宝可梦精灵图登场 ⚡
+
+**变更**
+
+- 内置皮肤全量替换为 [pokesprite](https://github.com/msikma/pokesprite) 宝可梦
+  精灵图：pikachu（皮卡丘，默认）/ eevee（伊布）/ snorlax（卡比兽）
+- 移除旧内置皮肤 hiyori（Live2D 模型）、ruby、spade 及全部关联资源
+- DEFAULT_SKIN_ID：hiyori → pikachu（前后端 + 全量测试适配）
+- 功能清单 3.2 更新：去掉 Live2D 必备与「版权干净」表述，改为 ≥3 静态皮肤
+- LICENSE-Live2D.md 资产登记表替换为三只宝可梦版权声明
+
+**版权说明**
+
+- 精灵图 © Nintendo / Creatures Inc. / GAME FREAK inc.
+  （来源 pokesprite 仓库，非自由许可，仅供粉丝/个人用途）
+
 ## v0.5.0 - 2026-08-07
 
 M1-S2 TTS 语音：Mochi 会说话了 🎙
