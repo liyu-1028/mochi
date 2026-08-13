@@ -5,6 +5,25 @@
 > release.yml 发布时自动提取对应段落作为 GitHub Release Notes，
 > 缺少条目会在构建前拦截（先写 changelog 再打 tag）。
 
+## v0.7.0 - 2026-08-13
+
+M1-S3 记忆技能：Mochi 会记住你了 🧠
+
+**新增**
+
+- 记忆技能（6.4）：跨会话长期记忆——对话后自动提取用户事实/偏好，
+  新会话对话时自动召回注入 system prompt，让 Mochi 越来越懂你
+- 记忆管理面板（右键 → 记忆）：查看/编辑/删除任一条记忆、手动添加、一键清空
+- `/memories` REST API：列表/创建/编辑/删除/清空
+- SQLite migration v2：memories 表（id/category/content/source/timestamps）
+- 关键词检索：CJK 单字 + 2-gram + Latin 词，停用词过滤，LIKE OR 匹配
+
+**修复**
+
+- main.tsx 面板白名单遗漏 memory（点击记忆菜单后回退渲染设置页）
+- 记忆召回搜索逻辑：整句 LIKE 改为关键词分词 OR 匹配
+- memory ↔ agent 循环导入（TYPE_CHECKING 打断）
+
 ## v0.6.0 - 2026-08-13
 
 内置皮肤换新：宝可梦精灵图登场 ⚡
