@@ -22,6 +22,7 @@ import { CharacterMenu, type MenuItemId } from "./components/CharacterMenu";
 import { CharacterStage } from "./components/CharacterStage";
 import { ChatToggle } from "./components/ChatToggle";
 import { HistoryPanel } from "./components/HistoryPanel";
+import { MemoryPanel } from "./components/MemoryPanel";
 import { OnboardingWizard } from "./components/OnboardingWizard";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { SkinsPanel } from "./components/SkinsPanel";
@@ -310,6 +311,9 @@ export default function App() {
       ) : null}
       {!IS_TAURI && inlinePanel === "history" ? (
         <HistoryPanel onClose={() => setInlinePanel(null)} />
+      ) : null}
+      {!IS_TAURI && inlinePanel === "memory" ? (
+        <MemoryPanel onClose={() => setInlinePanel(null)} />
       ) : null}
       {!IS_TAURI && inlinePanel === "skins" ? (
         <SkinsPanel onClose={() => setInlinePanel(null)} onSkinActivated={() => refreshSkins()} />

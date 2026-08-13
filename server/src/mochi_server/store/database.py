@@ -50,10 +50,60 @@ _MIGRATIONS: dict[int, list[str]] = {
         """,
         "CREATE INDEX idx_messages_session_ts ON messages(session_id, ts)",
     ],
+    # M1-S3 记忆技能（功能清单 6.4）：跨会话长期记忆，LIKE 关键词召回。
+    2: [
+        """
+        CREATE TABLE memories (
+            id         TEXT PRIMARY KEY,
+            category   TEXT NOT NULL DEFAULT 'fact',
+            content    TEXT NOT NULL,
+            source     TEXT NOT NULL DEFAULT 'auto',
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        )
+        """,
+    ],
 }
 
 # 会话标题取自首条用户消息的前 N 个字符。
 _TITLE_MAX_CHARS = 30
+
+# 关键词提取的通用停用词（避免高频虚词产生噪声匹配）。
+_STOPWORDS = frozenset(["的了吗呢吧啊呀哦是在有和与及了一个这那我你他她它们你您"])
+
+
+def _extract_keywords(text: str) -> list[str]:
+    """从用户输入中提取检索关键词。
+
+    策略（零外部依赖，适配 CJK + Latin 混合）：
+    - 按空格/标点切出 token；
+    - ASCII token（长度 ≥2）直接作为关键词（如 "Python"、"API"）；
+    - CJK 连续段取 2-gram（相邻两字组合）+ 单字（过滤停用词），
+      单字提升召回率（记忆量级小，误召回代价低，漏召回代价高）。
+    """
+    import re
+
+    keywords: list[str] = []
+    seen: set[str] = set()
+    tokens = re.findall(r"[一-鿿]+|[a-zA-Z0-9]{2,}", text)
+    for tok in tokens:
+        if tok.isascii():
+            if tok not in seen:
+                keywords.append(tok)
+                seen.add(tok)
+        else:
+            # CJK 单字（过滤停用词）
+            for ch in tok:
+                if ch not in _STOPWORDS and ch not in seen:
+                    keywords.append(ch)
+                    seen.add(ch)
+            # CJK 2-gram
+            for i in range(len(tok) - 1):
+                gram = tok[i : i + 2]
+                if gram not in seen:
+                    keywords.append(gram)
+                    seen.add(gram)
+    return keywords
 
 
 def get_store_path() -> Path:
@@ -145,6 +195,118 @@ class SessionStore:
             await conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
             await conn.commit()
             return cursor.rowcount > 0
+
+    # -- 记忆 CRUD（M1-S3，功能清单 6.4）------------------------------------
+
+    async def add_memory(
+        self, memory_id: str, category: str, content: str, source: str = "auto"
+    ) -> dict:
+        """写入一条记忆并返回完整记录。"""
+        async with self._lock:
+            conn = await self._open()
+            now = _now_ms()
+            await conn.execute(
+                "INSERT INTO memories (id, category, content, source, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (memory_id, category, content, source, now, now),
+            )
+            await conn.commit()
+            return {
+                "id": memory_id,
+                "category": category,
+                "content": content,
+                "source": source,
+                "createdAt": now,
+                "updatedAt": now,
+            }
+
+    async def list_memories(self, category: str | None = None) -> list[dict]:
+        """全部记忆（创建时间倒序）；可按类别过滤。"""
+        async with self._lock:
+            conn = await self._open()
+            if category:
+                cursor = await conn.execute(
+                    "SELECT id, category, content, source, created_at, updated_at "
+                    "FROM memories WHERE category = ? ORDER BY created_at DESC",
+                    (category,),
+                )
+            else:
+                cursor = await conn.execute(
+                    "SELECT id, category, content, source, created_at, updated_at "
+                    "FROM memories ORDER BY created_at DESC"
+                )
+            rows = await cursor.fetchall()
+        return [self._memory_row_to_dict(r) for r in rows]
+
+    async def search_memories(self, query: str, limit: int = 5) -> list[dict]:
+        """关键词检索：把 query 拆为关键词逐个 LIKE OR 匹配 content。
+
+        中文无空格分词，取 2-gram（相邻两字）为关键词；拉丁词按空格/标点分割
+        后取长度 ≥2 的词。任一关键词命中即召回。
+        """
+        keywords = _extract_keywords(query)
+        if not keywords:
+            return []
+        async with self._lock:
+            conn = await self._open()
+            # 动态拼 OR 条件：content LIKE '%kw1%' OR content LIKE '%kw2%' ...
+            conditions = " OR ".join(["content LIKE ?"] * len(keywords))
+            params = [f"%{kw}%" for kw in keywords]
+            params.append(limit)
+            cursor = await conn.execute(
+                "SELECT id, category, content, source, created_at, updated_at "
+                f"FROM memories WHERE {conditions} ORDER BY updated_at DESC LIMIT ?",
+                params,
+            )
+            rows = await cursor.fetchall()
+        return [self._memory_row_to_dict(r) for r in rows]
+
+    async def update_memory(self, memory_id: str, content: str) -> dict | None:
+        """编辑记忆内容；返回更新后的记录或 None（不存在）。"""
+        async with self._lock:
+            conn = await self._open()
+            now = _now_ms()
+            cursor = await conn.execute(
+                "UPDATE memories SET content = ?, updated_at = ? WHERE id = ?",
+                (content, now, memory_id),
+            )
+            await conn.commit()
+            if cursor.rowcount == 0:
+                return None
+            cursor = await conn.execute(
+                "SELECT id, category, content, source, created_at, updated_at "
+                "FROM memories WHERE id = ?",
+                (memory_id,),
+            )
+            row = await cursor.fetchone()
+            return self._memory_row_to_dict(row) if row else None
+
+    async def delete_memory(self, memory_id: str) -> bool:
+        """删除单条记忆。"""
+        async with self._lock:
+            conn = await self._open()
+            cursor = await conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
+            await conn.commit()
+            return cursor.rowcount > 0
+
+    async def clear_all_memories(self) -> int:
+        """清空全部记忆；返回删除条数。"""
+        async with self._lock:
+            conn = await self._open()
+            cursor = await conn.execute("DELETE FROM memories")
+            await conn.commit()
+            return cursor.rowcount
+
+    @staticmethod
+    def _memory_row_to_dict(row: aiosqlite.Row) -> dict:
+        return {
+            "id": row["id"],
+            "category": row["category"],
+            "content": row["content"],
+            "source": row["source"],
+            "createdAt": row["created_at"],
+            "updatedAt": row["updated_at"],
+        }
 
     # -- 读 -----------------------------------------------------------------
 

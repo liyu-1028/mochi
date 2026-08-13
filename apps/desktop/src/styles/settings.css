@@ -541,3 +541,116 @@
   border-top: 1px solid #f3e3e7;
   padding-top: 12px;
 }
+
+/* ---- 记忆面板（M1-S3，功能清单 6.4） ---- */
+.memory__add {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 0;
+  border-bottom: 1px solid #f3e3e7;
+}
+
+.memory__input {
+  width: 100%;
+  resize: vertical;
+  min-height: 36px;
+  border: 1px solid #e8d5dc;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.8);
+  box-sizing: border-box;
+}
+
+.memory__input:focus {
+  outline: none;
+  border-color: var(--mochi-pink);
+}
+
+.memory__add-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.memory__category-select {
+  margin-right: auto;
+  border: 1px solid #e8d5dc;
+  border-radius: 8px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+}
+
+.memory__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.memory__item {
+  flex-direction: column;
+  gap: 4px;
+}
+
+.memory__content {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.memory__badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.memory__badge--fact {
+  background: #e3f2fd;
+  color: #1565c0;
+}
+
+.memory__badge--preference {
+  background: #fce4ec;
+  color: #c2185b;
+}
+
+.memory__source {
+  font-size: 10px;
+  color: #b0a0a8;
+}
+
+.memory__text {
+  flex-basis: 100%;
+  margin: 2px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink);
+  word-break: break-word;
+}
+
+.memory__edit {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.memory__edit-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}

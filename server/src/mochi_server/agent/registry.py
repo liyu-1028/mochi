@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 
 from ..config import TRIAL_PROVIDER_ID, AppConfig, ModelProviderConfig
+from ..memory import MemoryManager
 from ..persona import build_system_prompt
 from ..secrets import KeyStore
 from ..store import SessionStore
@@ -39,6 +40,7 @@ class ProviderRegistry:
         self._config = config
         self._key_store = key_store or KeyStore()
         self._store = store  # 会话持久化（M1-S1）；None 时 Agent 保持单轮行为
+        self._memory = MemoryManager(store) if store is not None else None
         self._version = 0  # 配置版本号：update_config 递增，驱动缓存失效
         self._agent_cache: tuple[int, str, AgentService] | None = None
         self._trial = EchoAgentService(store=store)
@@ -89,7 +91,9 @@ class ProviderRegistry:
         # 人格注入（6.13，ADR-0005）：system prompt 由 [character.persona] 拼装。
         # 全空回退 DEFAULT_SYSTEM_PROMPT；配置更新经 update_config 缓存失效后重建生效。
         system_prompt = build_system_prompt(self._config.character.persona)
-        return LLMAgentService(adapter, system_prompt=system_prompt, store=self._store)
+        return LLMAgentService(
+            adapter, system_prompt=system_prompt, store=self._store, memory_manager=self._memory
+        )
 
     # -- 连通性测试（功能清单 7.2） ------------------------------------------
 

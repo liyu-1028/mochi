@@ -10,6 +10,8 @@ emotion 策略（ADR-0002 D5）：固定 neutral/0.5；真实情绪推断推迟 
 多轮历史（M1-S1，4.3/6.2）：注入 SessionStore 后，按 session_id 取最近 N 条
 消息拼装上下文，回合完成后把本轮 user/assistant 落盘。store 缺省（None）时
 保持 M0 单轮行为，向后兼容既有注入路径。
+记忆（M1-S3，6.4）：MemoryManager 注入后，对话前按用户输入召回相关记忆注入
+system prompt，对话后异步提取沉淀。MemoryManager 缺省（None）时无记忆行为。
 """
 
 from __future__ import annotations
@@ -32,6 +34,7 @@ from ..events import (
 
 # DEFAULT_SYSTEM_PROMPT 权威定义在 persona 模块（提示词内容的领域归属）；
 # 此处保留同名再导出，既有 import 路径（llm_agent.DEFAULT_SYSTEM_PROMPT）不变。
+from ..memory import MemoryManager
 from ..persona import DEFAULT_SYSTEM_PROMPT
 from ..store import HISTORY_LIMIT, SessionStore
 from .adapters.base import ChatMessage, ProviderAdapter
@@ -49,10 +52,12 @@ class LLMAgentService(AgentService):
         *,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
         store: SessionStore | None = None,
+        memory_manager: MemoryManager | None = None,
     ):
         self._adapter = adapter
         self._system_prompt = system_prompt
         self._store = store
+        self._memory = memory_manager
 
     @property
     def adapter(self) -> ProviderAdapter:
@@ -83,10 +88,16 @@ class LLMAgentService(AgentService):
     async def run(self, ctx: AgentContext) -> AsyncIterator[AgentEvent]:
         message_id = f"m-{uuid.uuid4().hex[:12]}"
 
+        # 记忆召回（6.4）：按用户输入检索相关记忆，注入 system prompt
+        memory_section = ""
+        if self._memory is not None:
+            memory_section = await self._memory.recall_for_prompt(ctx.text)
+
         # 多轮拼装（6.2）：system + 最近 N 条历史 + 本轮 user（4.4 截断保不报错）
         history = await self._load_history(ctx.session_id)
+        effective_system = self._system_prompt + memory_section
         messages: list[ChatMessage] = [
-            {"role": "system", "content": self._system_prompt},
+            {"role": "system", "content": effective_system},
             *history,
             {"role": "user", "content": ctx.text},
         ]
@@ -131,6 +142,9 @@ class LLMAgentService(AgentService):
         full_text = "".join(parts)
         # 落盘本轮（4.3）：仅完整回合入库，取消/出错不落盘
         await self._persist_turn(ctx.session_id, ctx.text, full_text)
+        # 记忆沉淀（6.4）：异步提取值得记住的事实/偏好，失败静默降级
+        if self._memory is not None:
+            await self._memory.extract_and_store(self._adapter, ctx.text, full_text)
         yield (
             "text.end",
             TextEndData(run_id=ctx.run_id, message_id=message_id, full_text=full_text),

@@ -21,12 +21,12 @@ import { useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useI18n } from "../i18n";
 
-export type MenuItemId = "history" | "skins" | "settings";
+export type MenuItemId = "history" | "memory" | "skins" | "settings";
 
 /** 菜单固定像素尺寸：窗口动态贴合角色后尺寸不再等比，固定值保证小窗下可读。
     与 styles.css .character-menu 的 px 取值一一对应；调整任一侧都需同步另一侧。 */
 export const MENU_WIDTH = 160;
-export const MENU_HEIGHT = 140;
+export const MENU_HEIGHT = 176;
 
 /** 菜单像素尺寸（clamp 定位估算用，与 CSS 固定尺寸一致）。 */
 export function getMenuSize(): { width: number; height: number } {
@@ -65,6 +65,7 @@ interface MenuEntry {
 // 高频情感入口在前，设置以分隔线隔开殿后（见渲染）
 const MENU_ITEMS: MenuEntry[] = [
   { id: "history", icon: "💬", labelKey: "menu.history" },
+  { id: "memory", icon: "🧠", labelKey: "menu.memory" },
   { id: "skins", icon: "👗", labelKey: "menu.skins" },
   { id: "settings", icon: "⚙️", labelKey: "menu.settings" },
 ];

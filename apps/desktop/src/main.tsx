@@ -9,7 +9,7 @@ import "./styles.css";
 import "./styles/settings.css";
 
 /** 面板窗口视图白名单（与 panelWindow.PanelId 一致）。 */
-const PANEL_IDS: readonly string[] = ["settings", "history", "skins", "onboarding"];
+const PANEL_IDS: readonly string[] = ["settings", "history", "memory", "skins", "onboarding"];
 
 /**
  * 入口分流：面板独立窗口以 index.html?panel=xxx 打开，渲染 PanelShell；

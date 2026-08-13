@@ -13,7 +13,7 @@ import { emit } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 /** 面板窗口可承载的视图（与 CharacterMenu 菜单项一一对应 + 引导向导）。 */
-export type PanelId = "settings" | "history" | "skins" | "onboarding";
+export type PanelId = "settings" | "history" | "memory" | "skins" | "onboarding";
 
 export const PANEL_WINDOW_LABEL = "panel";
 export const EVENT_PANEL_NAVIGATE = "mochi:panel-navigate";

@@ -39,6 +39,7 @@ const zhCN: StringTable = {
 
   // 右键菜单
   "menu.history": "聊天回忆",
+  "menu.memory": "记忆",
   "menu.skins": "换个装扮",
   "menu.settings": "设置",
 
@@ -151,6 +152,22 @@ const zhCN: StringTable = {
   "skins.creditModel": "模型",
   "skins.license": "授权",
 
+  // 记忆管理（M1-S3，功能清单 6.4）
+  "memory.title": "Mochi 的记忆",
+  "memory.empty": "还没有记忆。和 Mochi 聊天时会自动记住关于你的重要信息。",
+  "memory.loading": "加载中…",
+  "memory.add": "添加",
+  "memory.addPlaceholder": "手动添加一条记忆…",
+  "memory.categoryFact": "事实",
+  "memory.categoryPreference": "偏好",
+  "memory.sourceAuto": "自动",
+  "memory.sourceManual": "手动",
+  "memory.count": "共 {n} 条记忆",
+  "memory.clearAll": "清空全部",
+  "memory.clearAllConfirm": "确认清空？",
+  "memory.errorLoad": "记忆加载失败",
+  "memory.errorSave": "记忆操作失败",
+
   // 角色状态/情绪（CharacterBadge 占位/降级渲染，Live2D 加载失败路径可见）
   "character.state.idle": "待机中",
   "character.state.talking": "说话中",
@@ -198,6 +215,7 @@ const en: StringTable = {
 
   // Context menu
   "menu.history": "Chat Memories",
+  "menu.memory": "Memories",
   "menu.skins": "Change Outfit",
   "menu.settings": "Settings",
 
@@ -313,6 +331,23 @@ const en: StringTable = {
   "skins.creditIllustration": "Illustration",
   "skins.creditModel": "Model",
   "skins.license": "License",
+
+  // Memories (M1-S3, feature 6.4)
+  "memory.title": "Mochi's Memories",
+  "memory.empty":
+    "No memories yet. Mochi will automatically remember important things about you as you chat.",
+  "memory.loading": "Loading…",
+  "memory.add": "Add",
+  "memory.addPlaceholder": "Add a memory manually…",
+  "memory.categoryFact": "Fact",
+  "memory.categoryPreference": "Preference",
+  "memory.sourceAuto": "Auto",
+  "memory.sourceManual": "Manual",
+  "memory.count": "{n} memories",
+  "memory.clearAll": "Clear All",
+  "memory.clearAllConfirm": "Confirm clear?",
+  "memory.errorLoad": "Failed to load memories",
+  "memory.errorSave": "Memory operation failed",
 
   // Character state/emotion (CharacterBadge fallback rendering)
   "character.state.idle": "Idle",
