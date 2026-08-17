@@ -5,8 +5,9 @@
 
 解析规则：
 - ``trial`` → EchoAgentService（试用模式，功能清单 1.5）
-- ``ollama`` / ``openai_compatible`` → LLMAgentService(OpenAICompatibleAdapter)
-- ``anthropic`` → LLMAgentService(AnthropicAdapter)（M1-S0，ADR-0002 D1）
+- ``anthropic`` / ``ollama`` / ``openai_compatible`` → LLMAgentService(
+  LangChainAdapter)（M1-S4，ADR-0008 D2：langchain 模型封装，白拿 tool-call
+  跨家归一）
 - default_provider 引用缺失 → 回退试用模式（可用性优先）
 """
 
@@ -19,7 +20,7 @@ from ..memory import MemoryManager
 from ..persona import build_system_prompt
 from ..secrets import KeyStore
 from ..store import SessionStore
-from .adapters import AnthropicAdapter, OpenAICompatibleAdapter
+from .adapters import LangChainAdapter
 from .echo_agent import EchoAgentService
 from .errors import AgentError
 from .llm_agent import LLMAgentService
@@ -83,11 +84,8 @@ class ProviderRegistry:
         return agent
 
     def _build_agent(self, provider_id: str, cfg: ModelProviderConfig) -> AgentService:
-        # 缺 Key 等构造期问题在此抛 AgentError，由 RunManager 转为 run.error
-        if cfg.kind == "anthropic":
-            adapter = AnthropicAdapter(provider_id, cfg, self._key_store)
-        else:
-            adapter = OpenAICompatibleAdapter(provider_id, cfg, self._key_store)
+        # 缺 Key 等构造期问题在工厂内抛 AgentError，由 RunManager 转为 run.error
+        adapter = LangChainAdapter(provider_id, cfg, self._key_store)
         # 人格注入（6.13，ADR-0005）：system prompt 由 [character.persona] 拼装。
         # 全空回退 DEFAULT_SYSTEM_PROMPT；配置更新经 update_config 缓存失效后重建生效。
         system_prompt = build_system_prompt(self._config.character.persona)
@@ -104,10 +102,7 @@ class ProviderRegistry:
         if cfg is None:
             return False, f"提供方 {provider_id} 不存在"
         try:
-            if cfg.kind == "anthropic":
-                adapter = AnthropicAdapter(provider_id, cfg, self._key_store)
-            else:
-                adapter = OpenAICompatibleAdapter(provider_id, cfg, self._key_store)
+            adapter = LangChainAdapter(provider_id, cfg, self._key_store)
         except AgentError as exc:
             return False, exc.payload.hint or exc.payload.message
         return await adapter.ping()

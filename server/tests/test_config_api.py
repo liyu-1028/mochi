@@ -319,12 +319,12 @@ def test_connectivity_unknown_provider(client):
 
 
 def test_connectivity_uses_adapter_ping(client, monkeypatch):
-    from mochi_server.agent.adapters.openai_compat import OpenAICompatibleAdapter
+    from mochi_server.agent import LangChainAdapter
 
     async def fake_ping(self):
         return True, "连接成功"
 
-    monkeypatch.setattr(OpenAICompatibleAdapter, "ping", fake_ping)
+    monkeypatch.setattr(LangChainAdapter, "ping", fake_ping)
     resp = client.post("/config/providers/cloud/test")
     assert resp.json() == {"ok": True, "hint": "连接成功"}
 
