@@ -157,6 +157,20 @@ class ChatInterruptData(CamelModel):
     run_id: str
 
 
+class ToolConfirmData(CamelModel):
+    """危险工具确认（M1-S4，功能清单 6.5；协议 §4）。
+
+    decision：allow 放行本次执行；deny 拒绝（→ tool.call.end status=denied）。
+    remember=true 表示「总是允许」——工具名入 [tools] 白名单（任务 7 语义，
+    协议只携带不解释）。
+    """
+
+    run_id: str
+    tool_call_id: str
+    decision: Literal["allow", "deny"]
+    remember: bool = False
+
+
 # ---------------------------------------------------------------------------
 # 服务端 → 客户端事件负载
 # ---------------------------------------------------------------------------
@@ -228,6 +242,9 @@ class ToolCallStartData(CamelModel):
     tool_call_id: str
     name: str
     args: dict[str, Any]  # 必填（与 TS 侧对齐：工具调用总是携带 args，可为空对象）
+    # 危险工具须用户确认（M1-S4，6.5；协议 §5.5）。缺省 False：safe 工具与
+    # 旧服务端帧不受影响（0.x additive，§9.1）
+    requires_confirmation: bool = False
 
 
 class ToolCallEndData(CamelModel):
@@ -257,6 +274,7 @@ COMMAND_TYPES = {
     "chat.send": "chat.send",
     "chat.cancel": "chat.cancel",
     "chat.interrupt": "chat.interrupt",
+    "tool.confirm": "tool.confirm",
 }
 
 EVENT_TYPES = {
@@ -284,6 +302,7 @@ COMMAND_DATA_MODELS: dict[str, type[CamelModel]] = {
     "chat.send": ChatSendData,
     "chat.cancel": ChatCancelData,
     "chat.interrupt": ChatInterruptData,
+    "tool.confirm": ToolConfirmData,
 }
 
 EVENT_DATA_MODELS: dict[str, type[CamelModel]] = {

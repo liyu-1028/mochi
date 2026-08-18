@@ -39,6 +39,7 @@ export const COMMAND_TYPES = {
   ChatSend: "chat.send",
   ChatCancel: "chat.cancel",
   ChatInterrupt: "chat.interrupt",
+  ToolConfirm: "tool.confirm",
 } as const;
 
 export type CommandType = (typeof COMMAND_TYPES)[keyof typeof COMMAND_TYPES];
@@ -248,6 +249,16 @@ export interface ToolCallStartData {
   toolCallId: string;
   name: string;
   args: Record<string, unknown>;
+  /** 危险工具须用户确认（6.5）。缺省 false：safe 工具与旧服务端帧不受影响 */
+  requiresConfirmation?: boolean;
+}
+
+/** 危险工具确认（M1-S4，6.5；协议 §4）。remember=true 表示「总是允许」 */
+export interface ToolConfirmData {
+  runId: string;
+  toolCallId: string;
+  decision: "allow" | "deny";
+  remember?: boolean;
 }
 
 export interface ToolCallEndData {

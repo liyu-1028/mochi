@@ -56,18 +56,28 @@
 
 ## 4. 客户端 → 服务端：命令
 
-| type             | 说明                                                        | data 字段                                                       |
-| ---------------- | ----------------------------------------------------------- | --------------------------------------------------------------- |
-| `hello`          | 握手                                                        | `versions: string[]`，`client: {name, version}`                 |
-| `ping`           | 保活/RTT                                                    | `token?: string`（原样回传）                                    |
-| `chat.send`      | 发起对话回合                                                | `runId`（客户端生成 UUID），`sessionId`，`text`，`attachments?` |
-| `chat.cancel`    | 取消生成，丢弃后续输出                                      | `runId`                                                         |
-| `chat.interrupt` | 打断播报（停 TTS/展示，保留已生成内容；语音 barge-in 场景） | `runId`                                                         |
+| type             | 说明                                                        | data 字段                                                              |
+| ---------------- | ----------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `hello`          | 握手                                                        | `versions: string[]`，`client: {name, version}`                        |
+| `ping`           | 保活/RTT                                                    | `token?: string`（原样回传）                                           |
+| `chat.send`      | 发起对话回合                                                | `runId`（客户端生成 UUID），`sessionId`，`text`，`attachments?`        |
+| `chat.cancel`    | 取消生成，丢弃后续输出                                      | `runId`                                                                |
+| `chat.interrupt` | 打断播报（停 TTS/展示，保留已生成内容；语音 barge-in 场景） | `runId`                                                                |
+| `tool.confirm`   | 危险工具确认（功能清单 6.5，M1-S4）                         | `runId`，`toolCallId`，`decision: allow \| deny`，`remember?: boolean` |
 
 `chat.cancel` 与 `chat.interrupt` 的语义区别（功能清单 4.2 / 5.3）：
 
 - **cancel**：用户点了「停止生成」→ 服务端终止推理，回合以 `reason: "cancelled"` 结束。
 - **interrupt**：用户开口插话 → 停止播报但回合内容保留，随后可接新的 `chat.send`。
+
+`tool.confirm` 的语义（功能清单 6.5 危险操作强确认）：
+
+- 服务端在执行 dangerous 工具前**暂停回合**，先发 `tool.call.start`
+  （携带 `requiresConfirmation: true`）等待用户裁决，客户端回发本命令。
+- `allow` → 恢复执行该工具；`remember: true` 表示「总是允许」，工具名入
+  `[tools]` 白名单（config.toml），此后不再询问。
+- `deny` → 该调用以 `tool.call.end(status: "denied")` 收口，拒绝事实回灌
+  模型自行善后（换方案或向用户解释）。
 
 ## 5. 服务端 → 客户端：事件
 
@@ -112,13 +122,16 @@ UI 可选择折叠展示，但动画状态必须响应。
 
 ### 5.5 工具调用（Tool）
 
-| type              | data                                                 |
-| ----------------- | ---------------------------------------------------- |
-| `tool.call.start` | `runId`，`toolCallId`，`name`，`args: object`        |
-| `tool.call.end`   | `runId`，`toolCallId`，`status`，`result?`，`error?` |
+| type              | data                                                                            |
+| ----------------- | ------------------------------------------------------------------------------- |
+| `tool.call.start` | `runId`，`toolCallId`，`name`，`args: object`，`requiresConfirmation?: boolean` |
+| `tool.call.end`   | `runId`，`toolCallId`，`status`，`result?`，`error?`                            |
 
 `status ∈ success | error | denied`。`denied` 表示用户在危险操作确认框中拒绝
 （功能清单 6.5）。工具执行期间服务端应发送 `state.change → working`。
+`requiresConfirmation: true`（M1-S4 新增，缺省 false）表示该调用为 dangerous
+工具且不在「总是允许」白名单内——服务端暂停等待 `tool.confirm`，客户端应
+弹出确认框而非视作已在执行。
 
 ### 5.6 角色表现（Mochi 扩展）
 
@@ -208,4 +221,5 @@ run.finished(reason: "cancelled")   ← 已输出的 delta 前端保留展示
 | ---- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | 0.1  | 2026-08-03 | 初版冻结：信封、握手、5 类命令、16 类事件、错误码表                                                                                |
 | 0.1  | 2026-08-03 | 类型收窄（线上格式不变）：`usage`/`client`/`server` 结构化为 UsageInfo/ClientInfo/ServerInfo；`tool.call.start` 的 `args` 双端必填 |
+| 0.1  | 2026-08-18 | additive（§9.1，功能清单 6.5）：新增客户端命令 `tool.confirm`（第 6 类）；`tool.call.start` 增可选字段 `requiresConfirmation`      |
 | 0.1  | 2026-08-06 | 错误码表新增 `ERR_MODEL_QUOTA`（账户余额/配额不足）                                                                                |
