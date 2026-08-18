@@ -27,6 +27,7 @@ import { OnboardingWizard } from "./components/OnboardingWizard";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { SkinsPanel } from "./components/SkinsPanel";
 import { SpeechBubbleArea } from "./components/SpeechBubbleArea";
+import { ToolActivity } from "./components/ToolActivity";
 import { DEFAULT_SESSION_ID, resolveWsUrl, useMochiConnection } from "./hooks/useMochiConnection";
 import { useSettingsHydration } from "./hooks/useSettingsHydration";
 import { useSidecarStatus } from "./hooks/useSidecarStatus";
@@ -62,7 +63,7 @@ export default function App() {
     initRuntimePortListener();
     return subscribeRuntimePort(() => setWsUrl(resolveWsUrl()));
   }, []);
-  const { sendText, cancelRun } = useMochiConnection(wsUrl);
+  const { sendText, cancelRun, confirmTool } = useMochiConnection(wsUrl);
   const status = useConversation((s) => s.status);
   // release 下 sidecar 异常/重启的可读提示（1.2）；dev/浏览器为 null
   const sidecarHint = useSidecarStatus();
@@ -259,6 +260,7 @@ export default function App() {
         />
       </div>
       <SpeechBubbleArea />
+      <ToolActivity confirmTool={confirmTool} />
 
       {/* 底部 dock 槽位：状态文案与输入条共享同一位置、互斥显示 */}
       <div className="app__dock">

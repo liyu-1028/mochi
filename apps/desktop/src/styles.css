@@ -283,6 +283,128 @@ body {
   }
 }
 
+/* ---- 工具调用呈现与危险确认（M1-S4，6.5/6.6）：贴气泡区下方 ---- */
+.tool-activity {
+  position: absolute;
+  top: calc(var(--bubble-top, 100px) + 8px);
+  width: clamp(64px, calc(50% - var(--head-gap, 24px) - 4px), 200px);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 6; /* 高于气泡层：确认框不可被气泡遮挡 */
+}
+
+.bubbles--left ~ .tool-activity,
+.app:has(.bubbles--left) .tool-activity {
+  right: calc(50% + var(--head-gap, 24px));
+  align-items: flex-end;
+}
+
+.app:has(.bubbles--right) .tool-activity {
+  left: calc(50% + var(--head-gap, 24px));
+  align-items: flex-start;
+}
+
+.tool-chips {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tool-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  background: rgba(255, 250, 247, 0.88);
+  border: 1px solid rgba(243, 227, 231, 0.7);
+  color: #6b5f5a;
+  animation: tool-chip-in 0.18s ease-out;
+}
+
+.tool-chip--success {
+  color: #4a7c59;
+}
+
+.tool-chip--error {
+  color: #b0563f;
+}
+
+.tool-chip--denied {
+  color: #8a7ca8;
+}
+
+@keyframes tool-chip-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 确认卡片：危险操作三键裁决（6.5） */
+.confirm-card {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 250, 247, 0.96);
+  border: 1px solid rgba(226, 177, 158, 0.65);
+  box-shadow: 0 4px 14px rgba(90, 60, 50, 0.16);
+  font-size: 12px;
+  color: #5a4f4a;
+}
+
+.confirm-card__title {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.confirm-card__tool {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  color: #9c5f43;
+}
+
+.confirm-card__args {
+  margin-top: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  color: #8d817c;
+  word-break: break-all;
+}
+
+.confirm-card__actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.confirm-card__actions button {
+  flex: 1;
+  padding: 5px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(200, 170, 160, 0.6);
+  background: rgba(255, 255, 255, 0.8);
+  font-size: 11.5px;
+  color: #5a4f4a;
+  cursor: pointer;
+}
+
+.confirm-card__actions button:hover {
+  background: #fff;
+}
+
+.confirm-card__deny {
+  border-color: rgba(176, 86, 63, 0.5) !important;
+  color: #b0563f !important;
+}
+
 /* ---- 气泡内轻量 Markdown（M1-S1，功能清单 4.1）----
    小窗口内渲染，全部收紧默认外边距，保持气泡紧凑。 */
 .bubble__body > *:first-child {

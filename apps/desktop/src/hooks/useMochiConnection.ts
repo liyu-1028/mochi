@@ -10,6 +10,7 @@ import {
   type ChatCancelData,
   type ChatInterruptData,
   type ChatSendData,
+  type ToolConfirmData,
 } from "@mochi/protocol";
 import { useCallback, useEffect, useRef } from "react";
 import { sessionApi } from "../api/configClient";
@@ -81,7 +82,17 @@ export function useMochiConnection(url: string) {
     clientRef.current?.send(createCommand(COMMAND_TYPES.ChatInterrupt, data));
   }, []);
 
-  return { sendText, cancelRun, interruptRun };
+  /** 危险工具确认（M1-S4，6.5）：唤醒服务端挂起中的回合。
+      remember 仅 allow 生效（协议只定义「总是允许」）。 */
+  const confirmTool = useCallback(
+    (runId: string, toolCallId: string, decision: "allow" | "deny", remember = false): void => {
+      const data: ToolConfirmData = { runId, toolCallId, decision, remember };
+      clientRef.current?.send(createCommand(COMMAND_TYPES.ToolConfirm, data));
+    },
+    [],
+  );
+
+  return { sendText, cancelRun, interruptRun, confirmTool };
 }
 
 /**

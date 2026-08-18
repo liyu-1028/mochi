@@ -18,6 +18,17 @@ export interface ChatMessage {
   fromHistory?: boolean;
 }
 
+/** 工具调用的 UI 视图状态（M1-S4，6.5/6.6）：working 期间的 chip 与确认框数据源。 */
+export type ToolCallStatus = "confirming" | "running" | "success" | "error" | "denied";
+
+export interface ToolCallView {
+  toolCallId: string;
+  name: string;
+  args: Record<string, unknown>;
+  status: ToolCallStatus;
+  result?: unknown;
+}
+
 /** 内存中保留的消息上限（M1-S1）：超出裁掉最旧，历史事实源在 sidecar SQLite。 */
 export const MAX_IN_MEMORY_MESSAGES = 40;
 
@@ -41,6 +52,16 @@ export function finalizeStreamingMessages(messages: ChatMessage[]): ChatMessage[
     : messages;
 }
 
+/** 纯函数：run 终态对未收口的工具 chip 兜底（cancelled/error 路径服务端
+    不会发 tool.call.end）——confirming/running 置为 error，防「执行中」假象。 */
+export function finalizeToolCalls(calls: ToolCallView[]): ToolCallView[] {
+  return calls.some((t) => t.status === "confirming" || t.status === "running")
+    ? calls.map((t) =>
+        t.status === "confirming" || t.status === "running" ? { ...t, status: "error" } : t,
+      )
+    : calls;
+}
+
 /** 纯函数：把后端历史消息映射为 UI 消息（用于重启后回显）。
     全部打 fromHistory 标记：气泡区据此过滤，避免历史批量闪现。 */
 export function historyToMessages(
@@ -60,6 +81,10 @@ export interface ConversationState {
   characterState: CharacterState;
   emotion: Emotion | null;
   messages: ChatMessage[];
+  /** 当前回合的工具调用序列（run 开始时清空；chip 列表数据源） */
+  toolCalls: ToolCallView[];
+  /** 等待用户裁决的危险工具调用（确认对话框数据源；null = 无） */
+  pendingConfirm: ToolCallView | null;
   /** 当前活跃回合；为 null 时允许发起新对话 */
   activeRunId: string | null;
   /** 错误/提示横幅文案（run.error、hello_error） */
@@ -89,6 +114,8 @@ export const useConversation = create<ConversationState>()((set, get) => ({
   characterState: "idle",
   emotion: null,
   messages: [],
+  toolCalls: [],
+  pendingConfirm: null,
   activeRunId: null,
   notice: null,
   lastTextDeltaAt: 0,
@@ -122,14 +149,20 @@ export const useConversation = create<ConversationState>()((set, get) => ({
       return { messages: capped };
     }),
 
-  resetMessages: () => set({ messages: [], isSpeaking: false }),
+  resetMessages: () =>
+    set({ messages: [], isSpeaking: false, toolCalls: [], pendingConfirm: null }),
 
   applyEvent: (event) => {
     const data = event.data as Record<string, unknown>;
 
     switch (event.type) {
       case EVENT_TYPES.RunStarted:
-        set({ activeRunId: data.runId as string, notice: null });
+        set({
+          activeRunId: data.runId as string,
+          notice: null,
+          toolCalls: [], // 新回合清空上一回合的 chip（M1-S4）
+          pendingConfirm: null,
+        });
         break;
 
       case EVENT_TYPES.RunFinished:
@@ -140,6 +173,8 @@ export const useConversation = create<ConversationState>()((set, get) => ({
           messages: finalizeStreamingMessages(s.messages),
           isSpeaking: false,
           lastFinishReason: (data.reason as string) ?? null,
+          toolCalls: finalizeToolCalls(s.toolCalls),
+          pendingConfirm: null, // 回合终止（如 cancel）→ 确认框必须消失
         }));
         break;
 
@@ -151,6 +186,8 @@ export const useConversation = create<ConversationState>()((set, get) => ({
           notice: error?.hint ?? error?.message ?? "出了点问题，请重试",
           messages: finalizeStreamingMessages(s.messages),
           isSpeaking: false,
+          pendingConfirm: null,
+          toolCalls: finalizeToolCalls(s.toolCalls),
         }));
         break;
       }
@@ -203,8 +240,35 @@ export const useConversation = create<ConversationState>()((set, get) => ({
         set({ emotion: data.emotion as Emotion });
         break;
 
+      case EVENT_TYPES.ToolCallStart: {
+        // 工具调用 chip（M1-S4，6.5/6.6）：requiresConfirmation → 弹确认框
+        const call: ToolCallView = {
+          toolCallId: data.toolCallId as string,
+          name: data.name as string,
+          args: (data.args as Record<string, unknown>) ?? {},
+          status: data.requiresConfirmation ? "confirming" : "running",
+        };
+        set((s) => ({
+          toolCalls: [...s.toolCalls, call],
+          pendingConfirm: call.status === "confirming" ? call : s.pendingConfirm,
+        }));
+        break;
+      }
+
+      case EVENT_TYPES.ToolCallEnd: {
+        const status = data.status as ToolCallView["status"];
+        set((s) => ({
+          toolCalls: s.toolCalls.map((t) =>
+            t.toolCallId === data.toolCallId ? { ...t, status, result: data.result } : t,
+          ),
+          pendingConfirm:
+            s.pendingConfirm?.toolCallId === data.toolCallId ? null : s.pendingConfirm,
+        }));
+        break;
+      }
+
       default:
-        // thinking.* / tool.call.* / 未知类型：M0-S1 暂不渲染，保持忽略
+        // thinking.* 及未知类型：保持忽略（协议 §1.3 前向兼容）
         void get();
     }
   },

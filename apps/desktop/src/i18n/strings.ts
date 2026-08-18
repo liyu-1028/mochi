@@ -168,6 +168,17 @@ const zhCN: StringTable = {
   "memory.errorLoad": "记忆加载失败",
   "memory.errorSave": "记忆操作失败",
 
+  // 工具调用呈现与危险确认（M1-S4，6.5/6.6）
+  "tools.using": "正在使用 {name}…",
+  "tools.confirming": "{name} 等待确认",
+  "tools.done": "{name} 完成",
+  "tools.failed": "{name} 失败",
+  "tools.denied": "{name} 已被你拒绝",
+  "tools.confirmTitle": "Mochi 请求执行危险操作",
+  "tools.confirmDeny": "拒绝",
+  "tools.confirmAllow": "允许",
+  "tools.confirmAlways": "总是允许",
+
   // 角色状态/情绪（CharacterBadge 占位/降级渲染，Live2D 加载失败路径可见）
   "character.state.idle": "待机中",
   "character.state.talking": "说话中",
@@ -348,6 +359,17 @@ const en: StringTable = {
   "memory.clearAllConfirm": "Confirm clear?",
   "memory.errorLoad": "Failed to load memories",
   "memory.errorSave": "Memory operation failed",
+
+  // Tool calls & dangerous-operation confirmation (M1-S4, feature 6.5/6.6)
+  "tools.using": "Using {name}…",
+  "tools.confirming": "{name} awaiting confirmation",
+  "tools.done": "{name} finished",
+  "tools.failed": "{name} failed",
+  "tools.denied": "{name} denied by you",
+  "tools.confirmTitle": "Mochi wants to run a risky action",
+  "tools.confirmDeny": "Deny",
+  "tools.confirmAllow": "Allow",
+  "tools.confirmAlways": "Always allow",
 
   // Character state/emotion (CharacterBadge fallback rendering)
   "character.state.idle": "Idle",

@@ -7,6 +7,7 @@ import {
   MAX_IN_MEMORY_MESSAGES,
   appendCapped,
   finalizeStreamingMessages,
+  finalizeToolCalls,
   historyToMessages,
   useConversation,
 } from "./conversation";
@@ -33,6 +34,8 @@ beforeEach(() => {
     characterState: "idle",
     emotion: null,
     messages: [],
+    toolCalls: [],
+    pendingConfirm: null,
     activeRunId: null,
     notice: null,
     lastTextDeltaAt: 0,
@@ -311,5 +314,130 @@ describe("历史回显（M1-S1，4.3）", () => {
     const { messages } = useConversation.getState();
     expect(messages).toHaveLength(1);
     expect(messages[0].text).toBe("本轮消息");
+  });
+});
+
+describe("工具调用归约（M1-S4，6.5/6.6）", () => {
+  it("tool.call.start → chip 入列；requiresConfirmation → pendingConfirm", () => {
+    const { applyEvent } = useConversation.getState();
+    applyEvent(ev("run.started", { runId: "r1", sessionId: "s" }));
+    applyEvent(
+      ev("tool.call.start", {
+        runId: "r1",
+        toolCallId: "tc1",
+        name: "echo_text",
+        args: { text: "嗨" },
+      }),
+    );
+    applyEvent(
+      ev("tool.call.start", {
+        runId: "r1",
+        toolCallId: "tc2",
+        name: "fs.write_text",
+        args: {},
+        requiresConfirmation: true,
+      }),
+    );
+
+    const s = useConversation.getState();
+    expect(s.toolCalls).toHaveLength(2);
+    expect(s.toolCalls[0]).toMatchObject({ toolCallId: "tc1", status: "running" });
+    expect(s.toolCalls[1]).toMatchObject({ toolCallId: "tc2", status: "confirming" });
+    expect(s.pendingConfirm?.toolCallId).toBe("tc2");
+  });
+
+  it("tool.call.end 更新状态并关闭确认框", () => {
+    const { applyEvent } = useConversation.getState();
+    applyEvent(ev("run.started", { runId: "r1", sessionId: "s" }));
+    applyEvent(
+      ev("tool.call.start", {
+        runId: "r1",
+        toolCallId: "tc1",
+        name: "fs.write_text",
+        args: {},
+        requiresConfirmation: true,
+      }),
+    );
+    applyEvent(ev("tool.call.end", { runId: "r1", toolCallId: "tc1", status: "denied" }));
+
+    const s = useConversation.getState();
+    expect(s.toolCalls[0].status).toBe("denied");
+    expect(s.pendingConfirm).toBeNull();
+  });
+
+  it("新回合清空上一回合 chip", () => {
+    const { applyEvent } = useConversation.getState();
+    applyEvent(ev("run.started", { runId: "r1", sessionId: "s" }));
+    applyEvent(ev("tool.call.start", { runId: "r1", toolCallId: "tc1", name: "echo", args: {} }));
+    applyEvent(ev("run.started", { runId: "r2", sessionId: "s" }));
+
+    const s = useConversation.getState();
+    expect(s.toolCalls).toHaveLength(0);
+  });
+
+  it("run 终态兜底：未收口 chip 置 error、确认框消失（cancel 场景）", () => {
+    const { applyEvent } = useConversation.getState();
+    applyEvent(ev("run.started", { runId: "r1", sessionId: "s" }));
+    applyEvent(
+      ev("tool.call.start", {
+        runId: "r1",
+        toolCallId: "tc1",
+        name: "fs.write_text",
+        args: {},
+        requiresConfirmation: true,
+      }),
+    );
+    applyEvent(ev("tool.call.start", { runId: "r1", toolCallId: "tc2", name: "echo", args: {} }));
+    applyEvent(ev("tool.call.end", { runId: "r1", toolCallId: "tc2", status: "success" }));
+    applyEvent(ev("run.finished", { runId: "r1", reason: "cancelled" }));
+
+    const s = useConversation.getState();
+    expect(s.pendingConfirm).toBeNull();
+    expect(s.toolCalls[0].status).toBe("error"); // confirming 兜底
+    expect(s.toolCalls[1].status).toBe("success"); // 已收口不动
+  });
+});
+
+describe("finalizeToolCalls", () => {
+  it("纯函数：仅收口 confirming/running，其余保持", () => {
+    const calls = [
+      { toolCallId: "a", name: "x", args: {}, status: "confirming" as const },
+      { toolCallId: "b", name: "x", args: {}, status: "running" as const },
+      { toolCallId: "c", name: "x", args: {}, status: "success" as const },
+    ];
+    const out = finalizeToolCalls(calls);
+    expect(out.map((t) => t.status)).toEqual(["error", "error", "success"]);
+  });
+});
+
+describe("黄金样例回放（M1-S4：确认流全帧驱动 UI 状态机）", () => {
+  it("turn-with-tool-confirm.jsonl：确认框弹出→闭合、chip 收口、终态 idle", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const { fileURLToPath } = await import("node:url");
+    const golden = fileURLToPath(
+      new URL(
+        "../../../../packages/protocol/testdata/turn-with-tool-confirm.jsonl",
+        import.meta.url,
+      ),
+    );
+    const frames = (await readFile(golden, "utf-8"))
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { type: string });
+
+    let sawPending = false;
+    for (const frame of frames) {
+      // 跳过客户端方向帧（hello/chat.send/tool.confirm 是 UI 的发出侧）
+      if (["hello", "chat.send", "tool.confirm"].includes(frame.type)) continue;
+      useConversation.getState().applyEvent(frame as unknown as ServerEvent);
+      if (useConversation.getState().pendingConfirm !== null) sawPending = true;
+    }
+
+    const s = useConversation.getState();
+    expect(sawPending).toBe(true); // 确认框曾弹出
+    expect(s.pendingConfirm).toBeNull(); // 已闭合
+    expect(s.toolCalls[0]).toMatchObject({ name: "fs.write_text", status: "success" });
+    expect(s.characterState).toBe("idle");
+    expect(s.messages.at(-1)?.text).toContain("日报"); // 终稿气泡
   });
 });
