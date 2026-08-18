@@ -134,7 +134,7 @@ class SessionStore:
 
     def _resolve_path(self) -> Path:
         if self._db_path is not None:
-            return self._db_path
+            return Path(self._db_path)
         return get_store_path()
 
     async def _open(self) -> aiosqlite.Connection:
