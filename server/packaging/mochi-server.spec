@@ -27,6 +27,12 @@ hiddenimports += ["multipart", "multipart.multipart"]
 # certifi 的 CA 包是数据文件，不 collect 则 HTTPS 握手失败
 hiddenimports += ["edge_tts", "aiohttp", "certifi"]
 hiddenimports += collect_submodules("aiohttp")
+# langchain-openai / tiktoken 动态插件（tiktoken_ext.openai_public）
+hiddenimports += collect_submodules("tiktoken_ext")
+# langgraph（M1-S4，ADR-0008 D7）：checkpointer 后端按字符串参数动态导入，
+# 静态分析追踪不到；langchain 各 provider 包的序列化器同样懒加载
+hiddenimports += collect_submodules("langgraph")
+hiddenimports += collect_submodules("langchain_core", filter=lambda name: "serialization" in name)
 
 datas = collect_data_files("keyring")  # backends.toml 等优先级配置
 datas += collect_data_files("certifi")  # cacert.pem
