@@ -289,7 +289,8 @@ export type ClientCommand =
   | Envelope<PingData>
   | Envelope<ChatSendData>
   | Envelope<ChatCancelData>
-  | Envelope<ChatInterruptData>;
+  | Envelope<ChatInterruptData>
+  | Envelope<ToolConfirmData>;
 
 /** 构建客户端命令帧（统一填充 v/id/ts，消费方无需手写信封）。 */
 export function createCommand<T>(type: CommandType, data: T): Envelope<T> {
