@@ -7,7 +7,13 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, Field
 
-from mochi_server.agent import DangerLevel, ToolRegistry, ToolRegistryError, ToolSpec
+from mochi_server.agent import (
+    DangerLevel,
+    ToolPolicy,
+    ToolRegistry,
+    ToolRegistryError,
+    ToolSpec,
+)
 
 
 class EchoArgs(BaseModel):
@@ -168,3 +174,28 @@ async def test_execute_executor_exception_not_leaked() -> None:
     assert result.error_code == "execution_error"
     assert "echo_text" in result.output
     assert "磁盘炸了" in result.output
+
+
+# ---------------------------------------------------------------------------
+# ToolPolicy（M1-S4，6.5）：白名单读查/幂等持久化
+# ---------------------------------------------------------------------------
+
+
+def test_tool_policy_roundtrip_and_idempotent() -> None:
+    state = {"allowed": ["fs.read_file"]}
+    saved: list[list[str]] = []
+
+    def _save(names: list[str]) -> None:
+        state["allowed"] = list(names)
+        saved.append(list(names))
+
+    policy = ToolPolicy(load=lambda: list(state["allowed"]), save=_save)
+    assert policy.is_allowed("fs.read_file") is True
+    assert policy.is_allowed("fs.write_text") is False
+
+    policy.allow_always("fs.write_text")
+    assert state["allowed"] == ["fs.read_file", "fs.write_text"]
+    assert len(saved) == 1
+
+    policy.allow_always("fs.write_text")  # 幂等：已在名单则不动盘
+    assert len(saved) == 1

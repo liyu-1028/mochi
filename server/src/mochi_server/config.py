@@ -100,6 +100,12 @@ class SkillsConfig(BaseModel):
     enabled: list[str] = Field(default_factory=list)
 
 
+class ToolsConfig(BaseModel):
+    """工具授权（M1-S4，功能清单 6.5）：dangerous 工具的「总是允许」白名单。"""
+
+    allowed: list[str] = Field(default_factory=list)
+
+
 class AppConfig(BaseModel):
     config_version: int = CONFIG_VERSION
     general: GeneralConfig = Field(default_factory=GeneralConfig)
@@ -108,6 +114,7 @@ class AppConfig(BaseModel):
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
     privacy: PrivacyConfig = Field(default_factory=PrivacyConfig)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
+    tools: ToolsConfig = Field(default_factory=ToolsConfig)
 
 
 # ---------------------------------------------------------------------------

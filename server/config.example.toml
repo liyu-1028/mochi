@@ -41,3 +41,6 @@ local_only = false           # 隐私模式（功能清单 7.3）：true 时阻�
 
 [skills]
 enabled = []                 # 已启用技能 id 列表（如 "web_search"）
+
+[tools]
+allowed = []                # dangerous 工具「总是允许」白名单（6.5 确认框勾选后自动追加）

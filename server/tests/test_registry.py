@@ -16,6 +16,8 @@ from mochi_server.config import (
     AppConfig,
     ModelConfig,
     ModelProviderConfig,
+    load_config,
+    save_config,
 )
 from mochi_server.secrets import KeyStore
 
@@ -155,3 +157,16 @@ async def test_test_provider_missing_key_reports_hint():
     ok, reason = await registry.test_provider("cloud")
     assert ok is False
     assert "API Key" in reason
+
+
+def test_tool_whitelist_persists_to_config(tmp_path, key_store):
+    """「总是允许」白名单：原子落盘 + 热生效（M1-S4，6.5）。"""
+    config = _config("cloud", {"cloud": _cloud_cfg()})
+    path = tmp_path / "config.toml"
+    save_config(path, config)
+    registry = ProviderRegistry(config, key_store, config_path=path)
+
+    registry.tool_policy.allow_always("fs.write_text")
+
+    assert load_config(path).tools.allowed == ["fs.write_text"]  # 盘上持久
+    assert registry.config.tools.allowed == ["fs.write_text"]  # 内存热生效

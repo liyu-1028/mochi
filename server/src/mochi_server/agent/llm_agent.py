@@ -26,12 +26,15 @@ prompt；当前版本仅手动添加，自动提取留后续版本。
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 
 from langchain_core.messages import AIMessageChunk
 from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.types import Command
 
 from ..events import (
     Emotion,
@@ -56,9 +59,18 @@ from .adapters.langchain import LangChainAdapter, _deltas_from_chunk, _to_lc_mes
 from .errors import AgentError
 from .react_graph import build_react_graph, is_llm_chunk
 from .service import AgentContext, AgentEvent, AgentService
-from .tools.registry import ToolRegistry
+from .tools import ToolPolicy, ToolRegistry
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _PendingConfirm:
+    """挂起等待用户裁决的危险工具调用（run_id → 本表）。"""
+
+    tool_call_id: str
+    name: str
+    future: asyncio.Future[tuple[str, bool]]  # (decision, remember)
 
 
 class LLMAgentService(AgentService):
@@ -73,6 +85,7 @@ class LLMAgentService(AgentService):
         memory_manager: MemoryManager | None = None,
         tool_registry: ToolRegistry | None = None,
         checkpointer: BaseCheckpointSaver | None = None,
+        tool_policy: ToolPolicy | None = None,
     ):
         self._adapter = adapter
         self._system_prompt = system_prompt
@@ -80,6 +93,8 @@ class LLMAgentService(AgentService):
         self._memory = memory_manager
         self._tools = tool_registry  # None → 图不 bind_tools，纯对话行为
         self._checkpointer = checkpointer  # 任务 7 确认暂停/崩溃恢复（ADR-0008 D4）
+        self._policy = tool_policy  # None → 危险工具不确认（直接执行）
+        self._pending: dict[str, _PendingConfirm] = {}
 
     @property
     def adapter(self) -> LangChainAdapter:
@@ -136,55 +151,87 @@ class LLMAgentService(AgentService):
             self._adapter.chat_model,
             self._tools or ToolRegistry(),
             checkpointer=self._checkpointer,
+            policy=self._policy,
         )
         config = {"configurable": {"thread_id": ctx.run_id}}
+        # 危险确认（任务 7，6.5）：interrupt 挂起 → 流结束 → 等用户裁决 →
+        # Command(resume=…) 续跑。resume 会重放 tools 节点（实证 2026-08-18），
+        # start 事件按 tool_call_id 去重。
+        stream_input: object = {
+            "messages": _to_lc_messages(messages, anthropic_style=self._adapter.needs_role_merge)
+        }
+        emitted_starts: set[str] = set()
+        pending_call_id: str | None = None
+        pending_name: str = ""
         try:
-            async for mode, payload in graph.astream(
-                {
-                    "messages": _to_lc_messages(
-                        messages, anthropic_style=self._adapter.needs_role_merge
-                    )
-                },
-                config,
-                stream_mode=["messages", "custom"],
-            ):
-                if mode == "custom":
-                    # 黄金样例时序：thinking.end → state.change(working) → tool.call.start
-                    for event_type, event_payload in self._bridge_custom(
-                        ctx, payload, message_id, thinking_closed
-                    ):
-                        if event_type == "thinking.end":
-                            thinking_closed = True
-                        yield event_type, event_payload
-                    continue
-                if not is_llm_chunk(payload):
-                    continue
-                chunk: AIMessageChunk = payload[0]
-                for kind, delta in _deltas_from_chunk(chunk):
-                    if kind == "thinking":
-                        if not thinking_closed:
+            while True:
+                pending_call_id = None  # 每轮流内跟踪；流结束仍非 None 即挂起
+                async for mode, payload in graph.astream(
+                    stream_input, config, stream_mode=["messages", "custom"]
+                ):
+                    if mode == "custom":
+                        kind = payload.get("kind")
+                        if kind == "tool_call_start":
+                            tc_id = payload["tool_call_id"]
+                            if tc_id in emitted_starts:
+                                continue  # resume 轮重放去重
+                            emitted_starts.add(tc_id)
+                            if payload.get("requires_confirmation"):
+                                pending_call_id = tc_id
+                                pending_name = payload["name"]
+                        elif kind == "tool_call_end" and pending_call_id == payload.get(
+                            "tool_call_id"
+                        ):
+                            pending_call_id = None  # deny 由图内收口，本轮已闭合
+                        # 黄金样例时序：thinking.end → state.change(working) → tool.call.start
+                        for event_type, event_payload in self._bridge_custom(
+                            ctx, payload, message_id, thinking_closed
+                        ):
+                            if event_type == "thinking.end":
+                                thinking_closed = True
+                            yield event_type, event_payload
+                        continue
+                    if not is_llm_chunk(payload):
+                        continue
+                    chunk: AIMessageChunk = payload[0]
+                    for kind, delta in _deltas_from_chunk(chunk):
+                        if kind == "thinking":
+                            if not thinking_closed:
+                                yield (
+                                    "thinking.delta",
+                                    ThinkingDeltaData(
+                                        run_id=ctx.run_id, message_id=message_id, delta=delta
+                                    ),
+                                )
+                        else:
+                            if not text_started:
+                                # 仅首个正文增量前收思考、切说话（后续 delta 直发）
+                                for event_type, event_payload in self._open_text_phase(
+                                    ctx, message_id, thinking_closed
+                                ):
+                                    if event_type == "thinking.end":
+                                        thinking_closed = True
+                                    elif event_type == "text.start":
+                                        text_started = True
+                                    yield event_type, event_payload
+                            parts.append(delta)
                             yield (
-                                "thinking.delta",
-                                ThinkingDeltaData(
+                                "text.delta",
+                                TextDeltaData(
                                     run_id=ctx.run_id, message_id=message_id, delta=delta
                                 ),
                             )
-                    else:
-                        if not text_started:
-                            # 仅首个正文增量前收思考、切说话（后续 delta 直发）
-                            for event_type, event_payload in self._open_text_phase(
-                                ctx, message_id, thinking_closed
-                            ):
-                                if event_type == "thinking.end":
-                                    thinking_closed = True
-                                elif event_type == "text.start":
-                                    text_started = True
-                                yield event_type, event_payload
-                        parts.append(delta)
-                        yield (
-                            "text.delta",
-                            TextDeltaData(run_id=ctx.run_id, message_id=message_id, delta=delta),
-                        )
+                if pending_call_id is None:
+                    break  # 真完成（或本轮流内已闭合确认）
+                # 挂起：等用户裁决。cancel → CancelledError 经 await 自然传播；
+                # generator 未结束 → RunManager 不会发 run.finished（暂停非完成）。
+                decision, remember = await self._await_confirmation(
+                    ctx, pending_call_id, pending_name
+                )
+                # remember 语义：仅 allow 生效（协议只定义「总是允许」，deny 每次重问）
+                if decision == "allow" and remember and self._policy is not None:
+                    self._policy.allow_always(pending_name)
+                stream_input = Command(resume={"decision": decision})
         except AgentError:
             raise
         except Exception as exc:  # 图内模型异常收敛为 AgentError（RunManager 消费）
@@ -207,6 +254,37 @@ class LLMAgentService(AgentService):
 
         # --- 回到待机 ---
         yield "state.change", StateChangeData(state="idle")
+
+    # -- 危险确认（任务 7，功能清单 6.5） --------------------------------------
+
+    async def confirm(
+        self, run_id: str, tool_call_id: str, decision: str, *, remember: bool = False
+    ) -> bool:
+        """WS tool.confirm 分发入口；返回 False 表示无匹配的等待中调用（过期确认）。"""
+        pending = self._pending.get(run_id)
+        if pending is None or pending.tool_call_id != tool_call_id or pending.future.done():
+            return False
+        pending.future.set_result((decision, remember))
+        return True
+
+    def has_pending(self, run_id: str) -> bool:
+        """是否存在挂起等待确认的调用（测试同步点）。"""
+        return run_id in self._pending
+
+    async def _await_confirmation(
+        self, ctx: AgentContext, tool_call_id: str, name: str
+    ) -> tuple[str, bool]:
+        """注册挂起表并等待裁决；返回 (decision, remember)。
+
+        cancel → CancelledError 经 await 传播（finally 清表）；future 结果由
+        confirm() 注入。
+        """
+        future: asyncio.Future[tuple[str, bool]] = asyncio.get_running_loop().create_future()
+        self._pending[ctx.run_id] = _PendingConfirm(tool_call_id, name, future)
+        try:
+            return await future
+        finally:
+            self._pending.pop(ctx.run_id, None)
 
     # -- 事件桥辅助 ----------------------------------------------------------
 
@@ -248,6 +326,7 @@ class LLMAgentService(AgentService):
                         tool_call_id=event["tool_call_id"],
                         name=event["name"],
                         args=event["args"],
+                        requires_confirmation=bool(event.get("requires_confirmation")),
                     ),
                 ),
             )
@@ -255,6 +334,7 @@ class LLMAgentService(AgentService):
         if kind == "tool_call_end":
             status = event["status"]
             failed = status != "success"
+            denied = status == "denied"
             return [
                 (
                     "tool.call.end",
@@ -265,9 +345,9 @@ class LLMAgentService(AgentService):
                         result=None if failed else event["output"],
                         error=(
                             ErrorPayload(
-                                code=ErrorCode.TOOL_FAILED,
+                                code=ErrorCode.TOOL_DENIED if denied else ErrorCode.TOOL_FAILED,
                                 message=event["output"],
-                                retryable=True,
+                                retryable=not denied,
                             )
                             if failed
                             else None

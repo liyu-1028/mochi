@@ -14,8 +14,14 @@
   工具事件——执行前 ``tool_call_start``、执行后 ``tool_call_end``，时机
   精确（updates 只能事后感知节点完成，不采用）。
 
-工具执行唯一路径：tools 节点经 ToolRegistry.execute（任务 7 危险确认在
-该入口前插入）；执行结果无论成败均以 ToolMessage 回灌，模型可自纠。
+危险确认（任务 7，功能清单 6.5 / ADR-0008 D6）：dangerous 且不在白名单的
+调用先发带 ``requires_confirmation`` 的 start，再 ``interrupt()`` 挂起；
+上层（LLMAgentService）等用户裁决后以 ``Command(resume={"decision": …})``
+续跑。**resume 会重放 tools 节点**（实证 2026-08-18）——start 会二次发出，
+事件桥按 tool_call_id 去重。
+
+工具执行唯一路径：tools 节点经 ToolRegistry.execute；执行结果无论成败
+（含 denied）均以 ToolMessage 回灌，模型可自纠或善后。
 """
 
 from __future__ import annotations
@@ -28,8 +34,16 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.config import get_stream_writer
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.types import interrupt
 
-from .tools.registry import ToolRegistry
+from .tools.policy import ToolPolicy
+from .tools.registry import DangerLevel, ToolRegistry
+
+#: 用户拒绝后回灌模型的善后提示（模型据此换方案或向用户解释，勿重试）
+_DENIED_NOTE = "用户拒绝了这次操作。请不要重试同一操作，改为向用户说明或换一种方案。"
+
+#: 拒绝时 tool.call.end 携带、客户端可读的文案（协议 result 语义之外的场景）
+_DENIED_OUTPUT = "用户拒绝了该操作"
 
 
 def build_react_graph(
@@ -37,6 +51,7 @@ def build_react_graph(
     tool_registry: ToolRegistry,
     *,
     checkpointer: BaseCheckpointSaver | None = None,
+    policy: ToolPolicy | None = None,
 ) -> CompiledStateGraph:
     """组装 ReAct 图。无注册工具时不 bind_tools（零行为变更，黄金样例回放）。"""
     tools = tool_registry.langchain_tools()
@@ -55,14 +70,38 @@ def build_react_graph(
         writer = get_stream_writer()
         outputs: list[ToolMessage] = []
         for call in state["messages"][-1].tool_calls:
+            spec = tool_registry.get(call["name"])
+            needs_confirm = (
+                policy is not None
+                and spec is not None
+                and spec.danger == DangerLevel.DANGEROUS
+                and not policy.is_allowed(call["name"])
+            )
             writer(
                 {
                     "kind": "tool_call_start",
                     "tool_call_id": call["id"],
                     "name": call["name"],
                     "args": call["args"],
+                    "requires_confirmation": needs_confirm,
                 }
             )
+            if needs_confirm:
+                # 挂起：流正常结束，上层等 tool.confirm 后以 Command(resume=…) 续跑
+                verdict = interrupt(
+                    {"tool_call_id": call["id"], "name": call["name"], "args": call["args"]}
+                )
+                if not isinstance(verdict, dict) or verdict.get("decision") != "allow":
+                    writer(
+                        {
+                            "kind": "tool_call_end",
+                            "tool_call_id": call["id"],
+                            "status": "denied",
+                            "output": _DENIED_OUTPUT,
+                        }
+                    )
+                    outputs.append(ToolMessage(content=_DENIED_NOTE, tool_call_id=call["id"]))
+                    continue
             result = await tool_registry.execute(call["name"], call["args"])
             writer(
                 {

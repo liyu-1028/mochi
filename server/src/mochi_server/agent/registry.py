@@ -14,10 +14,17 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
-from ..config import TRIAL_PROVIDER_ID, AppConfig, ModelProviderConfig
+from ..config import (
+    TRIAL_PROVIDER_ID,
+    AppConfig,
+    ModelProviderConfig,
+    load_config,
+    save_config,
+)
 from ..memory import MemoryManager
 from ..persona import build_system_prompt
 from ..secrets import KeyStore
@@ -27,7 +34,7 @@ from .echo_agent import EchoAgentService
 from .errors import AgentError
 from .llm_agent import LLMAgentService
 from .service import AgentService
-from .tools.registry import ToolRegistry
+from .tools import ToolPolicy, ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +49,7 @@ class ProviderRegistry:
         store: SessionStore | None = None,
         *,
         checkpointer: BaseCheckpointSaver | None = None,
+        config_path: Path | None = None,
     ) -> None:
         self._config = config
         self._key_store = key_store or KeyStore()
@@ -51,6 +59,13 @@ class ProviderRegistry:
         self._tools = ToolRegistry()
         # checkpoint（ADR-0008 D4）：任务 7 确认暂停/崩溃恢复；None → 图不带
         self._checkpointer = checkpointer
+        # 白名单持久化目标（M1-S4，6.5）：None → 仅内存态（测试注入路径）
+        self._config_path = config_path
+        # registry 级单例：load 闭包读 self._config，配置热切换后自动读到新值
+        self._tool_policy = ToolPolicy(
+            load=lambda: list(self._config.tools.allowed),
+            save=self._persist_tool_whitelist,
+        )
         self._version = 0  # 配置版本号：update_config 递增，驱动缓存失效
         self._agent_cache: tuple[int, str, AgentService] | None = None
         self._trial = EchoAgentService(store=store)
@@ -69,6 +84,24 @@ class ProviderRegistry:
     def tool_registry(self) -> ToolRegistry:
         """进程级共享工具注册表（任务 9 内置技能包 / API 路由挂载点）。"""
         return self._tools
+
+    @property
+    def tool_policy(self) -> ToolPolicy:
+        """危险工具白名单（6.5「总是允许」；管理面板/任务 9 API 挂载点）。"""
+        return self._tool_policy
+
+    def _persist_tool_whitelist(self, names: list[str]) -> None:
+        """「总是允许」白名单落盘（沿 config_routes._apply 惯例，原子写）。
+
+        无 config_path（测试注入路径）时仅更新内存配置，热生效不落盘。
+        """
+        if self._config_path is None:
+            self._config.tools.allowed = names
+            return
+        config = load_config(self._config_path)
+        config.tools.allowed = names
+        save_config(self._config_path, config)
+        self.update_config(config)  # 热生效（含 agent 缓存失效）
 
     def update_config(self, config: AppConfig) -> None:
         """整包替换配置并使适配器缓存失效（下一回合即用新配置）。"""
@@ -110,6 +143,7 @@ class ProviderRegistry:
             memory_manager=self._memory,
             tool_registry=self._tools,
             checkpointer=self._checkpointer,
+            tool_policy=self._tool_policy,
         )
 
     # -- 连通性测试（功能清单 7.2） ------------------------------------------

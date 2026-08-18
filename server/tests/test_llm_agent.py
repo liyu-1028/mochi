@@ -1,4 +1,4 @@
-"""LLMAgentService 测试（M1-S4 图内核）：协议事件序列、工具回环、异常收敛。
+"""LLMAgentService 测试（M1-S4 图内核）：协议事件序列、工具回环、异常收敛、危险确认。
 
 假模型：fakes.ScriptedChatModel（多回合剧本）。工具回环用例对齐黄金样例
 packages/protocol/testdata/turn-with-tool-call.jsonl 的事件时序。
@@ -6,6 +6,7 @@ packages/protocol/testdata/turn-with-tool-call.jsonl 的事件时序。
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import openai
@@ -15,7 +16,7 @@ from langchain_core.messages import AIMessageChunk, ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from pydantic import BaseModel
 
-from mochi_server.agent import LLMAgentService, ToolRegistry, ToolSpec
+from mochi_server.agent import DangerLevel, LLMAgentService, ToolPolicy, ToolRegistry, ToolSpec
 from mochi_server.agent.service import AgentContext
 from mochi_server.events import ErrorCode
 
@@ -271,3 +272,171 @@ async def test_tool_failure_maps_to_tool_failed() -> None:
     # 回合继续：最终正文仍完整产出
     text_end = next(p for t, p in events if t == "text.end")
     assert text_end.full_text == "解释失败"
+
+
+# ---------------------------------------------------------------------------
+# 危险确认（任务 7，功能清单 6.5）：interrupt 挂起 → tool.confirm → Command 续跑
+# ---------------------------------------------------------------------------
+
+
+class WriteArgs(BaseModel):
+    path: str
+
+
+async def _write_file(args: dict[str, Any]) -> str:
+    return f"已写入 {args['path']}"
+
+
+def _danger_registry() -> ToolRegistry:
+    registry = ToolRegistry()
+    registry.register(
+        ToolSpec(
+            name="write_file",
+            description="写文件（危险操作）",
+            args_schema=WriteArgs,
+            executor=_write_file,
+            danger=DangerLevel.DANGEROUS,
+        )
+    )
+    return registry
+
+
+def _mem_policy() -> tuple[ToolPolicy, dict, list]:
+    """内存白名单（load/save 闭包），返回 (policy, 状态盒, save 调用记录)。"""
+    state = {"allowed": []}
+    saved: list[list[str]] = []
+
+    def _save(names: list[str]) -> None:
+        state["allowed"] = list(names)
+        saved.append(list(names))
+
+    return ToolPolicy(load=lambda: list(state["allowed"]), save=_save), state, saved
+
+
+def _danger_call(tc_id: str) -> AIMessageChunk:
+    return AIMessageChunk(
+        content="",
+        tool_call_chunks=[
+            {
+                "name": "write_file",
+                "args": '{"path": "a.txt"}',
+                "id": tc_id,
+                "index": 0,
+                "type": "tool_call_chunk",
+            }
+        ],
+    )
+
+
+def _danger_agent(
+    calls: list[list[Any]], policy: ToolPolicy
+) -> tuple[LLMAgentService, ScriptedChatModel]:
+    model = ScriptedChatModel(calls=calls)
+    agent = LLMAgentService(
+        make_test_adapter(model),
+        tool_registry=_danger_registry(),
+        checkpointer=InMemorySaver(),
+        tool_policy=policy,
+    )
+    return agent, model
+
+
+async def _collect(agent: LLMAgentService, ctx: AgentContext) -> list[tuple[str, object]]:
+    return [event async for event in agent.run(ctx)]
+
+
+async def _wait_pending(agent: LLMAgentService, run_id: str) -> None:
+    """让步事件循环直到挂起出现（上限防死循环）。"""
+    for _ in range(500):
+        if agent.has_pending(run_id):
+            return
+        await asyncio.sleep(0)
+    raise AssertionError(f"等待挂起超时：run={run_id}")
+
+
+@pytest.mark.asyncio
+async def test_dangerous_tool_pauses_until_allow() -> None:
+    """危险工具：挂起等确认，allow 后执行；start 事件不因 resume 重放而重复。"""
+    policy, _state, saved = _mem_policy()
+    agent, _ = _danger_agent([[_danger_call("tc-9")], [AIMessageChunk(content="写好了")]], policy)
+    task = asyncio.create_task(_collect(agent, _ctx()))
+    await _wait_pending(agent, "r-1")
+
+    assert await agent.confirm("r-1", "tc-9", "allow", remember=False) is True
+    events = await task
+
+    starts = [p for t, p in events if t == "tool.call.start"]
+    assert len(starts) == 1  # resume 轮重放去重（实证 2026-08-18）
+    assert starts[0].requires_confirmation is True
+    assert starts[0].name == "write_file"
+    ends = [p for t, p in events if t == "tool.call.end"]
+    assert ends[0].status == "success"
+    assert ends[0].result == "已写入 a.txt"
+    assert saved == []  # 未勾「总是允许」→ 不动白名单
+    assert next(p for t, p in events if t == "text.end").full_text == "写好了"
+
+
+@pytest.mark.asyncio
+async def test_dangerous_tool_deny_denies_and_model_recovers() -> None:
+    """deny：tool.call.end(status=denied, ERR_TOOL_DENIED)，拒绝事实回灌模型善后。"""
+    policy, _state, _saved = _mem_policy()
+    agent, model = _danger_agent(
+        [[_danger_call("tc-9")], [AIMessageChunk(content="换个方案")]], policy
+    )
+    task = asyncio.create_task(_collect(agent, _ctx()))
+    await _wait_pending(agent, "r-1")
+
+    assert await agent.confirm("r-1", "tc-9", "deny") is True
+    events = await task
+
+    end = next(p for t, p in events if t == "tool.call.end")
+    assert end.status == "denied"
+    assert end.error is not None
+    assert end.error.code == ErrorCode.TOOL_DENIED
+    # 第二轮模型输入含拒绝善后 ToolMessage（勿重试，换方案）
+    second = model.received[1]
+    assert any(isinstance(m, ToolMessage) and "拒绝" in m.content for m in second)
+    assert next(p for t, p in events if t == "text.end").full_text == "换个方案"
+
+
+@pytest.mark.asyncio
+async def test_allow_with_remember_whitelists_future_calls() -> None:
+    """allow + remember：白名单持久化；同 policy 的后续危险调用不再暂停。"""
+    policy, _state, saved = _mem_policy()
+    agent, _ = _danger_agent([[_danger_call("tc-9")], [AIMessageChunk(content="好")]], policy)
+    task = asyncio.create_task(_collect(agent, _ctx()))
+    await _wait_pending(agent, "r-1")
+
+    assert await agent.confirm("r-1", "tc-9", "allow", remember=True) is True
+    await task
+    assert saved == [["write_file"]]
+
+    # 第二回合（新 run）：白名单已生效 → 不暂停，直接执行
+    agent2, _ = _danger_agent([[_danger_call("tc-10")], [AIMessageChunk(content="again")]], policy)
+    events = await _collect(agent2, AgentContext(run_id="r-2", session_id="s-1", text="再写一次"))
+    assert not agent2.has_pending("r-2")
+    starts = [p for t, p in events if t == "tool.call.start"]
+    assert starts[0].requires_confirmation is False
+    ends = [p for t, p in events if t == "tool.call.end"]
+    assert ends[0].status == "success"
+
+
+@pytest.mark.asyncio
+async def test_cancel_while_pending_propagates_and_cleans_up() -> None:
+    """挂起等待期间 cancel：CancelledError 自然传播，pending 表清理。"""
+    policy, _state, _saved = _mem_policy()
+    agent, _ = _danger_agent([[_danger_call("tc-9")], [AIMessageChunk(content="不应到达")]], policy)
+    task = asyncio.create_task(_collect(agent, _ctx()))
+    await _wait_pending(agent, "r-1")
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert agent.has_pending("r-1") is False
+
+
+@pytest.mark.asyncio
+async def test_stale_confirm_rejected() -> None:
+    """无匹配挂起（过期/伪造确认）：返回 False 不崩溃。"""
+    agent, _ = _agent([[AIMessageChunk(content="好")]])
+    assert await agent.confirm("r-1", "tc-x", "allow") is False

@@ -8,7 +8,7 @@ from .ollama_probe import OllamaProbeResult, probe_ollama
 from .registry import ProviderRegistry
 from .run_manager import RunManager
 from .service import AgentContext, AgentEvent, AgentService
-from .tools import DangerLevel, ToolRegistry, ToolRegistryError, ToolSpec
+from .tools import DangerLevel, ToolExecution, ToolPolicy, ToolRegistry, ToolRegistryError, ToolSpec
 
 __all__ = [
     "AgentContext",
@@ -24,6 +24,8 @@ __all__ = [
     "ProviderAdapter",
     "ProviderRegistry",
     "RunManager",
+    "ToolExecution",
+    "ToolPolicy",
     "ToolRegistry",
     "ToolRegistryError",
     "ToolSpec",

@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from collections.abc import AsyncIterator
@@ -22,6 +23,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from . import __version__
 from .agent import RunManager
+from .agent.llm_agent import LLMAgentService
 from .agent.ollama_probe import probe_ollama
 from .agent.registry import ProviderRegistry
 from .agent.service import AgentService
@@ -43,6 +45,7 @@ from .events import (
     PongData,
     ServerInfo,
     StateChangeData,
+    ToolConfirmData,
     make_frame,
 )
 from .langgraph_checkpoints import build_checkpointer
@@ -58,7 +61,9 @@ logger = logging.getLogger(__name__)
 # 业务帧 = 握手与对话命令；ping 心跳不计——否则 30s 心跳永远重置计时，
 # 休眠永不触发（详见 ADR-0002 D9）。
 _SLEEP_THRESHOLD_S = 300.0
-_BUSINESS_FRAME_TYPES = frozenset({"hello", "chat.send", "chat.cancel", "chat.interrupt"})
+_BUSINESS_FRAME_TYPES = frozenset(
+    {"hello", "chat.send", "chat.cancel", "chat.interrupt", "tool.confirm"}
+)
 
 
 def _install_log_filter() -> None:
@@ -135,7 +140,11 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         ckpt_conn, saver = await build_checkpointer()
         app.state.checkpoint_conn = ckpt_conn
         app.state.registry = ProviderRegistry(
-            config, KeyStore(), store=app.state.store, checkpointer=saver
+            config,
+            KeyStore(),
+            store=app.state.store,
+            checkpointer=saver,
+            config_path=get_config_path(),  # 工具白名单落盘目标（6.5）
         )
         logger.info(
             "配置就绪：default_provider=%s（Ollama %s）",
@@ -184,10 +193,14 @@ def create_app(
     app.state.agent = agent
     # 会话持久化（M1-S1）：全局共享一个 SessionStore，Agent 与 REST 路由同源
     app.state.store = SessionStore()
-    app.state.registry = (
-        ProviderRegistry(config, key_store, store=app.state.store) if config is not None else None
-    )
     app.state.config_path = get_config_path()
+    app.state.registry = (
+        ProviderRegistry(
+            config, key_store, store=app.state.store, config_path=app.state.config_path
+        )
+        if config is not None
+        else None
+    )
     # 皮肤注册表（M1-S1）：用户皮肤资源经 /user-skins 路由分发，base URL 带端口。
     app.state.skin_registry = SkinRegistry(http_base_url=f"http://127.0.0.1:{resolve_port()}")
     app.include_router(config_router)
@@ -229,8 +242,11 @@ def create_app(
                     frame = await asyncio.wait_for(ws.receive_json(), timeout=check_interval_s)
                 except TimeoutError:
                     frame = None  # 周期性醒来检查休眠条件
+                except (ValueError, json.JSONDecodeError):
+                    logger.warning("收到非法非 JSON 帧，忽略")
+                    continue
 
-                if frame is not None:
+                if frame is not None and isinstance(frame, dict):
                     msg_type = frame.get("type")
                     if msg_type in _BUSINESS_FRAME_TYPES:
                         last_activity = time.monotonic()
@@ -287,6 +303,36 @@ def create_app(
                         else:  # chat.interrupt：打断播报（协议 §4，reason="interrupted"）
                             payload = ChatInterruptData.model_validate(frame["data"])
                             await manager.interrupt_run(payload.run_id)
+                    except ValidationError:
+                        logger.warning("命令负载校验失败：%s %s", msg_type, frame.get("data"))
+                    except KeyError:
+                        logger.warning("命令缺少 data：%s", msg_type)
+
+                elif msg_type == "tool.confirm":
+                    # 危险工具确认（6.5，M1-S4）：唤醒挂起中的回合。
+                    # agent_source 可能是实例（显式注入）或零参可调用（registry 热切换）
+                    if not handshaken:
+                        continue
+                    try:
+                        payload = ToolConfirmData.model_validate(frame["data"])
+                        agent = agent_source() if callable(agent_source) else agent_source
+                        if isinstance(agent, LLMAgentService):
+                            accepted = await agent.confirm(
+                                payload.run_id,
+                                payload.tool_call_id,
+                                payload.decision,
+                                remember=payload.remember,
+                            )
+                            if not accepted:
+                                logger.warning(
+                                    "确认不匹配等待中的调用，忽略：run=%s tc=%s",
+                                    payload.run_id,
+                                    payload.tool_call_id,
+                                )
+                        else:
+                            logger.warning(
+                                "当前 Agent 不支持工具确认（%s），忽略", type(agent).__name__
+                            )
                     except ValidationError:
                         logger.warning("命令负载校验失败：%s %s", msg_type, frame.get("data"))
                     except KeyError:

@@ -1,3 +1,4 @@
+from .policy import ToolPolicy
 from .registry import (
     DangerLevel,
     ToolExecution,
@@ -9,6 +10,7 @@ from .registry import (
 __all__ = [
     "DangerLevel",
     "ToolExecution",
+    "ToolPolicy",
     "ToolRegistry",
     "ToolRegistryError",
     "ToolSpec",
