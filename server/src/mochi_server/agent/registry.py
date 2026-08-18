@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import logging
 
+from langgraph.checkpoint.base import BaseCheckpointSaver
+
 from ..config import TRIAL_PROVIDER_ID, AppConfig, ModelProviderConfig
 from ..memory import MemoryManager
 from ..persona import build_system_prompt
@@ -25,6 +27,7 @@ from .echo_agent import EchoAgentService
 from .errors import AgentError
 from .llm_agent import LLMAgentService
 from .service import AgentService
+from .tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -37,11 +40,17 @@ class ProviderRegistry:
         config: AppConfig,
         key_store: KeyStore | None = None,
         store: SessionStore | None = None,
+        *,
+        checkpointer: BaseCheckpointSaver | None = None,
     ) -> None:
         self._config = config
         self._key_store = key_store or KeyStore()
         self._store = store  # 会话持久化（M1-S1）；None 时 Agent 保持单轮行为
         self._memory = MemoryManager(store) if store is not None else None
+        # 工具注册表（M1-S4，6.5）：进程级共享；任务 9 挂内置技能包
+        self._tools = ToolRegistry()
+        # checkpoint（ADR-0008 D4）：任务 7 确认暂停/崩溃恢复；None → 图不带
+        self._checkpointer = checkpointer
         self._version = 0  # 配置版本号：update_config 递增，驱动缓存失效
         self._agent_cache: tuple[int, str, AgentService] | None = None
         self._trial = EchoAgentService(store=store)
@@ -55,6 +64,11 @@ class ProviderRegistry:
     @property
     def key_store(self) -> KeyStore:
         return self._key_store
+
+    @property
+    def tool_registry(self) -> ToolRegistry:
+        """进程级共享工具注册表（任务 9 内置技能包 / API 路由挂载点）。"""
+        return self._tools
 
     def update_config(self, config: AppConfig) -> None:
         """整包替换配置并使适配器缓存失效（下一回合即用新配置）。"""
@@ -90,7 +104,12 @@ class ProviderRegistry:
         # 全空回退 DEFAULT_SYSTEM_PROMPT；配置更新经 update_config 缓存失效后重建生效。
         system_prompt = build_system_prompt(self._config.character.persona)
         return LLMAgentService(
-            adapter, system_prompt=system_prompt, store=self._store, memory_manager=self._memory
+            adapter,
+            system_prompt=system_prompt,
+            store=self._store,
+            memory_manager=self._memory,
+            tool_registry=self._tools,
+            checkpointer=self._checkpointer,
         )
 
     # -- 连通性测试（功能清单 7.2） ------------------------------------------

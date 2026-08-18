@@ -112,6 +112,15 @@ class LangChainAdapter(ProviderAdapter):
         """底层 langchain 模型（任务 5 图内核 bind_tools 取用）。"""
         return self._model
 
+    @property
+    def needs_role_merge(self) -> bool:
+        """anthropic 族要求角色交替：上层拼消息时据此合并连续同角色。"""
+        return self._cfg.kind == "anthropic"
+
+    def translate_error(self, exc: Exception) -> AgentError:
+        """SDK/LC 异常 → AgentError（图内核直调模型的错误收敛入口）。"""
+        return _translate_sdk_error(exc, model=self._cfg.model)
+
     # -- ProviderAdapter -----------------------------------------------------
 
     async def stream_chat(

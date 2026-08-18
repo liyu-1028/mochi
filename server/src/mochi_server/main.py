@@ -45,6 +45,7 @@ from .events import (
     StateChangeData,
     make_frame,
 )
+from .langgraph_checkpoints import build_checkpointer
 from .paths import get_config_path
 from .runtime import remove_runtime_file, resolve_port, write_runtime_file
 from .secrets import KeyStore
@@ -130,7 +131,12 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             ollama_available=probe.available,
             ollama_model=probe.models[0] if probe.models else None,
         )
-        app.state.registry = ProviderRegistry(config, KeyStore(), store=app.state.store)
+        # checkpoint（ADR-0008 D4）：独立连接独立文件，装配见 langgraph_checkpoints
+        ckpt_conn, saver = await build_checkpointer()
+        app.state.checkpoint_conn = ckpt_conn
+        app.state.registry = ProviderRegistry(
+            config, KeyStore(), store=app.state.store, checkpointer=saver
+        )
         logger.info(
             "配置就绪：default_provider=%s（Ollama %s）",
             config.model.default_provider,
@@ -141,6 +147,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     write_runtime_file(resolve_port())
     yield
     remove_runtime_file()
+    # 关闭 checkpoint 连接（M1-S4，ADR-0008 D4）
+    ckpt_conn = getattr(app.state, "checkpoint_conn", None)
+    if ckpt_conn is not None:
+        await ckpt_conn.close()
     # 关闭会话库连接（测试用 TestClient 同样走此路径）
     store = getattr(app.state, "store", None)
     if store is not None:

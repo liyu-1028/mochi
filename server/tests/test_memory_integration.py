@@ -12,12 +12,12 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import AsyncIterator
 
 import pytest
+from fakes import ScriptedChatModel, make_test_adapter
+from langchain_core.messages import AIMessageChunk
 
-from mochi_server.agent import LLMAgentService, ProviderAdapter
-from mochi_server.agent.adapters.base import ChatMessage
+from mochi_server.agent import LLMAgentService
 from mochi_server.agent.service import AgentContext
 from mochi_server.memory import MemoryManager
 from mochi_server.store import SessionStore
@@ -48,21 +48,18 @@ async def _seed_memory(
     return await store.add_memory(mid, category, content, source=source)
 
 
-class RecordingAdapter(ProviderAdapter):
-    """录制发送给 LLM 的 messages，返回固定回复。"""
-
-    def __init__(self, reply: str = "好的，我知道了！") -> None:
-        self._reply = reply
-        self.calls: list[list[ChatMessage]] = []
-
-    async def stream_chat(
-        self, messages: list[ChatMessage], *, run_id: str
-    ) -> AsyncIterator[tuple[str, str]]:
-        self.calls.append(messages)
-        yield ("text", self._reply)
-
-    async def ping(self) -> tuple[bool, str]:
-        return True, "ok"
+def _recording_agent(
+    store: SessionStore, memory_manager: MemoryManager | None, reply: str = "好的，我知道了！"
+) -> tuple[LLMAgentService, ScriptedChatModel]:
+    """固定回复的假模型 + 录制收到的消息（M1-S4 图内核路径）。"""
+    model = ScriptedChatModel(calls=[[AIMessageChunk(content=reply)]])
+    agent = LLMAgentService(
+        make_test_adapter(model),
+        system_prompt="你是助手",
+        store=store,
+        memory_manager=memory_manager,
+    )
+    return agent, model
 
 
 def _ctx(text: str = "你好", session_id: str = "s-1") -> AgentContext:
@@ -82,12 +79,10 @@ async def _collect_events(agent: LLMAgentService, ctx: AgentContext) -> list[tup
 async def test_fact_injected_into_system_prompt(store: SessionStore, mm: MemoryManager):
     """事实记忆能被召回并注入 system prompt。"""
     await _seed_memory(store, "用户是 Python 开发者", "fact")
-    adapter = RecordingAdapter()
-    agent = LLMAgentService(adapter, system_prompt="你是助手", store=store, memory_manager=mm)
-
+    agent, model = _recording_agent(store, mm)
     await _collect_events(agent, _ctx(text="帮我写个Python脚本"))
 
-    system_content = adapter.calls[0][0]["content"]
+    system_content = model.received[0][0].content
     assert "关于用户的记忆" in system_content
     assert "用户是 Python 开发者" in system_content
     assert "[事实]" in system_content
@@ -97,12 +92,10 @@ async def test_fact_injected_into_system_prompt(store: SessionStore, mm: MemoryM
 async def test_preference_injected_into_system_prompt(store: SessionStore, mm: MemoryManager):
     """偏好记忆能被召回并注入 system prompt。"""
     await _seed_memory(store, "用户喜欢简洁的回答", "preference")
-    adapter = RecordingAdapter()
-    agent = LLMAgentService(adapter, system_prompt="你是助手", store=store, memory_manager=mm)
-
+    agent, model = _recording_agent(store, mm)
     await _collect_events(agent, _ctx(text="你能帮我回答个问题吗"))
 
-    system_content = adapter.calls[0][0]["content"]
+    system_content = model.received[0][0].content
     assert "用户喜欢简洁的回答" in system_content
     assert "[偏好]" in system_content
 
@@ -112,24 +105,20 @@ async def test_multiple_memories_injected(store: SessionStore, mm: MemoryManager
     """多条相关记忆同时注入。"""
     await _seed_memory(store, "用户是前端工程师", "fact")
     await _seed_memory(store, "用户喜欢 TypeScript", "preference")
-    adapter = RecordingAdapter()
-    agent = LLMAgentService(adapter, system_prompt="你是助手", store=store, memory_manager=mm)
-
+    agent, model = _recording_agent(store, mm)
     await _collect_events(agent, _ctx(text="推荐一些前端工具"))
 
-    system_content = adapter.calls[0][0]["content"]
+    system_content = model.received[0][0].content
     assert "前端工程师" in system_content
 
 
 @pytest.mark.asyncio
 async def test_no_memory_no_injection(store: SessionStore, mm: MemoryManager):
     """记忆库为空时不注入任何记忆段落。"""
-    adapter = RecordingAdapter()
-    agent = LLMAgentService(adapter, system_prompt="你是助手", store=store, memory_manager=mm)
-
+    agent, model = _recording_agent(store, mm)
     await _collect_events(agent, _ctx(text="你好"))
 
-    system_content = adapter.calls[0][0]["content"]
+    system_content = model.received[0][0].content
     assert system_content == "你是助手"
 
 
@@ -137,12 +126,10 @@ async def test_no_memory_no_injection(store: SessionStore, mm: MemoryManager):
 async def test_irrelevant_query_no_recall(store: SessionStore, mm: MemoryManager):
     """用户输入与已有记忆无关时，不召回。"""
     await _seed_memory(store, "用户养了一只猫", "fact")
-    adapter = RecordingAdapter()
-    agent = LLMAgentService(adapter, system_prompt="你是助手", store=store, memory_manager=mm)
-
+    agent, model = _recording_agent(store, mm)
     await _collect_events(agent, _ctx(text="explain quantum computing"))
 
-    system_content = adapter.calls[0][0]["content"]
+    system_content = model.received[0][0].content
     assert "猫" not in system_content
 
 
@@ -157,11 +144,10 @@ async def test_memory_persists_across_sessions(store: SessionStore, mm: MemoryMa
     await _seed_memory(store, "用户的名字叫小明", "fact")
 
     # 新会话：应该能召回
-    adapter = RecordingAdapter()
-    agent = LLMAgentService(adapter, system_prompt="你是助手", store=store, memory_manager=mm)
+    agent, model = _recording_agent(store, mm)
     await _collect_events(agent, _ctx(text="你还记得我叫什么名字吗", session_id="session-2"))
 
-    system_content = adapter.calls[0][0]["content"]
+    system_content = model.received[0][0].content
     assert "小明" in system_content
 
 
@@ -169,12 +155,10 @@ async def test_memory_persists_across_sessions(store: SessionStore, mm: MemoryMa
 async def test_manual_memory_recalled_in_conversation(store: SessionStore, mm: MemoryManager):
     """通过 API 手动添加的记忆也能在对话中被召回。"""
     await _seed_memory(store, "用户对花粉过敏", "fact", source="manual")
-    adapter = RecordingAdapter()
-    agent = LLMAgentService(adapter, system_prompt="你是助手", store=store, memory_manager=mm)
-
+    agent, model = _recording_agent(store, mm)
     await _collect_events(agent, _ctx(text="春天来了花粉好多"))
 
-    system_content = adapter.calls[0][0]["content"]
+    system_content = model.received[0][0].content
     assert "花粉过敏" in system_content
 
 
@@ -186,12 +170,10 @@ async def test_manual_memory_recalled_in_conversation(store: SessionStore, mm: M
 @pytest.mark.asyncio
 async def test_no_memory_manager_no_injection(store: SessionStore):
     """memory_manager=None 时不注入记忆，保持原始 system prompt。"""
-    adapter = RecordingAdapter()
-    agent = LLMAgentService(adapter, system_prompt="你是助手", store=store, memory_manager=None)
-
+    agent, model = _recording_agent(store, None)
     await _collect_events(agent, _ctx(text="你好"))
 
-    system_content = adapter.calls[0][0]["content"]
+    system_content = model.received[0][0].content
     assert system_content == "你是助手"
 
 
@@ -248,12 +230,10 @@ async def test_recall_respects_limit(store: SessionStore, mm: MemoryManager):
 async def test_cjk_recall_in_conversation(store: SessionStore, mm: MemoryManager):
     """中文用户输入能通过 2-gram 匹配召回中文记忆。"""
     await _seed_memory(store, "用户养了一只柯基犬", "fact")
-    adapter = RecordingAdapter()
-    agent = LLMAgentService(adapter, system_prompt="你是助手", store=store, memory_manager=mm)
-
+    agent, model = _recording_agent(store, mm)
     await _collect_events(agent, _ctx(text="我的柯基最近不爱吃饭"))
 
-    system_content = adapter.calls[0][0]["content"]
+    system_content = model.received[0][0].content
     assert "柯基" in system_content
 
 
@@ -261,10 +241,8 @@ async def test_cjk_recall_in_conversation(store: SessionStore, mm: MemoryManager
 async def test_english_keyword_recall(store: SessionStore, mm: MemoryManager):
     """英文关键词也能正确匹配召回。"""
     await _seed_memory(store, "用户使用 React 框架", "fact")
-    adapter = RecordingAdapter()
-    agent = LLMAgentService(adapter, system_prompt="你是助手", store=store, memory_manager=mm)
-
+    agent, model = _recording_agent(store, mm)
     await _collect_events(agent, _ctx(text="帮我优化 React 组件性能"))
 
-    system_content = adapter.calls[0][0]["content"]
+    system_content = model.received[0][0].content
     assert "React" in system_content

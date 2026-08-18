@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
-
 import pytest
+from fakes import ScriptedChatModel, make_test_adapter
 from fastapi.testclient import TestClient
+from langchain_core.messages import AIMessageChunk
 
-from mochi_server.agent import LLMAgentService, ProviderAdapter
-from mochi_server.agent.adapters.base import ChatMessage
+from mochi_server.agent import LLMAgentService
 from mochi_server.agent.echo_agent import EchoAgentService
 from mochi_server.agent.llm_agent import DEFAULT_SYSTEM_PROMPT
 from mochi_server.agent.service import AgentContext
@@ -18,21 +17,10 @@ from mochi_server.main import create_app
 from mochi_server.store import SessionStore
 
 
-class _RecordingAdapter(ProviderAdapter):
-    """记录收到的 messages，供断言多轮拼装。"""
-
-    def __init__(self, reply: str = "收到") -> None:
-        self._reply = reply
-        self.last_messages: list[ChatMessage] | None = None
-
-    async def stream_chat(
-        self, messages: list[ChatMessage], *, run_id: str
-    ) -> AsyncIterator[tuple[str, str]]:
-        self.last_messages = messages
-        yield "text", self._reply
-
-    async def ping(self) -> tuple[bool, str]:
-        return True, "ok"
+def _recording_agent(reply: str = "收到", *, store: SessionStore | None = None):
+    """固定回复假模型 + 录制收到的消息（M1-S4 图内核路径）。"""
+    model = ScriptedChatModel(calls=[[AIMessageChunk(content=reply)]])
+    return LLMAgentService(make_test_adapter(model), store=store), model
 
 
 @pytest.mark.asyncio
@@ -41,16 +29,16 @@ async def test_multi_turn_assembles_history_before_current_user(tmp_path) -> Non
     try:
         await store.append_message("s-1", "user", "我叫小明")
         await store.append_message("s-1", "assistant", "你好小明！")
-        adapter = _RecordingAdapter()
-        agent = LLMAgentService(adapter, store=store)
+        agent, model = _recording_agent(store=store)
         ctx = AgentContext(run_id="r-1", session_id="s-1", text="你还记得我叫什么吗")
         async for _ in agent.run(ctx):
             pass
-        assert adapter.last_messages == [
-            {"role": "system", "content": DEFAULT_SYSTEM_PROMPT},
-            {"role": "user", "content": "我叫小明"},
-            {"role": "assistant", "content": "你好小明！"},
-            {"role": "user", "content": "你还记得我叫什么吗"},
+        # 图内消息会由 langgraph 分配 id，按类型+内容断言
+        assert [(type(m).__name__, m.content) for m in model.received[0]] == [
+            ("SystemMessage", DEFAULT_SYSTEM_PROMPT),
+            ("HumanMessage", "我叫小明"),
+            ("AIMessage", "你好小明！"),
+            ("HumanMessage", "你还记得我叫什么吗"),
         ]
     finally:
         await store.close()
@@ -60,7 +48,7 @@ async def test_multi_turn_assembles_history_before_current_user(tmp_path) -> Non
 async def test_turn_is_persisted_after_completion(tmp_path) -> None:
     store = SessionStore(db_path=tmp_path / "t.db")
     try:
-        agent = LLMAgentService(_RecordingAdapter("我记得你叫小明"), store=store)
+        agent, _ = _recording_agent("我记得你叫小明", store=store)
         ctx = AgentContext(run_id="r-1", session_id="s-1", text="你好")
         async for _ in agent.run(ctx):
             pass
@@ -76,13 +64,12 @@ async def test_turn_is_persisted_after_completion(tmp_path) -> None:
 @pytest.mark.asyncio
 async def test_no_store_keeps_single_turn_behavior(tmp_path) -> None:
     """向后兼容：不注入 store 时不读不写，行为等同 M0。"""
-    adapter = _RecordingAdapter()
-    agent = LLMAgentService(adapter)  # store=None
+    agent, model = _recording_agent()  # store=None
     ctx = AgentContext(run_id="r-1", session_id="s-1", text="你好")
     async for _ in agent.run(ctx):
         pass
-    assert adapter.last_messages is not None
-    assert len(adapter.last_messages) == 2  # system + user，无历史
+    assert model.received[0] is not None
+    assert len(model.received[0]) == 2  # system + user，无历史
 
 
 @pytest.mark.asyncio
