@@ -76,6 +76,7 @@ class ModelProviderConfig(BaseModel):
     base_url: str | None = None
     model: str
     key_ref: str | None = None  # 系统钥匙串条目名；ollama 通常无需
+    context_window: int | None = None  # token 窗口（4.4 预算裁剪）；None → 缺省 8192
 
 
 class ModelConfig(BaseModel):

@@ -145,6 +145,7 @@ class ProviderRegistry:
             tool_registry=self._tools,
             checkpointer=self._checkpointer,
             tool_policy=self._tool_policy,
+            context_window=cfg.context_window,
         )
 
     # -- 连通性测试（功能清单 7.2） ------------------------------------------

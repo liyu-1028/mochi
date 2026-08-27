@@ -27,6 +27,7 @@ display_name = "我的云端模型"
 base_url = "https://api.example.com/v1"
 model = "example-chat"
 key_ref = "mochi:provider:my_cloud"   # 系统钥匙串条目名，非明文 Key
+# context_window = 32768            # 可选：token 窗口（4.4 预算裁剪），缺省 8192
 
 [voice]
 tts_enabled = true

@@ -56,6 +56,7 @@ from ..persona import DEFAULT_SYSTEM_PROMPT
 from ..store import HISTORY_LIMIT, SessionStore
 from .adapters.base import ChatMessage
 from .adapters.langchain import LangChainAdapter, _deltas_from_chunk, _to_lc_messages
+from .context import build_context_messages
 from .errors import AgentError
 from .react_graph import build_react_graph, is_llm_chunk
 from .service import AgentContext, AgentEvent, AgentService
@@ -94,6 +95,7 @@ class LLMAgentService(AgentService):
         tool_registry: ToolRegistry | None = None,
         checkpointer: BaseCheckpointSaver | None = None,
         tool_policy: ToolPolicy | None = None,
+        context_window: int | None = None,
     ):
         self._adapter = adapter
         self._system_prompt = system_prompt
@@ -102,6 +104,7 @@ class LLMAgentService(AgentService):
         self._tools = tool_registry  # None → 图不 bind_tools，纯对话行为
         self._checkpointer = checkpointer  # 任务 7 确认暂停/崩溃恢复（ADR-0008 D4）
         self._policy = tool_policy  # None → 危险工具不确认（直接执行）
+        self._context_window = context_window  # 4.4 预算裁剪；None → 缺省 8192
         self._pending: dict[str, _PendingConfirm] = {}
 
     @property
@@ -138,16 +141,17 @@ class LLMAgentService(AgentService):
         if self._memory is not None:
             memory_section = await self._memory.recall_for_prompt(ctx.text)
 
-        # 多轮拼装（6.2）：system + 最近 N 条历史 + 本轮 user（4.4 截断保不报错）
+        # 多轮拼装（6.2）+ 上下文预算（4.4）：system + 预算内历史 + 本轮 user；
+        # 超限自动截断并注入省略标记，长对话不报错、对用户无感
         history = await self._load_history(ctx.session_id)
         effective_system = self._system_prompt + memory_section
         if self._tools is not None and self._tools.list_specs():
             effective_system += _TOOL_NUDGE
-        messages: list[ChatMessage] = [
-            {"role": "system", "content": effective_system},
-            *history,
-            {"role": "user", "content": ctx.text},
-        ]
+        messages, budget, dropped = build_context_messages(
+            effective_system, history, ctx.text, context_window=self._context_window
+        )
+        if dropped:
+            logger.info("上下文裁剪：%s dropped=%d", budget.description, dropped)
 
         # --- 思考阶段骨架先行（真实推理流经 messages 通道注入） ---
         yield "state.change", StateChangeData(state="thinking")

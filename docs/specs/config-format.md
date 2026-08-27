@@ -24,9 +24,14 @@ config_version = 1            # schema 版本，迁移依据（§4）
 [voice]                       # TTS 引擎 / 音色 / 音量 / 静音
 [privacy]                     # local_only 隐私模式
 [skills]                      # 已启用技能 id 列表
+[tools]                       # dangerous 工具「总是允许」白名单（6.5）
 ```
 
 完整示例与字段注释见 `server/config.example.toml`。
+
+provider 字段补充（v0.8.0+）：`context_window`（可选整数，token）——
+上下文预算裁剪的窗口依据（功能清单 4.4）；缺省 8192，超出预算的历史
+自动截断并注入省略标记，对用户无感。
 
 ## 3. 敏感信息处理
 
