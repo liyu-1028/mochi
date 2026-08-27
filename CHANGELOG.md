@@ -5,6 +5,36 @@
 > release.yml 发布时自动提取对应段落作为 GitHub Release Notes，
 > 缺少条目会在构建前拦截（先写 changelog 再打 tag）。
 
+## v0.9.0 - 2026-08-27
+
+M1-S4 后半收口：P0 功能缺口清零 🎯
+
+**新增**
+
+- 上下文管理（4.4）：token 预算裁剪——启发式估算（CJK 1/字）不引
+  tokenizer；预算 = context_window（provider 可配，缺省 8192）−
+  system/记忆 − 本轮输入 − 25% 安全余量；超限从新往旧截断并注入
+  「较早对话已省略」标记，长对话不报错、对用户无感
+- 情绪推断（2.5，ADR-0009）：回复后置独立分类器，run.finished 后
+  补发 emotion 事件（不阻塞回合与 TTS）；7 类情绪、intensity 0.75；
+  失败/超时降级 neutral 零回归；[agent] emotion = auto|off
+- 任务进度呈现（6.6）：工具 chip「步骤 N · 工具名 · 运行计时」
+  （进行中跳秒、终态定格悬停）；working 期间醒目「停止任务」按钮
+- 记忆自动沉淀重开（6.4）：v0.7.1 回退后带三道质量闸门恢复——
+  [memory] auto_extract 开关（默认开）、每日自动上限 20 条（手动
+  不受限）、子串去重；fire-and-forget 不阻塞回合收口
+
+**验证**
+
+- deepseek-v4-flash 真实模型实测：情绪后置补发尾序
+  run.finished → emotion(happy/0.75) 符合设计
+- 测试：server 414 项、desktop 182 项全绿
+
+**兼容说明**
+
+- 协议零改动（后置 emotion 为既有事件类型，runId 可选）
+- [agent]/[memory] 配置段新增均为可选字段，旧配置零迁移
+
 ## v0.8.0 - 2026-08-27
 
 M1-S4 Agent 编排：Mochi 会干活了 🔧
