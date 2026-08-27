@@ -45,3 +45,6 @@ enabled = []                 # 已启用技能 id 列表（如 "web_search"）
 
 [tools]
 allowed = []                # dangerous 工具「总是允许」白名单（6.5 确认框勾选后自动追加）
+
+[agent]
+emotion = "auto"                # 回复后情绪推断（2.5）：auto 开启 / off 恒 neutral

@@ -146,6 +146,7 @@ class ProviderRegistry:
             checkpointer=self._checkpointer,
             tool_policy=self._tool_policy,
             context_window=cfg.context_window,
+            emotion_enabled=self._config.agent.emotion == "auto",
         )
 
     # -- 连通性测试（功能清单 7.2） ------------------------------------------

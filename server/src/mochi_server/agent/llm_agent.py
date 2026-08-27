@@ -57,6 +57,7 @@ from ..store import HISTORY_LIMIT, SessionStore
 from .adapters.base import ChatMessage
 from .adapters.langchain import LangChainAdapter, _deltas_from_chunk, _to_lc_messages
 from .context import build_context_messages
+from .emotion import classify_reply_emotion
 from .errors import AgentError
 from .react_graph import build_react_graph, is_llm_chunk
 from .service import AgentContext, AgentEvent, AgentService
@@ -71,6 +72,9 @@ _TOOL_NUDGE = (
     "\n你可以调用提供的工具完成任务（如查询时间、读取文件）。"
     "需要外部信息或执行操作时务必调用工具，绝不要编造工具结果。"
 )
+
+#: 后置情绪强度（2.5）：非中性情绪统一 0.75（显著但不过火）
+_EMOTION_INTENSITY = 0.75
 
 
 @dataclass
@@ -96,6 +100,7 @@ class LLMAgentService(AgentService):
         checkpointer: BaseCheckpointSaver | None = None,
         tool_policy: ToolPolicy | None = None,
         context_window: int | None = None,
+        emotion_enabled: bool = True,
     ):
         self._adapter = adapter
         self._system_prompt = system_prompt
@@ -105,7 +110,10 @@ class LLMAgentService(AgentService):
         self._checkpointer = checkpointer  # 任务 7 确认暂停/崩溃恢复（ADR-0008 D4）
         self._policy = tool_policy  # None → 危险工具不确认（直接执行）
         self._context_window = context_window  # 4.4 预算裁剪；None → 缺省 8192
+        self._emotion_enabled = emotion_enabled  # 2.5 情绪后置；False → 不分类
         self._pending: dict[str, _PendingConfirm] = {}
+        # run_id → 本轮回复（post_run_events 消费；仅完整回合暂存）
+        self._last_reply: dict[str, str] = {}
 
     @property
     def adapter(self) -> LangChainAdapter:
@@ -275,6 +283,9 @@ class LLMAgentService(AgentService):
         full_text = "".join(parts)
         # 落盘本轮（4.3）：仅完整回合入库，取消/出错不落盘
         await self._persist_turn(ctx.session_id, ctx.text, full_text)
+        # 情绪后置（2.5，ADR-0009）：暂存回复供 post_run_events 分类；
+        # run 正常走到这里才会补发，取消/出错路径不暂存（无表情变化）
+        self._last_reply[ctx.run_id] = full_text
         yield (
             "text.end",
             TextEndData(run_id=ctx.run_id, message_id=message_id, full_text=full_text),
@@ -282,6 +293,23 @@ class LLMAgentService(AgentService):
 
         # --- 回到待机 ---
         yield "state.change", StateChangeData(state="idle")
+
+    # -- 情绪后置（2.5，ADR-0009） -------------------------------------------
+
+    async def post_run_events(self, ctx: AgentContext) -> list[AgentEvent]:
+        """回合收口后的情绪补发：单发分类本轮回复，命中非 neutral 才发事件。"""
+        reply = self._last_reply.pop(ctx.run_id, "")
+        if not self._emotion_enabled or not reply.strip():
+            return []
+        emotion = await classify_reply_emotion(self._adapter, reply)
+        if emotion is None or emotion is Emotion.NEUTRAL:
+            return []  # 失败降级/中性：维持 run 内既有 neutral/0.5，零回归
+        return [
+            (
+                "emotion",
+                EmotionData(run_id=ctx.run_id, emotion=emotion, intensity=_EMOTION_INTENSITY),
+            )
+        ]
 
     # -- 危险确认（任务 7，功能清单 6.5） --------------------------------------
 

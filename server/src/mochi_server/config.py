@@ -101,6 +101,12 @@ class SkillsConfig(BaseModel):
     enabled: list[str] = Field(default_factory=list)
 
 
+class AgentConfig(BaseModel):
+    """认知行为开关（2.5 情绪推断，ADR-0009）。"""
+
+    emotion: Literal["auto", "off"] = "auto"  # 回复后置情绪分类；off → 恒 neutral
+
+
 class ToolsConfig(BaseModel):
     """工具授权（M1-S4，功能清单 6.5）：dangerous 工具的「总是允许」白名单。"""
 
@@ -116,6 +122,7 @@ class AppConfig(BaseModel):
     privacy: PrivacyConfig = Field(default_factory=PrivacyConfig)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    agent: AgentConfig = Field(default_factory=AgentConfig)
 
 
 # ---------------------------------------------------------------------------

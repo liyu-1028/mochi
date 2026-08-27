@@ -38,6 +38,9 @@ from .service import AgentContext, AgentService
 
 logger = logging.getLogger(__name__)
 
+#: 补发钩子预算（2.5）：分类调用自身 2s + 余量，超时静默丢弃
+_POST_RUN_TIMEOUT_S = 3.0
+
 SendFrame = Callable[[dict[str, Any]], Awaitable[None]]
 
 
@@ -145,6 +148,7 @@ class RunManager:
         )
 
         reason = "complete"
+        agent: AgentService | None = None
         try:
             # 解析在 try 内：构造期错误（缺 Key、未实现的 provider）也走 run.error
             agent = self._agent_source()
@@ -183,5 +187,15 @@ class RunManager:
                     _now_ms(),
                 )
             )
+
+        # 情绪后置补发（2.5，ADR-0009）：run.finished 之后送达，不阻塞回合收口；
+        # 取消/出错回合不补发；钩子自身带超时兑底，异常不外溢
+        if reason == "complete" and agent is not None:
+            with contextlib.suppress(Exception):
+                for event_type, payload in await asyncio.wait_for(
+                    agent.post_run_events(ctx), timeout=_POST_RUN_TIMEOUT_S
+                ):
+                    await self._send(make_frame(event_type, payload, _now_ms()))
+
         self._runs.pop(data.run_id, None)
         self._interrupted.discard(data.run_id)
