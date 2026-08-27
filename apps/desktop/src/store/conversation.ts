@@ -27,6 +27,8 @@ export interface ToolCallView {
   args: Record<string, unknown>;
   status: ToolCallStatus;
   result?: unknown;
+  /** 首次 tool.call.start 到达时刻（ms，6.6 运行计时基准） */
+  startedAt: number;
 }
 
 /** 内存中保留的消息上限（M1-S1）：超出裁掉最旧，历史事实源在 sidecar SQLite。 */
@@ -247,6 +249,7 @@ export const useConversation = create<ConversationState>()((set, get) => ({
           name: data.name as string,
           args: (data.args as Record<string, unknown>) ?? {},
           status: data.requiresConfirmation ? "confirming" : "running",
+          startedAt: Date.now(),
         };
         set((s) => ({
           toolCalls: [...s.toolCalls, call],

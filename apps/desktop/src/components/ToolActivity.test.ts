@@ -1,9 +1,9 @@
 /**
- * summarizeArgs 纯函数测试：确认框的参数可读摘要（截断/省略规则）。
+ * 纯函数测试：summarizeArgs（确认框参数摘要）与 formatElapsed（6.6 运行计时）。
  * 组件渲染与三键交互属 GUI 实测范围（记忆：GUI 特性须终端验证）。
  */
 import { describe, expect, it } from "vitest";
-import { summarizeArgs } from "./ToolActivity";
+import { formatElapsed, summarizeArgs } from "./ToolActivity";
 
 describe("summarizeArgs", () => {
   it("空参数 → 空串", () => {
@@ -38,5 +38,21 @@ describe("summarizeArgs", () => {
     });
     expect(out.length).toBe(81); // 80 字 + …
     expect(out.endsWith("…")).toBe(true);
+  });
+});
+
+describe("formatElapsed（6.6 运行计时）", () => {
+  it("秒级展示", () => {
+    expect(formatElapsed(0, 0)).toBe("0s");
+    expect(formatElapsed(1_000, 4_999)).toBe("3s");
+  });
+
+  it("≥60s 转 m:ss", () => {
+    expect(formatElapsed(0, 61_000)).toBe("1:01");
+    expect(formatElapsed(0, 600_000)).toBe("10:00");
+  });
+
+  it("负值/乱序兜底 0s", () => {
+    expect(formatElapsed(5_000, 1_000)).toBe("0s");
   });
 });

@@ -401,9 +401,9 @@ describe("工具调用归约（M1-S4，6.5/6.6）", () => {
 describe("finalizeToolCalls", () => {
   it("纯函数：仅收口 confirming/running，其余保持", () => {
     const calls = [
-      { toolCallId: "a", name: "x", args: {}, status: "confirming" as const },
-      { toolCallId: "b", name: "x", args: {}, status: "running" as const },
-      { toolCallId: "c", name: "x", args: {}, status: "success" as const },
+      { toolCallId: "a", name: "x", args: {}, status: "confirming" as const, startedAt: 0 },
+      { toolCallId: "b", name: "x", args: {}, status: "running" as const, startedAt: 0 },
+      { toolCallId: "c", name: "x", args: {}, status: "success" as const, startedAt: 0 },
     ];
     const out = finalizeToolCalls(calls);
     expect(out.map((t) => t.status)).toEqual(["error", "error", "success"]);

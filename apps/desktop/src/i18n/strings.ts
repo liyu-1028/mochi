@@ -178,6 +178,8 @@ const zhCN: StringTable = {
   "tools.confirmDeny": "拒绝",
   "tools.confirmAllow": "允许",
   "tools.confirmAlways": "总是允许",
+  "tools.step": "步骤 {n}",
+  "tools.stopTask": "停止任务",
 
   // 角色状态/情绪（CharacterBadge 占位/降级渲染，Live2D 加载失败路径可见）
   "character.state.idle": "待机中",
@@ -370,6 +372,8 @@ const en: StringTable = {
   "tools.confirmDeny": "Deny",
   "tools.confirmAllow": "Allow",
   "tools.confirmAlways": "Always allow",
+  "tools.step": "Step {n}",
+  "tools.stopTask": "Stop task",
 
   // Character state/emotion (CharacterBadge fallback rendering)
   "character.state.idle": "Idle",

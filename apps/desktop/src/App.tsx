@@ -260,7 +260,7 @@ export default function App() {
         />
       </div>
       <SpeechBubbleArea />
-      <ToolActivity confirmTool={confirmTool} />
+      <ToolActivity confirmTool={confirmTool} onStop={cancelRun} />
 
       {/* 底部 dock 槽位：状态文案与输入条共享同一位置、互斥显示 */}
       <div className="app__dock">

@@ -337,6 +337,39 @@ body {
   color: #8a7ca8;
 }
 
+.tool-chip__step {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+.tool-chip__name {
+  font-weight: 500;
+}
+
+.tool-chip__elapsed {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+
+.tool-stop {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 4px 12px;
+  border: none;
+  border-radius: 999px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  cursor: pointer;
+  color: #fff;
+  background: rgba(176, 86, 63, 0.85);
+  transition: background 0.15s ease;
+}
+
+.tool-stop:hover {
+  background: rgba(156, 66, 45, 0.95);
+}
+
 @keyframes tool-chip-in {
   from {
     opacity: 0;

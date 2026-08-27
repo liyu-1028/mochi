@@ -1,9 +1,10 @@
 /**
  * ToolActivity —— 工具调用的桌面呈现（M1-S4，功能清单 6.5/6.6）。
  *
- * 两块：
- * - ToolChips：working 期间贴气泡区上方的工具 chip 行（执行中/成功/失败/被拒），
- *   数据源 conversation.toolCalls（run 开始清空）；
+ * 三块：
+ * - ToolChips：working 期间贴气泡区上方的工具 chip 行——步骤序号 + 工具名
+ *   + 运行计时（6.6 任务进度：执行中/等待确认实时跳秒，终态定格）；
+ * - StopTask：working 期间的醒目停止按钮，回发 chat.cancel（4.2 语义）；
  * - ConfirmCard：pendingConfirm（requiresConfirmation 的 tool.call.start）到达时
  *   弹出的三键确认框——拒绝 / 允许 / 总是允许（后者 remember=true 入白名单，
  *   此后该工具不再询问）。回发走 tool.confirm 命令（协议 §4）。
@@ -11,7 +12,9 @@
  * 终态兜底：run.finished/run.error 时 store 已把未收口 chip 置 error、清
  * pendingConfirm（finalizeToolCalls），确认框随之消失（cancel 场景）。
  */
+import { useEffect, useState } from "react";
 import { useI18n } from "../i18n";
+import type { I18nVars } from "../i18n";
 import { useConversation } from "../store/conversation";
 import type { ToolCallView } from "../store/conversation";
 
@@ -28,8 +31,16 @@ export function summarizeArgs(args: Record<string, unknown>): string {
   return joined.length > 80 ? `${joined.slice(0, 80)}…` : joined;
 }
 
+/** 运行计时（6.6）：秒级展示，≥60s 转 m:ss；负值/NaN 兜底 0s。 */
+export function formatElapsed(startedAt: number, now: number): string {
+  const sec = Math.max(0, Math.floor((now - startedAt) / 1000));
+  if (sec < 60) return `${sec}s`;
+  return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+}
+
 export function ToolActivity({
   confirmTool,
+  onStop,
 }: {
   confirmTool: (
     runId: string,
@@ -37,12 +48,15 @@ export function ToolActivity({
     decision: "allow" | "deny",
     remember?: boolean,
   ) => void;
+  /** working 期间停止任务（chat.cancel，4.2：丢弃后续输出） */
+  onStop: (runId: string) => void;
 }) {
   const toolCalls = useConversation((s) => s.toolCalls);
   const pendingConfirm = useConversation((s) => s.pendingConfirm);
   const activeRunId = useConversation((s) => s.activeRunId);
 
   if (toolCalls.length === 0 && pendingConfirm === null) return null;
+  const busy = toolCalls.some((c) => c.status === "running" || c.status === "confirming");
 
   return (
     <div className="tool-activity">
@@ -55,6 +69,7 @@ export function ToolActivity({
         />
       ) : null}
       {toolCalls.length > 0 ? <ToolChips calls={toolCalls} /> : null}
+      {busy && activeRunId !== null ? <StopTask onStop={() => onStop(activeRunId)} /> : null}
     </div>
   );
 }
@@ -88,20 +103,63 @@ function ConfirmCard({
   );
 }
 
-/** 工具 chip 行：图标 + 名称 + 状态文案。 */
+/** 工具 chip 行：步骤序号 + 图标 + 名称 +（进行中）运行计时。 */
 function ToolChips({ calls }: { calls: ToolCallView[] }) {
   const { t } = useI18n();
   return (
     <div className="tool-chips">
-      {calls.map((call) => (
-        <span key={call.toolCallId} className={`tool-chip tool-chip--${call.status}`}>
-          <span className="tool-chip__icon" aria-hidden>
-            {ICON_BY_STATUS[call.status]}
-          </span>
-          {t(LABEL_BY_STATUS[call.status], { name: call.name })}
-        </span>
+      {calls.map((call, index) => (
+        <ToolChip key={call.toolCallId} call={call} step={index + 1} t={t} />
       ))}
     </div>
+  );
+}
+
+function ToolChip({
+  call,
+  step,
+  t,
+}: {
+  call: ToolCallView;
+  step: number;
+  t: (key: string, vars?: I18nVars) => string;
+}) {
+  const live = call.status === "running" || call.status === "confirming";
+  const [, forceTick] = useState(0);
+
+  // 运行计时（6.6）：仅进行中的 chip 起秒表，终态不挂定时器（不空转）
+  useEffect(() => {
+    if (!live) return;
+    const timer = window.setInterval(() => forceTick((n) => n + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, [live]);
+
+  return (
+    <span className={`tool-chip tool-chip--${call.status}`} title={statusTitle(call, t)}>
+      <span className="tool-chip__step">{t("tools.step", { n: step })}</span>
+      <span className="tool-chip__icon" aria-hidden>
+        {ICON_BY_STATUS[call.status]}
+      </span>
+      <span className="tool-chip__name">{call.name}</span>
+      {live ? (
+        <span className="tool-chip__elapsed">{formatElapsed(call.startedAt, Date.now())}</span>
+      ) : null}
+    </span>
+  );
+}
+
+/** 终态悬停文案：chip 定格后状态语义仍在（title 提示，不占横向空间）。 */
+function statusTitle(call: ToolCallView, t: (key: string, vars?: I18nVars) => string): string {
+  return t(LABEL_BY_STATUS[call.status], { name: call.name });
+}
+
+/** working 期间的停止按钮（6.6：可随时取消）。 */
+function StopTask({ onStop }: { onStop: () => void }) {
+  const { t } = useI18n();
+  return (
+    <button type="button" className="tool-stop" onClick={onStop}>
+      ⏹ {t("tools.stopTask")}
+    </button>
   );
 }
 
