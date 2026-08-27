@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 import pytest
@@ -51,8 +52,14 @@ async def _seed_memory(
 def _recording_agent(
     store: SessionStore, memory_manager: MemoryManager | None, reply: str = "好的，我知道了！"
 ) -> tuple[LLMAgentService, ScriptedChatModel]:
-    """固定回复的假模型 + 录制收到的消息（M1-S4 图内核路径）。"""
-    model = ScriptedChatModel(calls=[[AIMessageChunk(content=reply)]])
+    """固定回复的假模型 + 录制收到的消息（M1-S4 图内核路径）。
+
+    第二剧本对应 6.4 自动沉淀的后台提取调用（返回空数组，不产生记忆），
+    避免 fire-and-forget 耗尽剧本报错。
+    """
+    model = ScriptedChatModel(
+        calls=[[AIMessageChunk(content=reply)], [AIMessageChunk(content="[]")]]
+    )
     agent = LLMAgentService(
         make_test_adapter(model),
         system_prompt="你是助手",
@@ -246,3 +253,90 @@ async def test_english_keyword_recall(store: SessionStore, mm: MemoryManager):
 
     system_content = model.received[0][0].content
     assert "React" in system_content
+
+
+# ---------------------------------------------------------------------------
+# 自动沉淀（6.4，v0.8.1 重开）：挂钩、闸门、每日上限
+# ---------------------------------------------------------------------------
+
+
+class _ExtractRecorder:
+    """以正确签名替换 _call_extract：记录调用并返回固定提取结果。"""
+
+    def __init__(self, raw: str) -> None:
+        self._raw = raw
+        self.calls: list[str] = []
+
+    async def __call__(self, adapter, user_text: str, reply: str) -> str:
+        self.calls.append(user_text)
+        return self._raw
+
+
+async def _settle(agent: LLMAgentService) -> None:
+    """等待后台提取任务排空（6.4 fire-and-forget 同步点）。"""
+    for _ in range(200):
+        if not agent._background:
+            return
+        await asyncio.sleep(0)
+    raise AssertionError("后台提取任务未结束")
+
+
+def _round_agent(store, mm) -> LLMAgentService:
+    return LLMAgentService(
+        make_test_adapter(ScriptedChatModel(calls=[[AIMessageChunk(content="好")]])),
+        store=store,
+        memory_manager=mm,
+    )
+
+
+@pytest.mark.asyncio
+async def test_auto_extract_stores_memory_after_round(store: SessionStore):
+    """完整回合后自动提取落库。"""
+    recorder = _ExtractRecorder('[{"category": "fact", "content": "用户养了一只柴犬"}]')
+    mm = MemoryManager(store)
+    mm._call_extract = recorder
+    agent = _round_agent(store, mm)
+    await _collect_events(agent, _ctx(text="我家养了一只柴犬哦"))
+    await _settle(agent)
+
+    assert recorder.calls == ["我家养了一只柴犬哦"]
+    assert any("柴犬" in m["content"] for m in await store.list_memories())
+
+
+@pytest.mark.asyncio
+async def test_auto_extract_disabled_by_config(store: SessionStore):
+    """auto_extract=False：不调度提取，仅手动记忆。"""
+    recorder = _ExtractRecorder("[]")
+    mm = MemoryManager(store, auto_extract=False)
+    mm._call_extract = recorder
+    agent = _round_agent(store, mm)
+    await _collect_events(agent, _ctx(text="记住我喜欢蓝色"))
+    await _settle(agent)
+
+    assert recorder.calls == []
+    assert await store.list_memories() == []
+
+
+@pytest.mark.asyncio
+async def test_auto_extract_daily_limit(store: SessionStore):
+    """今日自动沉淀达到上限后跳过（不发起提取调用）。"""
+    for i in range(20):
+        await _seed_memory(store, f"自动记忆{i}", source="auto")
+    recorder = _ExtractRecorder('[{"category": "fact", "content": "不该入库"}]')
+    mm = MemoryManager(store)
+    mm._call_extract = recorder
+    agent = _round_agent(store, mm)
+    await _collect_events(agent, _ctx(text="再多记一条"))
+    await _settle(agent)
+
+    assert recorder.calls == []
+    assert not any("不该入库" in m["content"] for m in await store.list_memories())
+
+
+@pytest.mark.asyncio
+async def test_daily_limit_counts_only_today_auto(store: SessionStore):
+    """每日上限只数今日 auto：今日 manual 不计入。"""
+    await _seed_memory(store, "今天的手动记忆", source="manual")
+    await _seed_memory(store, "今天的自动记忆", source="auto")
+    mm = MemoryManager(store)
+    assert await mm._daily_auto_count() == 1

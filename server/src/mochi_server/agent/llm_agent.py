@@ -112,6 +112,8 @@ class LLMAgentService(AgentService):
         self._context_window = context_window  # 4.4 预算裁剪；None → 缺省 8192
         self._emotion_enabled = emotion_enabled  # 2.5 情绪后置；False → 不分类
         self._pending: dict[str, _PendingConfirm] = {}
+        # 后台任务（6.4 记忆提取）持引用，防 fire-and-forget 被 GC 中途回收
+        self._background: set[asyncio.Task[None]] = set()
         # run_id → 本轮回复（post_run_events 消费；仅完整回合暂存）
         self._last_reply: dict[str, str] = {}
 
@@ -283,6 +285,9 @@ class LLMAgentService(AgentService):
         full_text = "".join(parts)
         # 落盘本轮（4.3）：仅完整回合入库，取消/出错不落盘
         await self._persist_turn(ctx.session_id, ctx.text, full_text)
+        # 记忆自动沉淀（6.4，v0.7.1 回退后重开）：fire-and-forget 不阻塞回合；
+        # 开关/每日上限在 MemoryManager 内部闸门
+        self._schedule_extract(ctx.text, full_text)
         # 情绪后置（2.5，ADR-0009）：暂存回复供 post_run_events 分类；
         # run 正常走到这里才会补发，取消/出错路径不暂存（无表情变化）
         self._last_reply[ctx.run_id] = full_text
@@ -293,6 +298,18 @@ class LLMAgentService(AgentService):
 
         # --- 回到待机 ---
         yield "state.change", StateChangeData(state="idle")
+
+    def _schedule_extract(self, user_text: str, reply: str) -> None:
+        """后台调度记忆提取；持引用防 GC，异常由 manager 内部静默收敛。"""
+        if self._memory is None:
+            return
+
+        async def _run() -> None:
+            await self._memory.extract_and_store(self._adapter, user_text, reply)
+
+        task = asyncio.create_task(_run())
+        self._background.add(task)
+        task.add_done_callback(self._background.discard)
 
     # -- 情绪后置（2.5，ADR-0009） -------------------------------------------
 

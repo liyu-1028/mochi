@@ -48,3 +48,6 @@ allowed = []                # dangerous 工具「总是允许」白名单（6.5 
 
 [agent]
 emotion = "auto"                # 回复后情绪推断（2.5）：auto 开启 / off 恒 neutral
+
+[memory]
+auto_extract = true           # 对话后自动沉淀记忆（6.4）：false 则仅手动添加；每日上限 20 条

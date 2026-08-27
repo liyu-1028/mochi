@@ -54,7 +54,11 @@ class ProviderRegistry:
         self._config = config
         self._key_store = key_store or KeyStore()
         self._store = store  # 会话持久化（M1-S1）；None 时 Agent 保持单轮行为
-        self._memory = MemoryManager(store) if store is not None else None
+        self._memory = (
+            MemoryManager(store, auto_extract=config.memory.auto_extract)
+            if store is not None
+            else None
+        )
         # 工具注册表（M1-S4，6.5）：进程级共享；任务 9 挂内置工具
         self._tools = ToolRegistry()
         register_builtin_tools(self._tools)

@@ -101,6 +101,12 @@ class SkillsConfig(BaseModel):
     enabled: list[str] = Field(default_factory=list)
 
 
+class MemoryConfig(BaseModel):
+    """记忆行为开关（6.4：自动沉淀 v0.8.1 重开，带质量闸门）。"""
+
+    auto_extract: bool = True  # 对话后自动提取记忆；False → 仅手动
+
+
 class AgentConfig(BaseModel):
     """认知行为开关（2.5 情绪推断，ADR-0009）。"""
 
@@ -123,6 +129,7 @@ class AppConfig(BaseModel):
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     agent: AgentConfig = Field(default_factory=AgentConfig)
+    memory: MemoryConfig = Field(default_factory=MemoryConfig)
 
 
 # ---------------------------------------------------------------------------

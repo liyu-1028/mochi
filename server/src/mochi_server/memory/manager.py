@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from ..store import SessionStore
@@ -28,6 +29,8 @@ logger = logging.getLogger(__name__)
 _RECALL_LIMIT = 5
 
 # 沉淀提示词：要求 LLM 输出 JSON 数组，严格约束格式以降低解析失败率。
+#: 每日自动沉淀上限（6.4 质量闸门）：超出后当日只保留召回与手动能力
+_DAILY_AUTO_LIMIT = 20
 _EXTRACT_SYSTEM = (
     "你是一个记忆提取助手。从以下对话中提取值得长期记住的用户信息。\n"
     "只提取关于用户的事实和偏好，忽略寒暄和一次性问题。\n"
@@ -42,8 +45,14 @@ _EXTRACT_SYSTEM = (
 class MemoryManager:
     """记忆生命周期管理：召回 + 沉淀。"""
 
-    def __init__(self, store: SessionStore) -> None:
+    def __init__(self, store: SessionStore, *, auto_extract: bool = True) -> None:
         self._store = store
+        # 自动沉淀开关（6.4，v0.7.1 回退后重开）：False → 仅手动记忆
+        self._auto_extract = auto_extract
+
+    @property
+    def auto_extract(self) -> bool:
+        return self._auto_extract
 
     # -- 召回 ----------------------------------------------------------------
 
@@ -71,8 +80,19 @@ class MemoryManager:
     # -- 沉淀 ----------------------------------------------------------------
 
     async def extract_and_store(self, adapter: ProviderAdapter, user_text: str, reply: str) -> None:
-        """异步提取记忆并落盘。失败静默降级，不影响对话流程。"""
+        """异步提取记忆并落盘。失败静默降级，不影响对话流程。
+
+        质量闸门（v0.7.1 回退教训，6.4 重开）：
+        - auto_extract=False 直接跳过；
+        - 每日自动沉淀上限（_DAILY_AUTO_LIMIT）：防止提取质量不稳时爆库，
+          用户仍可手动无上限添加。
+        """
+        if not self._auto_extract:
+            return
         try:
+            if await self._daily_auto_count() >= _DAILY_AUTO_LIMIT:
+                logger.info("今日自动沉淀已达上限 %d 条，跳过（手动添加不受限）", _DAILY_AUTO_LIMIT)
+                return
             raw = await self._call_extract(adapter, user_text, reply)
             items = self._parse_extract_response(raw)
             if not items:
@@ -92,6 +112,26 @@ class MemoryManager:
             logger.info("记忆沉淀完成：%d 条", len(items))
         except Exception:
             logger.exception("记忆自动沉淀失败（不影响对话）")
+
+    async def _daily_auto_count(self) -> int:
+        """今日（本地时区）自动沉淀条数；存储异常降级为 0（不阻断沉淀）。"""
+        try:
+            memories = await self._store.list_memories()
+        except Exception:
+            logger.exception("统计今日沉淀失败，按 0 处理")
+            return 0
+        today_start = (
+            datetime.now()
+            .astimezone()
+            .replace(hour=0, minute=0, second=0, microsecond=0)
+            .timestamp()
+            * 1000
+        )
+        return sum(
+            1
+            for m in memories
+            if m.get("source") == "auto" and (m.get("createdAt") or 0) >= today_start
+        )
 
     async def _call_extract(self, adapter: ProviderAdapter, user_text: str, reply: str) -> str:
         """调用 LLM 提取记忆，收集完整输出文本。"""
