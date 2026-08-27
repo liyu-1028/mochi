@@ -6,6 +6,7 @@
  * 眨眼（sleeping 闭眼）与动作曲线（表情预设）。
  */
 import type { StageHandle } from "./core";
+import * as PIXI from "pixi.js";
 import {
   EMOTION_PRESETS,
   SLEEPING_PRESET,
@@ -36,6 +37,8 @@ export interface CharacterDriver {
   addFrameOverride(fn: FrameOverride): () => void;
   /** 写单个参数（按模型实际范围钳制） */
   setParam(id: string, value: number): void;
+  /** 命中分区测试（2.4）：视口坐标 → 模型画布坐标 → 分区名数组 */
+  hitTestAt(clientX: number, clientY: number): string[];
   readonly params: CubismParamAPI;
   dispose(): void;
 }
@@ -79,6 +82,19 @@ export function createDriver(stage: StageHandle): CharacterDriver {
   return {
     kind: "live2d",
     params,
+
+    hitTestAt(clientX, clientY) {
+      // 视口坐标 → 画布像素（透明窗口无缩放相机，比例换算即可）
+      // → toModelPosition（世界→模型逻辑空间）→ hitTest 分区名
+      const canvas = app.view as HTMLCanvasElement;
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return [];
+      const scaleX = app.renderer.width / rect.width;
+      const scaleY = app.renderer.height / rect.height;
+      const world = new PIXI.Point((clientX - rect.left) * scaleX, (clientY - rect.top) * scaleY);
+      const local = model.toModelPosition(world);
+      return model.hitTest(local.x, local.y);
+    },
 
     applyPlan(next) {
       const prev = plan;

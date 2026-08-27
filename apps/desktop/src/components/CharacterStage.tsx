@@ -25,6 +25,13 @@ import { MAX_STATIC_UPSCALE } from "../layout/characterLayout";
 import { disposeStaticStage, loadStaticStage, type StaticStageHandle } from "../live2d/staticCore";
 import { createStaticDriver, type StaticDriver } from "../live2d/staticDriver";
 import { resolveStaticAnimation } from "../live2d/staticStateMachine";
+import {
+  bodyWiggleAngle,
+  headPatAngleZ,
+  headPatEnvelope,
+  HEAD_PAT_PARAMS,
+  reactionFor,
+} from "../live2d/interactions";
 import { resolveAnimation, type AnimationPlan, type ModelProfile } from "../live2d/stateMachine";
 import {
   createSampleWindow,
@@ -81,6 +88,8 @@ export function CharacterStage({
   const mouthRef = useRef<MouthState>(MOUTH_CLOSED);
   const gazeTargetRef = useRef<GazeTarget>({ x: 0, y: 0 });
   const gazeCurrentRef = useRef<GazeTarget>({ x: 0, y: 0 });
+  /** 分区点击反应（2.4，仅 live2d）：点击时刻 + 类型，帧覆写期间消费 */
+  const reactionRef = useRef<{ kind: "head" | "body"; startedAt: number } | null>(null);
   const [failed, setFailed] = useState(false);
   const [ready, setReady] = useState(false);
   // 性能护栏（2.6）：当前降档档位 + 计划重放回调（档位变化时重打掩码）
@@ -283,6 +292,24 @@ export function CharacterStage({
         driver.setParam("ParamEyeBallX", gazeCurrentRef.current.x);
         driver.setParam("ParamEyeBallY", gazeCurrentRef.current.y + plan.gazeOffsetY);
       }
+
+      // 分区点击反应（2.4）：摸头=眼笑+嘴角+头偏包络；戳身体=衰减摆动。
+      // 包络归零后自然停止（不再下发参数，回落状态机计划）。
+      const reaction = reactionRef.current;
+      if (reaction !== null) {
+        const elapsed = Date.now() - reaction.startedAt;
+        if (reaction.kind === "head") {
+          const env = headPatEnvelope(elapsed);
+          if (env > 0) {
+            for (const [id, v] of Object.entries(HEAD_PAT_PARAMS)) driver.setParam(id, v * env);
+            driver.setParam("ParamAngleZ", headPatAngleZ(elapsed));
+          } else reactionRef.current = null;
+        } else {
+          const angle = bodyWiggleAngle(elapsed);
+          if (angle !== 0) driver.setParam("ParamBodyAngleX", angle);
+          else reactionRef.current = null;
+        }
+      }
     });
   }, [ready, isLive2D, ttsPlaying]);
 
@@ -300,9 +327,16 @@ export function CharacterStage({
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [ready]);
 
-  // 左键唤起输入框；右键弹上下文菜单。guard e.button 防止右键误触发 click。
+  // 左键：Live2D 命中分区差异化反应（2.4，Head/Body）+ 唤起输入框；
+  // 静态皮肤无分区，保持整体点击反应（唤起输入框）。右键弹上下文菜单。
   const handleClick = (e: ReactMouseEvent) => {
-    if (e.button === 0) onActivate?.();
+    if (e.button !== 0) return;
+    const driver = driverRef.current;
+    if (driver !== null && driver.kind === "live2d" && reactionRef.current === null) {
+      const kind = reactionFor(driver.hitTestAt(e.clientX, e.clientY));
+      if (kind !== null) reactionRef.current = { kind, startedAt: Date.now() };
+    }
+    onActivate?.();
   };
   const handleContextMenu = (e: ReactMouseEvent) => {
     e.preventDefault();
