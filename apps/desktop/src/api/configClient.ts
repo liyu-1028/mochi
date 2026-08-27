@@ -133,8 +133,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const configApi = {
-  /** 完整配置（含 general.language）；此处只声明前端关心的 general 段。 */
-  getConfig: (): Promise<{ general: GeneralSettings }> => request("/config"),
+  /** 完整配置（含 general/character/voice 段；诊断导出与设置导入用）。 */
+  getConfig: (): Promise<{
+    general: GeneralSettings;
+    character?: CharacterSettings;
+    voice?: VoiceSettings;
+  }> => request("/config"),
 
   /** 部分更新 [general]（界面语言/省电模式），返回更新后的 general。 */
   updateGeneral: (body: { language?: Language; powerSave?: boolean }): Promise<GeneralSettings> =>

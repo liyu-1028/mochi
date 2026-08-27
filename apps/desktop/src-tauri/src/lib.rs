@@ -5,7 +5,11 @@
 //!
 //! 系统托盘菜单（功能清单 1.4）经前端 JS API 构建（src/tray.ts，i18n 共享），
 //! Rust 面仅监听退出事件（RunEvent::Exit 回收 sidecar，ADR-0001）。
+//!
+//! 诊断包导出与设置导入导出（1.8/7.1）：命令见 diagnostics.rs，
+//! 文件路径选择由前端 dialog 插件承担。
 
+mod diagnostics;
 mod runtime;
 mod sidecar;
 
@@ -32,6 +36,11 @@ pub fn run() {
                 .build(),
         )
         .manage(SidecarState::new())
+        .invoke_handler(tauri::generate_handler![
+            diagnostics::export_diagnostics,
+            diagnostics::write_text_file,
+            diagnostics::read_text_file,
+        ])
         .setup(|app| {
             // 托盘「退出 Mochi」：前端 emit 事件（无命令 ACL 负担，ADR-0001）
             let quit_handle = app.handle().clone();
