@@ -63,6 +63,14 @@ from .tools import ToolPolicy, ToolRegistry
 
 logger = logging.getLogger(__name__)
 
+#: 工具使用提示（M1-S4 任务 9）：小模型带人格 system prompt 时易把工具调用
+#: 当纯文本输出甚至编造结果（实测 qwen2.5:1.5b，2026-08-19），绑定工具时追加。
+#: 零行为变更：无工具（tool_registry=None）不拼接，黄金样例回放不变。
+_TOOL_NUDGE = (
+    "\n你可以调用提供的工具完成任务（如查询时间、读取文件）。"
+    "需要外部信息或执行操作时务必调用工具，绝不要编造工具结果。"
+)
+
 
 @dataclass
 class _PendingConfirm:
@@ -133,6 +141,8 @@ class LLMAgentService(AgentService):
         # 多轮拼装（6.2）：system + 最近 N 条历史 + 本轮 user（4.4 截断保不报错）
         history = await self._load_history(ctx.session_id)
         effective_system = self._system_prompt + memory_section
+        if self._tools is not None and self._tools.list_specs():
+            effective_system += _TOOL_NUDGE
         messages: list[ChatMessage] = [
             {"role": "system", "content": effective_system},
             *history,

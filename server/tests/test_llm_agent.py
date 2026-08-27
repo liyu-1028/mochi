@@ -188,6 +188,27 @@ async def test_no_tools_registry_skips_bind() -> None:
     assert model.bound_tool_names == []
 
 
+@pytest.mark.asyncio
+async def test_tool_nudge_injected_only_with_tools() -> None:
+    """工具使用提示（任务 9）：有工具时注入 system，无工具零变更。
+
+    动机：小模型（qwen2.5:1.5b 实测 2026-08-19）带人格 system prompt 时会把
+    工具调用当纯文本输出甚至编造结果，追加提示后恢复结构化 tool_calls。
+    """
+    agent, model = _agent(
+        [[AIMessageChunk(content="好")]],
+        tool_registry=_tools(),
+    )
+    await _run(agent)
+    system = model.received[0][0]
+    assert system.type == "system"
+    assert "务必调用工具" in system.content
+
+    agent_none, model_none = _agent([[AIMessageChunk(content="好")]])
+    await _run(agent_none)
+    assert "务必调用工具" not in model_none.received[0][0].content
+
+
 # ---------------------------------------------------------------------------
 # 工具回环（对齐黄金样例 turn-with-tool-call.jsonl 时序）
 # ---------------------------------------------------------------------------
