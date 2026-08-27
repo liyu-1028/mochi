@@ -189,6 +189,16 @@ class LLMAgentService(AgentService):
                             if payload.get("requires_confirmation"):
                                 pending_call_id = tc_id
                                 pending_name = payload["name"]
+                                # 竞态修复（任务 9 实测 2026-08-19）：挂起项必须在
+                                # 事件发出前注册——客户端最快收到 tool.call.start 即回
+                                # tool.confirm，若等流结束才注册（_await_confirmation），
+                                # 早到确认会被丢弃 → 回合死锁。图内危险调用顺序处理，
+                                # 同一 run 同时至多一个挂起项，单键安全。
+                                self._pending[ctx.run_id] = _PendingConfirm(
+                                    tc_id,
+                                    payload["name"],
+                                    asyncio.get_running_loop().create_future(),
+                                )
                         elif kind == "tool_call_end" and pending_call_id == payload.get(
                             "tool_call_id"
                         ):
@@ -246,6 +256,10 @@ class LLMAgentService(AgentService):
             raise
         except Exception as exc:  # 图内模型异常收敛为 AgentError（RunManager 消费）
             raise self._adapter.translate_error(exc) from exc
+        finally:
+            # 预注册配套：取消/异常路径也清挂起表（正常路径 _await_confirmation
+            # 的 finally 已清，此处兑底幂等）
+            self._pending.pop(ctx.run_id, None)
 
         if not text_started:
             # 空响应（或纯 thinking/纯工具无正文）：仍走完骨架，保协议时序完整
@@ -284,13 +298,18 @@ class LLMAgentService(AgentService):
     async def _await_confirmation(
         self, ctx: AgentContext, tool_call_id: str, name: str
     ) -> tuple[str, bool]:
-        """注册挂起表并等待裁决；返回 (decision, remember)。
+        """等待裁决；返回 (decision, remember)。
 
-        cancel → CancelledError 经 await 传播（finally 清表）；future 结果由
-        confirm() 注入。
+        挂起项已在事件发出前预注册（见 run 内竞态修复注释），此处直接消费；
+        防御性兑底：缺失/不匹配时重建（理论不可达）。cancel → CancelledError
+        经 await 传播（finally 清表）；future 结果由 confirm() 注入。
         """
-        future: asyncio.Future[tuple[str, bool]] = asyncio.get_running_loop().create_future()
-        self._pending[ctx.run_id] = _PendingConfirm(tool_call_id, name, future)
+        pending = self._pending.get(ctx.run_id)
+        if pending is None or pending.tool_call_id != tool_call_id:
+            future: asyncio.Future[tuple[str, bool]] = asyncio.get_running_loop().create_future()
+            self._pending[ctx.run_id] = _PendingConfirm(tool_call_id, name, future)
+        else:
+            future = pending.future
         try:
             return await future
         finally:

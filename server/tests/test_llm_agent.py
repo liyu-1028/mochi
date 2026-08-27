@@ -421,6 +421,38 @@ async def test_dangerous_tool_deny_denies_and_model_recovers() -> None:
 
 
 @pytest.mark.asyncio
+async def test_early_confirm_before_await_is_not_dropped() -> None:
+    """竞态回归（任务 9 实测 2026-08-19）：确认在事件 yield 后、生成器到达
+    _await_confirmation 前到达（自动化客户端/本地快连接），不得丢弃——
+    否则挂起项后建、早到确认已丢 → 回合死锁。修复：挂起项随 tool.call.start
+    事件发出前预注册。
+    """
+    policy, _state, _saved = _mem_policy()
+    agent, _ = _danger_agent(
+        [[_danger_call("tc-9")], [AIMessageChunk(content="被拒后善后")]], policy
+    )
+    gen = agent.run(_ctx())
+    events: list[tuple[str, object]] = []
+    early_confirmed = False
+    while True:
+        event_type, payload = await gen.__anext__()
+        events.append((event_type, payload))
+        if event_type == "tool.call.start" and payload.requires_confirmation:
+            # 此刻生成器悬停在 yield，尚未进入 _await_confirmation——模拟最快客户端
+            assert await agent.confirm("r-1", "tc-9", "deny") is True
+            early_confirmed = True
+        if event_type == "text.end":
+            break
+    await gen.aclose()
+
+    assert early_confirmed
+    end = next(p for t, p in events if t == "tool.call.end")
+    assert end.status == "denied"
+    assert agent.has_pending("r-1") is False
+    assert next(p for t, p in events if t == "text.end").full_text == "被拒后善后"
+
+
+@pytest.mark.asyncio
 async def test_allow_with_remember_whitelists_future_calls() -> None:
     """allow + remember：白名单持久化；同 policy 的后续危险调用不再暂停。"""
     policy, _state, saved = _mem_policy()
