@@ -36,7 +36,7 @@ export interface AnimationPlan {
   /** 身体微晃（working） */
   bodySway: boolean;
   /** 目标帧率（性能护栏，Phase 7 使用） */
-  tickerFps: 30 | 60;
+  tickerFps: 15 | 30 | 60;
 }
 
 /**
@@ -71,7 +71,7 @@ interface StateRule {
   gazeEnabled: boolean;
   gazeOffsetY: number;
   bodySway: boolean;
-  tickerFps: 30 | 60;
+  tickerFps: 15 | 30 | 60;
 }
 
 /** 6 状态规则表：动作组偏好均回退到 Idle（Hiyori 无专用组，ADR-0003 D4） */

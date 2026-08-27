@@ -20,6 +20,8 @@ export const EVENT_PANEL_NAVIGATE = "mochi:panel-navigate";
 export const EVENT_ONBOARDING_DONE = "mochi:onboarding-done";
 export const EVENT_PROVIDERS_CHANGED = "mochi:providers-changed";
 export const EVENT_LANGUAGE_CHANGED = "mochi:language-changed";
+/** 2.6 省电模式跨窗口同步（设置面板 ↔ 主窗口渲染层）。 */
+export const EVENT_POWER_SAVE_CHANGED = "mochi:power-save-changed";
 export const EVENT_ACTIVE_SESSION_DELETED = "mochi:active-session-deleted";
 /** M1-S1：衣橱面板换肤 → 主窗口重建角色舞台（3.3 热切换）。 */
 export const EVENT_SKIN_CHANGED = "mochi:skin-changed";

@@ -48,6 +48,8 @@ class GeneralConfig(BaseModel):
     language: Language = "zh-CN"
     launch_at_startup: bool = False
     telemetry: bool = False
+    # 省电模式（2.6 性能护栏）：true → 角色渲染钉 15fps + 暂停装饰动画
+    power_save: bool = False
 
 
 class PersonaConfig(BaseModel):

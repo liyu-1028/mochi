@@ -83,6 +83,7 @@ class GeneralUpdate(CamelModel):
     """[general] 部分更新（M1-CTX）：仅传入需要变更的字段。"""
 
     language: Language | None = None
+    power_save: bool | None = None
 
 
 class VoiceUpdate(CamelModel):
@@ -109,6 +110,19 @@ class VoiceView(CamelModel):
 
 def _voice_view(config: AppConfig) -> dict:
     return VoiceView.model_validate(config.voice.model_dump()).model_dump(by_alias=True)
+
+
+class GeneralView(CamelModel):
+    """[general] 当前值视图（camelCase 响应；2.6 省电模式增补）。"""
+
+    language: str
+    launch_at_startup: bool
+    telemetry: bool
+    power_save: bool
+
+
+def _general_view(config: AppConfig) -> dict:
+    return GeneralView.model_validate(config.general.model_dump()).model_dump(by_alias=True)
 
 
 class PersonaUpdate(CamelModel):
@@ -197,6 +211,8 @@ async def get_config(request: Request) -> dict:
     registry = _registry(request)
     cfg = registry.config
     data = cfg.model_dump(mode="json", by_alias=True, exclude_none=True)
+    # general 段包一层 camelCase 视图（2.6 powerSave；旧客户端 language 键不变）
+    data["general"] = _general_view(cfg)
     data["model"]["providers"] = [
         _summary(pid, pcfg, cfg.model.default_provider, registry.key_store).model_dump(
             by_alias=True, exclude_none=True
@@ -348,10 +364,16 @@ async def update_general(body: GeneralUpdate, request: Request) -> dict:
     def mutate(config: AppConfig) -> None:
         if body.language is not None:
             config.general.language = body.language
+        if body.power_save is not None:
+            config.general.power_save = body.power_save
 
     new_config = _apply(registry, _config_path(request), mutate)
-    logger.info("更新通用设置：language=%s", new_config.general.language)
-    return new_config.general.model_dump(mode="json", by_alias=True)
+    logger.info(
+        "更新通用设置：language=%s power_save=%s",
+        new_config.general.language,
+        new_config.general.power_save,
+    )
+    return _general_view(new_config)
 
 
 @router.get("/voice")

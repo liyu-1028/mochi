@@ -52,6 +52,8 @@ const zhCN: StringTable = {
   "settings.sectionPrivacy": "隐私",
   "settings.comingSoon": "敬请期待",
   "settings.language": "界面语言",
+  "settings.powerSave": "省电模式",
+  "settings.powerSaveHint": "角色动画降至 15fps 并暂停漂浮动画；对话功能不受影响",
   "settings.languageZh": "简体中文",
   "settings.languageEn": "English",
   "voice.enabled": "语音输出",
@@ -241,6 +243,9 @@ const en: StringTable = {
   "settings.sectionPrivacy": "Privacy",
   "settings.comingSoon": "Coming soon",
   "settings.language": "Language",
+  "settings.powerSave": "Power saving",
+  "settings.powerSaveHint":
+    "Caps character animation at 15fps and pauses idle motion; chat is unaffected",
   "settings.languageZh": "简体中文",
   "settings.languageEn": "English",
   "voice.enabled": "Voice output",

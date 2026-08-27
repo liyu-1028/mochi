@@ -18,13 +18,15 @@
 ```toml
 config_version = 1            # schema 版本，迁移依据（§4）
 
-[general]                     # 语言 / 自启 / 遥测
+[general]                     # 语言 / 自启 / 遥测 / 省电模式
 [character]                   # 当前皮肤等角色偏好
 [model]                       # default_provider + [model.providers.<id>] 表
 [voice]                       # TTS 引擎 / 音色 / 音量 / 静音
 [privacy]                     # local_only 隐私模式
 [skills]                      # 已启用技能 id 列表
 [tools]                       # dangerous 工具「总是允许」白名单（6.5）
+[agent]                       # 情绪推断开关等 Agent 行为
+[memory]                      # 记忆自动沉淀开关与上限
 ```
 
 完整示例与字段注释见 `server/config.example.toml`。

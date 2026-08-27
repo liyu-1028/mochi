@@ -26,6 +26,14 @@ import { disposeStaticStage, loadStaticStage, type StaticStageHandle } from "../
 import { createStaticDriver, type StaticDriver } from "../live2d/staticDriver";
 import { resolveStaticAnimation } from "../live2d/staticStateMachine";
 import { resolveAnimation, type AnimationPlan, type ModelProfile } from "../live2d/stateMachine";
+import {
+  createSampleWindow,
+  decorationsPaused,
+  effectiveFps,
+  nextFpsLevel,
+  type FpsLevel,
+} from "../live2d/powerGuard";
+import { useSettings } from "../store/settings";
 
 type AnyStage = StageHandle | StaticStageHandle;
 type AnyDriver = CharacterDriver | StaticDriver;
@@ -75,6 +83,9 @@ export function CharacterStage({
   const gazeCurrentRef = useRef<GazeTarget>({ x: 0, y: 0 });
   const [failed, setFailed] = useState(false);
   const [ready, setReady] = useState(false);
+  // 性能护栏（2.6）：当前降档档位 + 计划重放回调（档位变化时重打掩码）
+  const powerLevelRef = useRef<FpsLevel>(0);
+  const reapplyPlanRef = useRef<() => void>(() => {});
 
   const characterState = useConversation((s) => s.characterState);
   // 播报期服务端已 idle（text.end 即回落）：前端取有效态保持 talking（M1-S2）
@@ -83,6 +94,8 @@ export function CharacterStage({
   const emotion = useConversation((s) => s.emotion);
   const lastTextDeltaAt = useConversation((s) => s.lastTextDeltaAt);
   const lastTextDelta = useConversation((s) => s.lastTextDelta);
+  // 省电模式（2.6）：钉最低档 + 暂停装饰动画；事实源 sidecar，跨窗口同步
+  const powerSave = useSettings((s) => s.powerSave);
 
   const isLive2D = skin?.resourceType === "live2d";
 
@@ -164,18 +177,63 @@ export function CharacterStage({
     [],
   );
 
-  // 状态机：(有效状态, 情绪) → 动画计划（双路径）
+  // 状态机：(有效状态, 情绪) → 动画计划（双路径）；
+  // 性能护栏（2.6）掩码：降档后改写 tickerFps + 关装饰动画，档位变化时重放。
   useEffect(() => {
     const driver = driverRef.current;
     if (!driver || !ready || !skin) return;
-    if (driver.kind === "live2d") {
-      const plan = resolveAnimation(effectiveState, emotion, profileForSkin(skin));
-      planRef.current = plan;
-      driver.applyPlan(plan);
-    } else {
-      driver.applyPlan(resolveStaticAnimation(effectiveState, emotion, skin));
-    }
+    const applyGuarded = () => {
+      const level = powerLevelRef.current;
+      if (driver.kind === "live2d") {
+        const raw = resolveAnimation(effectiveState, emotion, profileForSkin(skin));
+        const plan: AnimationPlan = {
+          ...raw,
+          tickerFps: effectiveFps(raw.tickerFps, level) as AnimationPlan["tickerFps"],
+          bodySway: raw.bodySway && !decorationsPaused(level),
+        };
+        planRef.current = plan;
+        driver.applyPlan(plan);
+      } else {
+        const raw = resolveStaticAnimation(effectiveState, emotion, skin);
+        const paused = decorationsPaused(level);
+        driver.applyPlan({
+          ...raw,
+          float: raw.float && !paused,
+          breathe: raw.breathe && !paused,
+          sway: raw.sway && !paused,
+        });
+      }
+    };
+    reapplyPlanRef.current = applyGuarded;
+    applyGuarded();
   }, [effectiveState, emotion, ready, skin]);
+
+  // 性能护栏主循环（2.6）：逐帧采样帧耗时，每秒用近 5s 均值决策降/升档；
+  // 省电模式钉最低档。对话链路（WS）与渲染解耦，降档不影响功能。
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!ready || !stage) return;
+    const sampleWindow = createSampleWindow();
+    const sample = () => sampleWindow.push(stage.app.ticker.deltaMS, performance.now());
+    stage.app.ticker.add(sample);
+
+    const evaluate = () => {
+      const next = nextFpsLevel(powerLevelRef.current, sampleWindow.average(), powerSave);
+      if (next === powerLevelRef.current) return;
+      powerLevelRef.current = next;
+      stage.app.ticker.maxFPS = effectiveFps(
+        driverRef.current?.kind === "live2d" ? (planRef.current?.tickerFps ?? 60) : 60,
+        next,
+      );
+      reapplyPlanRef.current();
+    };
+    evaluate(); // 省电开关切换时立即生效
+    const timer = window.setInterval(evaluate, 1000);
+    return () => {
+      stage.app.ticker.remove(sample);
+      window.clearInterval(timer);
+    };
+  }, [ready, powerSave]);
 
   // 口型（2.3，仅 live2d）：每个 text.delta 触发一次张嘴；帧覆写负责衰减与闭合
   useEffect(() => {

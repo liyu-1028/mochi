@@ -177,6 +177,16 @@ def test_update_general_empty_body_keeps_defaults(client):
     assert resp.json()["language"] == "zh-CN"
 
 
+def test_update_general_power_save_persists(client):
+    """省电模式（2.6）：PUT 生效 + 原子落盘 + camelCase 回显。"""
+    resp = client.put("/config/general", json={"powerSave": True})
+    assert resp.status_code == 200
+    assert resp.json()["powerSave"] is True
+    assert client.app.state.registry.config.general.power_save is True
+    on_disk = load_config(client.app.state.config_path)
+    assert on_disk.general.power_save is True
+
+
 # ---------------------------------------------------------------------------
 # [voice] 读写（M1-S0 托盘静音）
 # ---------------------------------------------------------------------------

@@ -14,6 +14,7 @@ export interface GeneralSettings {
   language: Language;
   launchAtStartup: boolean;
   telemetry: boolean;
+  powerSave: boolean;
 }
 
 export interface ProviderSummary {
@@ -135,8 +136,8 @@ export const configApi = {
   /** 完整配置（含 general.language）；此处只声明前端关心的 general 段。 */
   getConfig: (): Promise<{ general: GeneralSettings }> => request("/config"),
 
-  /** 部分更新 [general]（界面语言），返回更新后的 general。 */
-  updateGeneral: (body: { language?: Language }): Promise<GeneralSettings> =>
+  /** 部分更新 [general]（界面语言/省电模式），返回更新后的 general。 */
+  updateGeneral: (body: { language?: Language; powerSave?: boolean }): Promise<GeneralSettings> =>
     request("/config/general", { method: "PUT", body: JSON.stringify(body) }),
 
   listProviders: (): Promise<ProviderSummary[]> => request("/config/providers"),
