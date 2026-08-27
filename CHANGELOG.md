@@ -5,6 +5,48 @@
 > release.yml 发布时自动提取对应段落作为 GitHub Release Notes，
 > 缺少条目会在构建前拦截（先写 changelog 再打 tag）。
 
+## v0.8.0 - 2026-08-27
+
+M1-S4 Agent 编排：Mochi 会干活了 🔧
+
+**新增**
+
+- Agent 编排层迁 LangGraph（ADR-0008）：StateGraph 自搭 ReAct 回环
+  （agent → tools 条件路由），run 级 SQLite checkpoint
+  （mochi-checkpoints.db）支撑确认暂停与崩溃恢复；LLM I/O 迁 langchain
+  封装（anthropic/openai 兼容/ollama 三家归一），旧适配器退役
+- 工具调用框架（6.5）：注册表声明/执行双轨 + 危险分级；dangerous 工具
+  执行前 interrupt 挂起，桌面端三键确认框（拒绝/允许/总是允许），
+  「总是允许」白名单落盘 config.toml 热生效；工具 chip 行实时展示
+  执行中/成功/失败/被拒
+- 内置工具对：get_current_time（safe 直通）、read_text_file（dangerous
+  确认流；256KB 上限、二进制探测、截断注记）
+- 协议 additive：新增客户端命令 tool.confirm；tool.call.start 增
+  requiresConfirmation 字段（协议 v0.1 §9.1 合规）
+
+**修复**
+
+- 工具确认竞态：客户端秒回 tool.confirm 时挂起项尚未注册，确认被丢弃
+  导致回合死锁；挂起项改随 tool.call.start 事件发出前预注册（E2E 实测
+  发现，附回归测试）
+- 小模型工具幻觉：qwen2.5:1.5b 带人格提示时把工具调用当文本输出甚至
+  编造结果；绑定工具时追加工具使用提示恢复结构化调用（无工具路径零变更）
+- SessionStore 自定义 db_path 补 Path 包装
+
+**验收**
+
+- 真实模型端到端：deepseek-v4-flash 14/14 场景全过（safe 直通/deny
+  善后/allow+remember/白名单直通）；qwen2.5:1.5b 对照确认流通路全过
+- 打包：PyInstaller 产物 83MB，冷启动实测 0.99s（红线 5s）；产物内
+  langgraph 动态导入与确认流 PASS（ADR-0008 D7 核销）
+- 测试：server 387 项、desktop 179 项全绿
+
+**兼容说明**
+
+- 协议仅 additive 新增，旧客户端忽略未知字段不受影响
+- 本地小模型工具功能建议 ≥7b 级（1.5b 结构化调用成功率 ~30–60%，
+  纯对话不受影响）
+
 ## v0.7.1 - 2026-08-13
 
 记忆功能修正：当前版本改为仅手动添加 🧠
