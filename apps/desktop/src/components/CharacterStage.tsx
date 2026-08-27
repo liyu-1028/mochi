@@ -45,6 +45,16 @@ import { useSettings } from "../store/settings";
 type AnyStage = StageHandle | StaticStageHandle;
 type AnyDriver = CharacterDriver | StaticDriver;
 
+/** §8 基线测量钩子：每秒刷新（fps 由窗口均帧耗推得 + 实测帧计数）。 */
+function publishStats(avgFrameMs: number | null, framesLastSecond: number, level: FpsLevel) {
+  const w = window as unknown as { __mochiStats?: Record<string, unknown> };
+  w.__mochiStats = {
+    fps: avgFrameMs !== null && avgFrameMs > 0 ? Math.round(1000 / avgFrameMs) : framesLastSecond,
+    frameCount: framesLastSecond,
+    powerLevel: level,
+  };
+}
+
 function disposeAnyStage(stage: AnyStage): void {
   if ("model" in stage) disposeStage(stage);
   else disposeStaticStage(stage);
@@ -219,15 +229,23 @@ export function CharacterStage({
 
   // 性能护栏主循环（2.6）：逐帧采样帧耗时，每秒用近 5s 均值决策降/升档；
   // 省电模式钉最低档。对话链路（WS）与渲染解耦，降档不影响功能。
+  // 附带 window.__mochiStats（§8 基线测量钩子：fps + 当前档位，devtools 可读）。
   useEffect(() => {
     const stage = stageRef.current;
     if (!ready || !stage) return;
     const sampleWindow = createSampleWindow();
-    const sample = () => sampleWindow.push(stage.app.ticker.deltaMS, performance.now());
+    let frameCount = 0;
+    const sample = () => {
+      sampleWindow.push(stage.app.ticker.deltaMS, performance.now());
+      frameCount += 1;
+    };
     stage.app.ticker.add(sample);
 
     const evaluate = () => {
-      const next = nextFpsLevel(powerLevelRef.current, sampleWindow.average(), powerSave);
+      const avg = sampleWindow.average();
+      const next = nextFpsLevel(powerLevelRef.current, avg, powerSave);
+      publishStats(avg, frameCount, next);
+      frameCount = 0;
       if (next === powerLevelRef.current) return;
       powerLevelRef.current = next;
       stage.app.ticker.maxFPS = effectiveFps(
