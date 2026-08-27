@@ -34,7 +34,7 @@ from .echo_agent import EchoAgentService
 from .errors import AgentError
 from .llm_agent import LLMAgentService
 from .service import AgentService
-from .tools import ToolPolicy, ToolRegistry
+from .tools import ToolPolicy, ToolRegistry, register_builtin_tools
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +55,9 @@ class ProviderRegistry:
         self._key_store = key_store or KeyStore()
         self._store = store  # 会话持久化（M1-S1）；None 时 Agent 保持单轮行为
         self._memory = MemoryManager(store) if store is not None else None
-        # 工具注册表（M1-S4，6.5）：进程级共享；任务 9 挂内置技能包
+        # 工具注册表（M1-S4，6.5）：进程级共享；任务 9 挂内置工具
         self._tools = ToolRegistry()
+        register_builtin_tools(self._tools)
         # checkpoint（ADR-0008 D4）：任务 7 确认暂停/崩溃恢复；None → 图不带
         self._checkpointer = checkpointer
         # 白名单持久化目标（M1-S4，6.5）：None → 仅内存态（测试注入路径）
