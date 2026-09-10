@@ -5,6 +5,34 @@
 > release.yml 发布时自动提取对应段落作为 GitHub Release Notes，
 > 缺少条目会在构建前拦截（先写 changelog 再打 tag）。
 
+## v0.11.0 - 2026-09-10
+
+桌面宠物「活起来」专项：点击区域收敛、静态皮肤动态化与 Live2D 显示修复
+
+**新增**
+
+- 透明区域鼠标穿透：alpha 掩码命中判定（提取/膨胀/查询，阈值 16、
+  半径 2），cursorPosition 60ms 轮询切换 setIgnoreCursorEvents；
+  仅角色本体可点击/拖拽，透明区域事件直达底层应用；dock/气泡/
+  菜单交互不受影响；跨域皮肤图片 CORS 修复（canvas 污染静默失败）
+- 静态皮肤动态化：视线侧倾（鼠标位置跟随）+ 点击果冻弹跳
+  （700ms 挤压弹性）；闲置小动作（张望/伸懒腰/打盹/扭动），
+  静置 20s 触发、间隔 12-30s 随机，对话中不打扰
+- 窗口宽度下限 320px（输入条可用性）；dev 构建角色菜单 DevTools 项
+- README 重写为 lobe-chat 风格，补 9 张功能演示图
+
+**修复**
+
+- Live2D 尺寸语义统一到 internalModel.originalWidth/Height（混用
+  Container 缩放语义导致双重缩放 → 裁切/时显时不显）
+- Live2D 每帧重取基准位置：窗口异步收紧后自动归位
+- Live2D autoUpdate 绑定 app.ticker（Vite ESM 无全局 PIXI，动作/
+  呼吸/眼球平滑此前从未推进），省电降档/隐藏时随渲染一起停
+- 快速换肤崩溃：模型缓存命中微秒级就绪时 setReady(false)/(true)
+  被 React 合并为一次渲染，effect 闭包残留已销毁舞台（ticker=null
+  报错卸载）——stageEpoch 舞台换代计数强制重建
+- 静态皮肤掩码/视线基准重拟合到精灵显示区（修复拉伸错位）
+
 ## v0.10.0 - 2026-08-27
 
 M1 Beta 验收版 🎯：P0 功能全绿收口，非功能基线报告出具
