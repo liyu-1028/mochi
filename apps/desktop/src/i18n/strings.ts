@@ -42,6 +42,7 @@ const zhCN: StringTable = {
   "menu.memory": "记忆",
   "menu.skins": "换个装扮",
   "menu.settings": "设置",
+  "menu.devtools": "开发者工具",
 
   // 设置面板
   "settings.title": "设置",
@@ -240,6 +241,7 @@ const en: StringTable = {
   "menu.memory": "Memories",
   "menu.skins": "Change Outfit",
   "menu.settings": "Settings",
+  "menu.devtools": "DevTools",
 
   // Settings panel
   "settings.title": "Settings",

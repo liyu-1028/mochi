@@ -10,6 +10,7 @@ import {
   HEAD_GAP_RATIO,
   MAX_CHARACTER_WIDTH,
   MAX_STATIC_UPSCALE,
+  MIN_WINDOW_WIDTH,
   PAD,
   TARGET_CHARACTER_HEIGHT,
   anchorBottomY,
@@ -22,7 +23,7 @@ describe("computeCharacterLayout", () => {
     expect(layout.scale).toBeCloseTo(TARGET_CHARACTER_HEIGHT / 2000, 10);
     expect(layout.charH).toBeCloseTo(TARGET_CHARACTER_HEIGHT, 10);
     expect(layout.charW).toBeCloseTo(140, 10);
-    expect(layout.winW).toBe(140 + PAD * 2);
+    expect(layout.winW).toBe(MIN_WINDOW_WIDTH); // 窄角色：宽度下限兼顾输入条
     expect(layout.winH).toBe(BUBBLE_HEADROOM + 280 + CHROME_HEIGHT);
     expect(layout.bubbleTop).toBe(PAD + BUBBLE_HEADROOM - BUBBLE_HEAD_OVERLAP);
     expect(layout.headGap).toBe(Math.round(140 * HEAD_GAP_RATIO));
@@ -38,7 +39,15 @@ describe("computeCharacterLayout", () => {
   it("窗口高度 = 头顶气泡区 + 角色高 + 纵向开销", () => {
     const layout = computeCharacterLayout(800, 1200);
     expect(layout.winH).toBe(BUBBLE_HEADROOM + Math.ceil(layout.charH) + CHROME_HEIGHT);
-    expect(layout.winW).toBe(Math.ceil(layout.charW) + PAD * 2);
+    expect(layout.winW).toBe(Math.max(Math.ceil(layout.charW) + PAD * 2, MIN_WINDOW_WIDTH));
+  });
+
+  it("宽度下限：窄角色不随角色收窄（dock 输入条可用性），宽角色不受影响", () => {
+    const narrow = computeCharacterLayout(50, 400); // 瘦长模型：charW=35
+    expect(narrow.charW).toBeCloseTo(35, 5);
+    expect(narrow.winW).toBe(MIN_WINDOW_WIDTH);
+    const wide = computeCharacterLayout(4000, 1000);
+    expect(wide.winW).toBe(360 + PAD * 2);
   });
 
   it("放大上限：64px 小图 scale 封顶 MAX_STATIC_UPSCALE，不再无限拉大", () => {

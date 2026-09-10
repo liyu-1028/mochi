@@ -15,6 +15,10 @@
 export const TARGET_CHARACTER_HEIGHT = 280;
 /** 宽屏/横版模型 clamp：防窗口被拉得过宽。 */
 export const MAX_CHARACTER_WIDTH = 360;
+/** 窗口宽度下限（逻辑 px）：底部 dock 输入条/状态文案的可用性基线。
+ *  窄角色（静态皮肤）时窗口不随角色收窄，多出的边距为透明区——鼠标
+ *  穿透层（passthrough/useCursorPassthrough）保证不拦截桌面交互。 */
+export const MIN_WINDOW_WIDTH = 320;
 /** 静态皮肤渲染放大上限：小图拉到标准高的倍数封顶（扁平风 ≤2x 糊感可控）。
  *  Live2D 不传参（矢量模型任意缩放清晰），仅静态路径生效。 */
 export const MAX_STATIC_UPSCALE = 2;
@@ -61,7 +65,8 @@ export function computeCharacterLayout(
   const charW = modelW * scale;
   const charH = modelH * scale;
   return {
-    winW: Math.ceil(charW) + PAD * 2,
+    // 宽度下限保 dock 输入条可用（窄角色不再压扁输入框，见 MIN_WINDOW_WIDTH）
+    winW: Math.max(Math.ceil(charW) + PAD * 2, MIN_WINDOW_WIDTH),
     winH: BUBBLE_HEADROOM + Math.ceil(charH) + CHROME_HEIGHT,
     scale,
     charW,

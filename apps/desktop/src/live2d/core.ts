@@ -55,21 +55,46 @@ export async function loadCharacterStage(
   });
   const canvas = app.view as HTMLCanvasElement;
   canvas.style.display = "block";
-  // 画布本身也是窗口拖拽区（data-tauri-drag-region，功能清单 1.3）
-  canvas.setAttribute("data-tauri-drag-region", "");
+  // 拖拽不再用铺满画布的 data-tauri-drag-region（点击区域过大缺陷源）：
+  // 改由 CharacterStage 命中角色本体后自绘 startDragging（见 1.3）
   container.appendChild(canvas);
 
   try {
     // autoInteract 关闭：视线跟随由 gaze 驱动显式 focus，避免点击劫持；
+    // autoUpdate 关闭：Vite ESM 下无全局 window.PIXI，库内自动驱动会报
+    // “No Ticker registered” 且内部状态永不推进；改为绑定 app.ticker
+    // 手动 update（省电降档/窗口隐藏时随渲染一起停）；
     // motionPreload=ALL：状态切换时动作零加载延迟（2.2 切换 ≤300ms 的前提）
     const { MotionPreloadStrategy } = await importLive2D();
     const model = await ModelCtor.from(modelUrl, {
       autoInteract: false,
+      autoUpdate: false,
       motionPreload: MotionPreloadStrategy.ALL,
     });
     app.stage.addChild(model);
-    placeModel(model, app, computeCharacterLayout(model.width, model.height).scale);
-    return { app, model, modelWidth: model.width, modelHeight: model.height };
+    // 画布尺寸以 internalModel.originalWidth/Height 为准（模型逻辑画布，
+    // 不受 Container bounds/scale 语义影响）；model.width/height 在
+    // scale 置入后会变成“已缩放的显示尺寸”，历史上传出去导致布局二次推导
+    const canvasW = model.internalModel.originalWidth;
+    const canvasH = model.internalModel.originalHeight;
+    const scale = computeCharacterLayout(canvasW, canvasH).scale;
+    placeModel(model, app, scale);
+    // 每帧重取基准位置（同 staticDriver tick 语义）：布局倒置下窗口在模型
+    // 就绪后才异步 setSize（onModelReady → applyCharacterLayout），画布
+    // resizeTo 跟随，但模型若只在加载时定位一次会停留在旧画布坐标系里
+    // ——冷启动/换肤尺寸变化时被裁切（时显时不显的根因）
+    const reposition = () => {
+      // autoUpdate=false：模型内部状态（动作/呼吸/眼球平滑）随本 ticker 推进
+      model.update(app.ticker.deltaMS);
+      if (app.screen.width <= 0 || app.screen.height <= 0) return;
+      model.x = app.screen.width / 2;
+      model.y = app.screen.height - (canvasH * model.scale.y) / 2;
+    };
+    app.ticker.add(reposition);
+    console.info(
+      `[mochi] live2d-stage canvas=${canvasW}x${canvasH} scale=${scale.toFixed(3)} screen=${app.screen.width}x${app.screen.height}`,
+    );
+    return { app, model, modelWidth: canvasW, modelHeight: canvasH };
   } catch (err) {
     app.destroy(true);
     throw err;
@@ -85,7 +110,8 @@ function placeModel(model: Live2DModel, app: PIXI.Application, scale: number): v
   model.scale.set(scale);
   model.anchor.set(0.5, 0.5);
   model.x = width / 2;
-  model.y = height - (model.height * scale) / 2;
+  // anchor(0.5,0.5) 下 model.y 为模型中心：底边对齐 = 屏高 - 显示高(画布高×scale)/2
+  model.y = height - (model.internalModel.originalHeight * scale) / 2;
 }
 
 export function disposeStage(stage: StageHandle): void {

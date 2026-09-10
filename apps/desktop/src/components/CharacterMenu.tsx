@@ -19,14 +19,51 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../i18n";
 
 export type MenuItemId = "history" | "memory" | "skins" | "settings";
 
+type MenuEntry = {
+  id: MenuItemId | "devtools";
+  icon: string;
+  labelKey: string;
+  /** 自包含动作（不冒泡给 onSelect）：目前仅 devtools（开发期诊断入口） */
+  action?: () => void;
+};
+
+// 高频情感入口在前，设置以分隔线隔开殿后（见渲染）
+const MENU_ITEMS: MenuEntry[] = [
+  { id: "history", icon: "💬", labelKey: "menu.history" },
+  { id: "memory", icon: "🧠", labelKey: "menu.memory" },
+  { id: "skins", icon: "👗", labelKey: "menu.skins" },
+  { id: "settings", icon: "⚙️", labelKey: "menu.settings" },
+];
+
+// 开发期诊断入口：右键被 CharacterMenu 的 preventDefault 接管，WKWebView
+// 自带的“检查元素”菜单不可达；debug 构建下经 internal_toggle_devtools
+// 命令打开（release 下该命令不存在，仅 DEV 构建渲染此入口）
+if (import.meta.env.DEV) {
+  MENU_ITEMS.push({
+    id: "devtools",
+    icon: "🐞",
+    labelKey: "menu.devtools",
+    action: () => {
+      if (!("__TAURI_INTERNALS__" in window)) return;
+      void invoke("plugin:webview|internal_toggle_devtools").catch((err) =>
+        console.error("[mochi] devtools 切换失败：", err),
+      );
+    },
+  });
+}
+
+/** 单项高（px，与 styles.css .character-menu__item 同步）。 */
+const MENU_ITEM_H = 36;
 /** 菜单固定像素尺寸：窗口动态贴合角色后尺寸不再等比，固定值保证小窗下可读。
-    与 styles.css .character-menu 的 px 取值一一对应；调整任一侧都需同步另一侧。 */
+    与 styles.css .character-menu 的 px 取值一一对应；调整任一侧都需同步另一侧。
+    高度随条目数推导（dev 构建含 devtools 多一项）。 */
 export const MENU_WIDTH = 160;
-export const MENU_HEIGHT = 176;
+export const MENU_HEIGHT = 32 + MENU_ITEMS.length * MENU_ITEM_H;
 
 /** 菜单像素尺寸（clamp 定位估算用，与 CSS 固定尺寸一致）。 */
 export function getMenuSize(): { width: number; height: number } {
@@ -56,19 +93,7 @@ interface CharacterMenuProps {
   onClose: () => void;
 }
 
-interface MenuEntry {
-  id: MenuItemId;
-  icon: string;
-  labelKey: string;
-}
-
-// 高频情感入口在前，设置以分隔线隔开殿后（见渲染）
-const MENU_ITEMS: MenuEntry[] = [
-  { id: "history", icon: "💬", labelKey: "menu.history" },
-  { id: "memory", icon: "🧠", labelKey: "menu.memory" },
-  { id: "skins", icon: "👗", labelKey: "menu.skins" },
-  { id: "settings", icon: "⚙️", labelKey: "menu.settings" },
-];
+// （MENU_ITEMS 已在上方模块级定义，含 DEV 构建的 devtools 项）
 
 export function CharacterMenu({ x, y, onSelect, onClose }: CharacterMenuProps) {
   const { t } = useI18n();
@@ -150,9 +175,19 @@ export function CharacterMenu({ x, y, onSelect, onClose }: CharacterMenuProps) {
         break;
       case "Enter":
         e.preventDefault();
-        onSelect(MENU_ITEMS[focused].id);
+        activate(MENU_ITEMS[focused]);
         break;
     }
+  };
+
+  /** 选中条目：自包含动作（devtools）就地执行，其余冒泡给 onSelect 开面板 */
+  const activate = (item: MenuEntry) => {
+    if (item.action) {
+      item.action();
+      onClose();
+      return;
+    }
+    onSelect(item.id as MenuItemId);
   };
 
   return (
@@ -186,7 +221,7 @@ export function CharacterMenu({ x, y, onSelect, onClose }: CharacterMenuProps) {
               role="menuitem"
               className={`character-menu__item${focused === i ? " character-menu__item--focused" : ""}`}
               onMouseEnter={() => setFocused(i)}
-              onClick={() => onSelect(item.id)}
+              onClick={() => activate(item)}
             >
               <span className="character-menu__icon" aria-hidden>
                 {item.icon}

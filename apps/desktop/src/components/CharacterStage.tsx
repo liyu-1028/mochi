@@ -10,21 +10,48 @@
  * 光标驱动视线（均仅 live2d）。加载失败降级回 CharacterBadge（ADR-0003 D2）。
  *
  * 换肤不闪白（ADR-0006 D10）：新舞台加载完成后才 dispose 旧舞台。
+ *
+ * 点击区域收敛（「点击区域过大」修复）：命中判定以 alpha 掩码为准——
+ * 静态皮肤从源图构建、Live2D 定期从渲染帧提取 + hitTest 分区兜底；
+ * 掩码未命中时点击不唤起输入框、不触发反应、不拖拽（拖拽改自绘
+ * startDragging，取代 canvas 铺满的 data-tauri-drag-region）。窗口层的
+ * 透明区域鼠标穿透见 passthrough/useCursorPassthrough。
  */
-import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { resolveSkinId, type SkinSummary } from "../api/skinsClient";
 import { useConversation } from "../store/conversation";
 import { CharacterBadge } from "./CharacterBadge";
 import { disposeStage, loadCharacterStage, type StageHandle } from "../live2d/core";
+import * as PIXI from "pixi.js";
 import { createDriver, type CharacterDriver } from "../live2d/driver";
-import { lerpGaze, normalizeGaze, type GazeTarget } from "../live2d/gaze";
+import { lerpGaze, normalizeGaze, type GazeTarget, type StageRect } from "../live2d/gaze";
 import { MOUTH_CLOSED, onDelta, stepMouth, volumeToOpen, type MouthState } from "../live2d/mouth";
 import { ttsPlayer } from "../live2d/ttsPlayer";
 import { useTTSState } from "../hooks/useTTS";
 import { MAX_STATIC_UPSCALE } from "../layout/characterLayout";
 import { disposeStaticStage, loadStaticStage, type StaticStageHandle } from "../live2d/staticCore";
-import { createStaticDriver, type StaticDriver } from "../live2d/staticDriver";
+import {
+  createStaticDriver,
+  type StaticAnimationPlan,
+  type StaticDriver,
+} from "../live2d/staticDriver";
 import { resolveStaticAnimation } from "../live2d/staticStateMachine";
+import { clickBounce, gazeLean } from "../live2d/staticInteractions";
+import {
+  IDLE_DELAY_MS,
+  nextIdleGap,
+  pickIdleAction,
+  type IdleAction,
+  type IdleActionId,
+} from "../live2d/idleBehaviors";
+import { getCursor, reportCursor } from "../passthrough/cursorTracker";
 import {
   bodyWiggleAngle,
   headPatAngleZ,
@@ -32,6 +59,19 @@ import {
   HEAD_PAT_PARAMS,
   reactionFor,
 } from "../live2d/interactions";
+import {
+  buildMaskFromCanvas,
+  buildMaskFromImage,
+  maskOpaqueAt,
+  type AlphaMask,
+} from "../passthrough/alphaMask";
+
+/** 掩码不透明占比（诊断打点用）。 */
+function opaqueRatio(mask: AlphaMask): number {
+  let n = 0;
+  for (const v of mask.alpha) if (v >= 16) n += 1;
+  return n / mask.alpha.length;
+}
 import { resolveAnimation, type AnimationPlan, type ModelProfile } from "../live2d/stateMachine";
 import {
   createSampleWindow,
@@ -53,6 +93,17 @@ function publishStats(avgFrameMs: number | null, framesLastSecond: number, level
     frameCount: framesLastSecond,
     powerLevel: level,
   };
+}
+
+/** §诊断：追鼠标链路状态发布到 window.__mochiGaze（devtools 可读；
+ *  target 恒 0 = 光标样本没进来（穿透轮询/mousemove 断供））。 */
+function publishGazeDebug(
+  target: GazeTarget,
+  current: GazeTarget,
+  lean: { dx: number; dy: number; rotation: number },
+): void {
+  const w = window as unknown as { __mochiGaze?: Record<string, unknown> };
+  w.__mochiGaze = { target, current, lean, at: performance.now() };
 }
 
 function disposeAnyStage(stage: AnyStage): void {
@@ -80,7 +131,15 @@ interface CharacterStageProps {
   onModelReady?: (modelWidth: number, modelHeight: number, maxUpscale?: number) => void;
   /** 加载失败降级为占位形象：App 回到兜底布局 */
   onFallback?: () => void;
+  /** 命中判定就绪/更新回调：App 汇入鼠标穿透判定（透明区不拦截）。
+   *  回调内部读 ref，掩码刷新无需重发；卸载传 null 恢复“整窗可交互” */
+  onHitTestReady?: (hit: ((x: number, y: number) => boolean) | null) => void;
 }
+
+/** Live2D 掩码刷新间隔（ms）：动作轮廓漂移有限，低频重提取足够。 */
+const LIVE2D_MASK_REFRESH_MS = 4000;
+/** 首次提取延迟（ms）：等 idle 动作第一帧就位，轮廓更接近常态。 */
+const LIVE2D_MASK_FIRST_DELAY_MS = 300;
 
 export function CharacterStage({
   skin,
@@ -88,6 +147,7 @@ export function CharacterStage({
   onContextMenu,
   onModelReady,
   onFallback,
+  onHitTestReady,
 }: CharacterStageProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<AnyStage | null>(null);
@@ -100,8 +160,38 @@ export function CharacterStage({
   const gazeCurrentRef = useRef<GazeTarget>({ x: 0, y: 0 });
   /** 分区点击反应（2.4，仅 live2d）：点击时刻 + 类型，帧覆写期间消费 */
   const reactionRef = useRef<{ kind: "head" | "body"; startedAt: number } | null>(null);
+  /** 命中掩码：null = 未就绪/降级，命中判定退回“整窗可交互”（旧行为） */
+  const maskRef = useRef<AlphaMask | null>(null);
+  /** 命中判定（视口坐标）：掩码 ∪ Live2D 分区；掩码就绪前恒 true */
+  const hitTestRef = useRef<(x: number, y: number) => boolean>(() => true);
+  /** 静态皮肤点击反馈时刻（果冻弹跳起算点）；包络归零后置 null */
+  const staticReactionRef = useRef<{ startedAt: number } | null>(null);
+  /** 静态皮肤当前动画计划（休眠/出错时停追鼠标） */
+  const staticPlanRef = useRef<StaticAnimationPlan | null>(null);
+  /** 闲置小动作调度状态（2.8，仅 static）：最近交互时刻 / 当前动作 / 下次时刻 */
+  const idleRef = useRef<{
+    lastActiveAt: number;
+    action: { def: IdleAction; startedAt: number } | null;
+    nextAt: number;
+    lastId: IdleActionId | undefined;
+  }>({
+    lastActiveAt: Date.now(),
+    action: null,
+    nextAt: Date.now() + IDLE_DELAY_MS,
+    lastId: undefined,
+  });
+  /** 光标移动检测的上一样本（>10px 视为用户活动，刷新闲置计时） */
+  const idleCursorPrevRef = useRef<{ x: number; y: number } | null>(null);
+  /** 对话进行中视为活动（覆写闭包读，避免重建） */
+  const busyStateRef = useRef(false);
+  /** 舞台矩形缓存（每帧 getBoundingClientRect 会强制布局，250ms 节流） */
+  const stageRectRef = useRef<{ rect: StageRect; at: number } | null>(null);
   const [failed, setFailed] = useState(false);
   const [ready, setReady] = useState(false);
+  // 舞台换代计数：快速换肤（模型缓存命中）时 setReady(false) 与 setReady(true)
+  // 会被 React 合并成同一次渲染，ready 依赖的 effect 察觉不到舞台已更换，
+  // 闭包里残留已销毁的旧舞台（ticker=null → 报错卸载）。epoch 强制重建。
+  const [stageEpoch, setStageEpoch] = useState(0);
   // 性能护栏（2.6）：当前降档档位 + 计划重放回调（档位变化时重打掩码）
   const powerLevelRef = useRef<FpsLevel>(0);
   const reapplyPlanRef = useRef<() => void>(() => {});
@@ -117,6 +207,38 @@ export function CharacterStage({
   const powerSave = useSettings((s) => s.powerSave);
 
   const isLive2D = skin?.resourceType === "live2d";
+
+  /** 舞台矩形 → 交互参考矩形：静态皮肤取精灵实际矩形（源图掩码是精灵轮廓，
+   *  映射整舞台会错位——精灵只占底部中央，窗口还有宽度下限撑宽）；
+   *  live2d 的掩码来自整画布提取，维持舞台矩形 */
+  const refitToSprite = useCallback((rect: StageRect): StageRect => {
+    const driver = driverRef.current;
+    if (driver?.kind !== "static") return rect;
+    const sr = driver.spriteRect();
+    return {
+      left: rect.left + sr.left,
+      top: rect.top + sr.top,
+      width: sr.width,
+      height: sr.height,
+    };
+  }, []);
+
+  /** 追鼠标归一化目标：cursorTracker 最新光标 × 舞台矩形（含节流缓存）。
+   *  双路径共用（live2d 眼球 / static 侧倾），只读 ref，useCallback 稳定 */
+  const stageGazeTarget = useCallback((): GazeTarget => {
+    const container = containerRef.current;
+    if (!container) return { x: 0, y: 0 };
+    const now = performance.now();
+    let entry = stageRectRef.current;
+    if (!entry || now - entry.at > 250) {
+      entry = { rect: container.getBoundingClientRect(), at: now };
+      stageRectRef.current = entry;
+    }
+    const cursor = getCursor();
+    return cursor.fresh
+      ? normalizeGaze(cursor.x, cursor.y, refitToSprite(entry.rect))
+      : { x: 0, y: 0 };
+  }, []);
 
   // 皮肤加载：id 变化 → cleanup 暂存旧舞台 → 新加载就绪后销毁旧的
   useEffect(() => {
@@ -157,6 +279,7 @@ export function CharacterStage({
           live2d ? undefined : MAX_STATIC_UPSCALE,
         );
         setReady(true);
+        setStageEpoch((n) => n + 1);
       })
       .catch((err) => {
         console.error("[CharacterStage] 皮肤加载失败，降级为占位形象：", err);
@@ -196,6 +319,84 @@ export function CharacterStage({
     [],
   );
 
+  // 命中判定：掩码采样 + Live2D 分区兜底。函数体读 ref（掩码/驱动/容器），
+  // 构建/刷新后无需重建闭包；App 侧经 onHitTestReady 拿到同一函数做穿透
+  useEffect(() => {
+    hitTestRef.current = (x: number, y: number) => {
+      const container = containerRef.current;
+      const mask = maskRef.current;
+      const driver = driverRef.current;
+      if (!container || !mask) return true; // 未就绪/降级：保持旧行为
+      const rect = refitToSprite(container.getBoundingClientRect());
+      if (rect.width === 0 || rect.height === 0) return true;
+      if (maskOpaqueAt(mask, x - rect.left, y - rect.top, rect.width, rect.height)) return true;
+      // 掩码未命中：Live2D 再试分区（动作中轮廓漂移的兜底；静态皮肤无分区）
+      return driver?.kind === "live2d" && reactionFor(driver.hitTestAt(x, y)) !== null;
+    };
+    onHitTestReady?.((x: number, y: number) => hitTestRef.current(x, y));
+    return () => {
+      hitTestRef.current = () => true;
+      onHitTestReady?.(null);
+    };
+  }, [onHitTestReady]);
+
+  // 掩码构建：静态皮肤从源图一次性构建；Live2D 从渲染帧提取并低频刷新
+  // （初帧延迟等 idle 就位）。提取失败保留旧掩码，不阻断交互。
+  useEffect(() => {
+    if (!ready || !skin) return;
+    const stage = stageRef.current;
+    if (!stage) return;
+    const live2d = skin.resourceType === "live2d";
+    const url = live2d
+      ? `${skin.resourceBaseUrl}/${skin.modelFile ?? ""}`
+      : `${skin.resourceBaseUrl}/${skin.imageFile ?? "avatar.png"}`;
+    let cancelled = false;
+    let refreshTimer = 0;
+    let firstTimer = 0;
+    if (live2d) {
+      const refresh = () => {
+        if (cancelled) return;
+        try {
+          const renderer = (stage as StageHandle).app.renderer as PIXI.Renderer;
+          maskRef.current = buildMaskFromCanvas(
+            renderer.extract.canvas((stage as StageHandle).app.stage),
+          );
+        } catch (err) {
+          // 提取失败：保留旧掩码，下个周期重试；打点便于发现污染/权限类硬错
+          console.warn("[mochi] Live2D 掩码提取失败：", err);
+        }
+      };
+      firstTimer = window.setTimeout(refresh, LIVE2D_MASK_FIRST_DELAY_MS);
+      refreshTimer = window.setInterval(refresh, LIVE2D_MASK_REFRESH_MS);
+    } else {
+      buildMaskFromImage(url)
+        .then((mask) => {
+          if (cancelled) return;
+          maskRef.current = mask;
+          console.info(
+            `[mochi] 静态皮肤命中掩码就绪 ${mask.width}x${mask.height}（不透明 ${(opaqueRatio(mask) * 100).toFixed(1)}%）`,
+          );
+        })
+        .catch((err) => {
+          // 掩码构建失败：命中判定保持“整窗可交互”，不影响功能；但必须可见
+          console.error("[mochi] 静态皮肤掩码构建失败（穿透将不生效）：", err);
+        });
+    }
+    return () => {
+      cancelled = true;
+      window.clearTimeout(firstTimer);
+      window.clearInterval(refreshTimer);
+      maskRef.current = null; // 换肤/卸载：旧轮廓作废，判定退回旧行为直到新掩码就绪
+    };
+  }, [
+    ready,
+    skin?.id,
+    skin?.resourceType,
+    skin?.resourceBaseUrl,
+    skin?.imageFile,
+    skin?.modelFile,
+  ]);
+
   // 状态机：(有效状态, 情绪) → 动画计划（双路径）；
   // 性能护栏（2.6）掩码：降档后改写 tickerFps + 关装饰动画，档位变化时重放。
   useEffect(() => {
@@ -214,6 +415,7 @@ export function CharacterStage({
         driver.applyPlan(plan);
       } else {
         const raw = resolveStaticAnimation(effectiveState, emotion, skin);
+        staticPlanRef.current = raw;
         const paused = decorationsPaused(level);
         driver.applyPlan({
           ...raw,
@@ -257,10 +459,10 @@ export function CharacterStage({
     evaluate(); // 省电开关切换时立即生效
     const timer = window.setInterval(evaluate, 1000);
     return () => {
-      stage.app.ticker.remove(sample);
+      stage.app.ticker?.remove(sample);
       window.clearInterval(timer);
     };
-  }, [ready, powerSave]);
+  }, [stageEpoch, powerSave]);
 
   // 口型（2.3，仅 live2d）：每个 text.delta 触发一次张嘴；帧覆写负责衰减与闭合
   useEffect(() => {
@@ -270,17 +472,21 @@ export function CharacterStage({
     }
   }, [isLive2D, lastTextDeltaAt, lastTextDelta]);
 
-  // 视线（2.4，仅 live2d）：光标位置 → 归一化目标；帧覆写 lerp 逼近
+  // 对话进行中（talking/thinking/working）视为用户活动，闲置小动作不打扰
   useEffect(() => {
-    const container = containerRef.current;
-    if (!ready || !container || !isLive2D) return;
-    const onMove = (e: MouseEvent) => {
-      const rect = container.getBoundingClientRect();
-      gazeTargetRef.current = normalizeGaze(e.clientX, e.clientY, rect);
-    };
+    busyStateRef.current =
+      effectiveState === "talking" || effectiveState === "thinking" || effectiveState === "working";
+  }, [effectiveState]);
+
+  // 光标追踪（2.4 追鼠标的事实源，双路径皮肤共用）：mousemove 上报
+  // cursorTracker；桌面端穿透层轮询也在上报（光标处于穿透忽略区/窗外时
+  // mousemove 收不到，轮询是关键补充）。消费方在各自帧覆写里归一化。
+  useEffect(() => {
+    if (!ready) return;
+    const onMove = (e: MouseEvent) => reportCursor(e.clientX, e.clientY);
     window.addEventListener("mousemove", onMove);
     return () => window.removeEventListener("mousemove", onMove);
-  }, [ready, isLive2D]);
+  }, [ready]);
 
   // 每帧参数覆写（仅 live2d）：口型开合 + 眼球目标（含思考上瞟偏移）
   useEffect(() => {
@@ -304,8 +510,10 @@ export function CharacterStage({
         }
       }
 
-      // 视线：sleeping/error 状态由状态机禁用
+      // 视线：sleeping/error 状态由状态机禁用；目标从 cursorTracker 每帧
+      // 重算（穿透忽略区/窗外也追踪，normalizeGaze 自带 clamp）
       if (plan?.gazeEnabled) {
+        gazeTargetRef.current = stageGazeTarget();
         gazeCurrentRef.current = lerpGaze(gazeCurrentRef.current, gazeTargetRef.current);
         driver.setParam("ParamEyeBallX", gazeCurrentRef.current.x);
         driver.setParam("ParamEyeBallY", gazeCurrentRef.current.y + plan.gazeOffsetY);
@@ -331,6 +539,81 @@ export function CharacterStage({
     });
   }, [ready, isLive2D, ttsPlaying]);
 
+  // 每帧变换覆写（仅 static，2.4 静态路径）：追鼠标侧倾 + 点击果冻弹跳。
+  // 休眠/出错态停追（睡着还盯着鼠标不对劲）；包络归零后反应自然结束
+  useEffect(() => {
+    const driver = driverRef.current;
+    if (!ready || !driver || driver.kind !== "static") return;
+    return driver.addFrameOverride((_tSec, base) => {
+      let tr = base;
+      const plan = staticPlanRef.current;
+      if (!plan?.sleeping && !plan?.error) {
+        gazeTargetRef.current = stageGazeTarget();
+        gazeCurrentRef.current = lerpGaze(gazeCurrentRef.current, gazeTargetRef.current);
+        const lean = gazeLean(gazeCurrentRef.current.x, gazeCurrentRef.current.y);
+        publishGazeDebug(gazeTargetRef.current, gazeCurrentRef.current, lean);
+        tr = {
+          ...tr,
+          dx: tr.dx + lean.dx,
+          dy: tr.dy + lean.dy,
+          rotation: tr.rotation + lean.rotation,
+        };
+      }
+      // 闲置小动作（2.8）：无点击/光标移动/对话 且非降档装饰暂停时随机播放；
+      // 动作结束（apply 返回 null）排下一次，连续重复同一个会被排除
+      const idle = idleRef.current;
+      const cursorNow = getCursor();
+      if (idleCursorPrevRef.current === null) idleCursorPrevRef.current = { ...cursorNow };
+      const moved =
+        Math.abs(cursorNow.x - idleCursorPrevRef.current.x) +
+        Math.abs(cursorNow.y - idleCursorPrevRef.current.y);
+      idleCursorPrevRef.current = { x: cursorNow.x, y: cursorNow.y };
+      if (moved > 10 || busyStateRef.current) idle.lastActiveAt = Date.now();
+      if (
+        idle.action === null &&
+        !plan?.sleeping &&
+        !plan?.error &&
+        !decorationsPaused(powerLevelRef.current) &&
+        Date.now() - idle.lastActiveAt >= IDLE_DELAY_MS &&
+        Date.now() >= idle.nextAt
+      ) {
+        idle.action = { def: pickIdleAction(idle.lastId), startedAt: Date.now() };
+        idle.lastId = idle.action.def.id;
+      }
+      if (idle.action !== null) {
+        const delta = idle.action.def.apply(Date.now() - idle.action.startedAt);
+        if (delta) {
+          tr = {
+            ...tr,
+            dx: tr.dx + delta.dx,
+            dy: tr.dy + delta.dy,
+            rotation: tr.rotation + delta.rotation,
+            scaleX: (tr.scaleX ?? tr.scale) * delta.sx,
+            scaleY: (tr.scaleY ?? tr.scale) * delta.sy,
+          };
+        } else {
+          idle.action = null;
+          idle.nextAt = Date.now() + nextIdleGap();
+        }
+      }
+      const reaction = staticReactionRef.current;
+      if (reaction !== null) {
+        const bounce = clickBounce(Date.now() - reaction.startedAt);
+        if (bounce) {
+          tr = {
+            ...tr,
+            dy: tr.dy + bounce.hop,
+            scaleX: (tr.scaleX ?? tr.scale) * bounce.sx,
+            scaleY: (tr.scaleY ?? tr.scale) * bounce.sy,
+          };
+        } else {
+          staticReactionRef.current = null;
+        }
+      }
+      return tr;
+    });
+  }, [ready, isLive2D, stageGazeTarget]);
+
   // 性能护栏（2.1 空闲 CPU≤8% / 2.6 简化）：窗口隐藏时停 ticker。
   // 其余策略已分布就位：空闲 30fps/说话 60fps（stateMachine.tickerFps）、
   // pixelRatio ≤2（core.ts）。电量/负载自动降级为 2.6 完整版，推迟。
@@ -338,23 +621,36 @@ export function CharacterStage({
     const stage = stageRef.current;
     if (!ready || !stage) return;
     const onVisibility = () => {
-      if (document.visibilityState === "hidden") stage.app.ticker.stop();
-      else stage.app.ticker.start();
+      if (document.visibilityState === "hidden") stage.app.ticker?.stop();
+      else stage.app.ticker?.start();
     };
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
-  }, [ready]);
+  }, [ready, stageEpoch]);
 
-  // 左键：Live2D 命中分区差异化反应（2.4，Head/Body）+ 唤起输入框；
-  // 静态皮肤无分区，保持整体点击反应（唤起输入框）。右键弹上下文菜单。
+  // 左键：命中角色才交互（2.4 分区差异化反应 + 唤起输入框）；透明区域
+  // 不唤起不反应（桌面端穿透层已把点击放行给下层应用）。右键弹上下文菜单。
   const handleClick = (e: ReactMouseEvent) => {
     if (e.button !== 0) return;
+    if (!hitTestRef.current(e.clientX, e.clientY)) return;
     const driver = driverRef.current;
     if (driver !== null && driver.kind === "live2d" && reactionRef.current === null) {
       const kind = reactionFor(driver.hitTestAt(e.clientX, e.clientY));
       if (kind !== null) reactionRef.current = { kind, startedAt: Date.now() };
     }
+    // 静态皮肤：整体果冻弹跳（无分区概念），叠加在既有动画之上
+    if (driver !== null && driver.kind === "static" && staticReactionRef.current === null) {
+      staticReactionRef.current = { startedAt: Date.now() };
+    }
+    idleRef.current.lastActiveAt = Date.now(); // 点击重置闲置计时（2.8）
     onActivate?.();
+  };
+  // 拖拽（1.3）：命中角色才可拖动（自绘 startDragging，取代铺满画布的
+  // data-tauri-drag-region——透明区域不再“抓住空气”拖窗）；浏览器环境无操作
+  const handlePointerDown = (e: ReactMouseEvent) => {
+    if (e.button !== 0) return;
+    if (!hitTestRef.current(e.clientX, e.clientY)) return;
+    if ("__TAURI_INTERNALS__" in window) void getCurrentWindow().startDragging();
   };
   const handleContextMenu = (e: ReactMouseEvent) => {
     e.preventDefault();
@@ -363,7 +659,12 @@ export function CharacterStage({
 
   if (failed)
     return (
-      <div className="character-stage" onClick={handleClick} onContextMenu={handleContextMenu}>
+      <div
+        className="character-stage"
+        onClick={handleClick}
+        onContextMenu={handleContextMenu}
+        onPointerDown={handlePointerDown}
+      >
         <CharacterBadge />
       </div>
     );
@@ -374,6 +675,7 @@ export function CharacterStage({
       data-skin={skin ? resolveSkinId(skin.id) : undefined}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
+      onPointerDown={handlePointerDown}
     />
   );
 }

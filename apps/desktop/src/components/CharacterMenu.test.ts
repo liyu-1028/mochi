@@ -1,6 +1,6 @@
 /**
  * CharacterMenu 纯函数测试：
- * - getMenuSize：菜单固定 160×176（4 项，窗口动态贴合角色后不再等比缩放）；
+ * - getMenuSize：宽度固定 160，高度随条目数推导（dev 构建含 devtools 多一项）；
  * - clampMenuPosition：菜单不溢出窗口。
  */
 import { describe, expect, it } from "vitest";
@@ -15,13 +15,14 @@ function clamp(x: number, y: number) {
 }
 
 describe("getMenuSize", () => {
-  it("固定 160×176", () => {
-    expect(MENU).toEqual({ width: 160, height: 176 });
+  it("固定宽 160，高随条目数推导（32 + 36n，dev 构建含 devtools 项）", () => {
+    expect(MENU).toEqual({ width: 160, height: MENU_HEIGHT });
+    expect(MENU_HEIGHT).toBeGreaterThanOrEqual(176); // 4 项基准，dev 构建更高
   });
 
   it("常量与函数同源", () => {
     expect(MENU_WIDTH).toBe(160);
-    expect(MENU_HEIGHT).toBe(176);
+    expect(getMenuSize().height).toBe(MENU_HEIGHT);
   });
 });
 
