@@ -50,6 +50,7 @@ import {
 } from "./panelWindow";
 import { useConversation } from "./store/conversation";
 import { useSettings } from "./store/settings";
+import { useCursorPassthrough } from "./passthrough/useCursorPassthrough";
 import { setupTray } from "./tray";
 
 /** 是否运行于 Tauri 桌面 runtime（dev:web 等浏览器环境无此对象）。 */
@@ -90,6 +91,23 @@ export default function App() {
   useEffect(() => {
     void applyCharacterLayout(layout);
   }, [layout]);
+
+  // 点击区域收敛：角色本体命中判定由 CharacterStage 提供（alpha 掩码 +
+  // 分区兑底）；窗口内其余 UI（dock/气泡/菜单）始终可交互，透明区域穿透
+  const characterHitRef = useRef<(x: number, y: number) => boolean>(() => true);
+  const handleHitTestReady = useCallback((hit: ((x: number, y: number) => boolean) | null) => {
+    characterHitRef.current = hit ?? (() => true);
+  }, []);
+  const interactiveAt = useCallback((x: number, y: number) => {
+    const el = document.elementFromPoint(x, y);
+    if (!el) return true;
+    // 角色舞台内：交由掩码判定；其余元素（dock/输入条/气泡/菜单）均保留交互
+    if (el instanceof HTMLElement && el.closest(".character-stage")) {
+      return characterHitRef.current(x, y);
+    }
+    return true;
+  }, []);
+  useCursorPassthrough(interactiveAt);
 
   // 皮肤（M1-S1，3.3）：active_skin 事实源在 sidecar config；连接就绪后拉取，
   // 衣橱面板换肤经 EVENT_SKIN_CHANGED 跨窗口同步（zustand 不跨窗口）
@@ -248,15 +266,17 @@ export default function App() {
         } as CSSProperties
       }
     >
-      {/* data-tauri-drag-region：Tauri 声明式窗口拖拽（功能清单 1.3）；
-          浏览器环境下该属性无副作用。气泡区放在拖拽区外，避免点击气泡误触发拖动 */}
-      <div className="app__stage" data-tauri-drag-region>
+      {/* 角色舞台：拖拽改由命中角色后自绘 startDragging（点击区域收敛，
+          透明区域不再拖窗/唤起；窗口层透明区鼠标穿透见 useCursorPassthrough）。
+          气泡区放在拖拽区外，避免点击气泡误触发拖动 */}
+      <div className="app__stage">
         <CharacterStage
           skin={activeSkin}
           onActivate={() => setChatOpen(true)}
           onContextMenu={(x, y) => setMenu({ x, y })}
           onModelReady={handleModelReady}
           onFallback={handleStageFallback}
+          onHitTestReady={handleHitTestReady}
         />
       </div>
       <SpeechBubbleArea />
