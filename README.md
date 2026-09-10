@@ -52,7 +52,7 @@
 
 <h3 align="center">桌面角色 · 悬浮陪伴</h3>
 <div align="center">
-<img src="docs/images/image1.png" width="600" alt="桌面角色"/>
+<img src="docs/images/demo1.gif" width="360" alt="桌面角色动态演示"/>
 </div>
 
 <h3 align="center">对话交互 · 流式输出</h3>
