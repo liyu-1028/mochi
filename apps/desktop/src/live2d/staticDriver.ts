@@ -22,12 +22,15 @@ export interface StaticAnimationPlan {
   emotionScale: number;
 }
 
-/** 单帧 sprite 变换（纯函数输出，vitest 直测）。 */
+/** 单帧 sprite 变换（纯函数输出，vitest 直测）。scaleX/scaleY 缺省 = scale
+ *  （均匀缩放）；交互层（staticInteractions）用分轴缩放表达果冻弹跳。 */
 export interface StaticTransform {
   dx: number;
   dy: number;
   rotation: number;
   scale: number;
+  scaleX?: number;
+  scaleY?: number;
   tint: number;
 }
 
@@ -73,6 +76,13 @@ export function computeStaticTransform(plan: StaticAnimationPlan, t: number): St
 export interface StaticDriver {
   readonly kind: "static";
   applyPlan(plan: StaticAnimationPlan): void;
+  /** 注册每帧变换覆写（追鼠标/点击反馈等交互层）：入参基准变换，
+   *  返回合成后的变换；返回注销函数。与 live2d addFrameOverride 同构 */
+  addFrameOverride(fn: (tSec: number, base: StaticTransform) => StaticTransform): () => void;
+  /** 精灵在画布（≈舞台 CSS px，autoDensity 下 1:1）中的矩形：
+   *  命中掩码/追鼠标归一化的映射目标——源图掩码是精灵轮廓，若映射到
+   *  整个舞台会错位（精灵只占底部中央，窗口还有宽度下限撑宽） */
+  spriteRect(): { left: number; top: number; width: number; height: number };
   dispose(): void;
 }
 
@@ -89,14 +99,25 @@ export function createStaticDriver(stage: StaticStageHandle): StaticDriver {
     emotionScale: 1,
   };
 
+  const overrides = new Set<(tSec: number, base: StaticTransform) => StaticTransform>();
+
+  // 精灵基准矩形：锚 (0.5,1) 水平居中、底边对齐（staticCore 放置约定）；
+  // 取当前 scale（呼吸 ±0.8% 微变，命中精度足够）
+  const spriteRect = () => {
+    const w = sprite.width;
+    const h = sprite.height;
+    return { left: app.screen.width / 2 - w / 2, top: app.screen.height - h, width: w, height: h };
+  };
+
   const tick = () => {
     const t = performance.now() / 1000;
-    const tr = computeStaticTransform(plan, t);
+    let tr = computeStaticTransform(plan, t);
+    for (const fn of overrides) tr = fn(t, tr);
     // 基准位置每帧重取：窗口 resize（布局倒置）后自动回中
     sprite.x = app.screen.width / 2 + tr.dx;
     sprite.y = app.screen.height + tr.dy;
     sprite.rotation = tr.rotation;
-    sprite.scale.set(baseScale * tr.scale);
+    sprite.scale.set(baseScale * (tr.scaleX ?? tr.scale), baseScale * (tr.scaleY ?? tr.scale));
     sprite.tint = tr.tint;
   };
   app.ticker.add(tick);
@@ -106,8 +127,16 @@ export function createStaticDriver(stage: StaticStageHandle): StaticDriver {
     applyPlan(next) {
       plan = next;
     },
+    addFrameOverride(fn) {
+      overrides.add(fn);
+      return () => {
+        overrides.delete(fn);
+      };
+    },
+    spriteRect,
     dispose() {
       app.ticker.remove(tick);
+      overrides.clear();
     },
   };
 }

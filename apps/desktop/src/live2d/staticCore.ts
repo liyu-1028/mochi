@@ -48,7 +48,7 @@ export async function loadStaticStage(
   });
   const canvas = app.view as HTMLCanvasElement;
   canvas.style.display = "block";
-  canvas.setAttribute("data-tauri-drag-region", "");
+  // 拖拽同 core.ts：命中角色本体后自绘 startDragging（不再铺 drag-region）
   container.appendChild(canvas);
 
   try {
