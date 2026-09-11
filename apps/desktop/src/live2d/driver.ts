@@ -10,6 +10,7 @@ import * as PIXI from "pixi.js";
 import {
   EMOTION_PRESETS,
   SLEEPING_PRESET,
+  thinkingPoseParams,
   type AnimationPlan,
   type ExpressionPlan,
 } from "./stateMachine";
@@ -71,6 +72,10 @@ export function createDriver(stage: StageHandle): CharacterDriver {
       setParam("ParamEyeROpen", 0);
     } else {
       for (const [id, value] of Object.entries(presetFor(plan.expression))) setParam(id, value);
+    }
+    // 思考姿态：在表情预设之后应用，歪头角度覆写 confused 预设的 AngleZ
+    if (plan.thinkingPose) {
+      for (const [id, value] of Object.entries(thinkingPoseParams(now))) setParam(id, value);
     }
     if (plan.bodySway) {
       setParam("ParamBodyAngleX", Math.sin(now * 2.2) * 2);

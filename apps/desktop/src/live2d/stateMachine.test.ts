@@ -9,6 +9,7 @@ import {
   HIYORI_PROFILE,
   resolveAnimation,
   STATE_RULES,
+  thinkingPoseParams,
   type ModelProfile,
 } from "./stateMachine";
 
@@ -44,6 +45,13 @@ describe("resolveAnimation：6 状态基础计划", () => {
   it("思考时视线上瞟（gazeOffsetY > 0），出错时低头（< 0）", () => {
     expect(resolveAnimation("thinking", null, HIYORI_PROFILE).gazeOffsetY).toBeGreaterThan(0);
     expect(resolveAnimation("error", null, HIYORI_PROFILE).gazeOffsetY).toBeLessThan(0);
+  });
+
+  it("仅 thinking 启用思考姿态（歪头 + 缓慢摆动）", () => {
+    expect(resolveAnimation("thinking", null, HIYORI_PROFILE).thinkingPose).toBe(true);
+    for (const state of CHARACTER_STATES.filter((s) => s !== "thinking")) {
+      expect(resolveAnimation(state, null, HIYORI_PROFILE).thinkingPose).toBe(false);
+    }
   });
 
   it("仅 working 启用身体微晃", () => {
@@ -117,6 +125,12 @@ describe("resolveAnimation：模型能力回退", () => {
     expect(resolveAnimation("idle", null, profile).motionGroup).toBe("Tap");
   });
 
+  it("模型带 Think 动作组时思考优先选用，其余状态不受影响", () => {
+    const profile: ModelProfile = { motionGroups: ["Idle", "Think"], expressions: [] };
+    expect(resolveAnimation("thinking", null, profile).motionGroup).toBe("Think");
+    expect(resolveAnimation("idle", null, profile).motionGroup).toBe("Idle");
+  });
+
   it("模型无任何动作组时返回 null（组件跳过动作切换）", () => {
     const profile: ModelProfile = { motionGroups: [], expressions: [] };
     expect(resolveAnimation("idle", null, profile).motionGroup).toBeNull();
@@ -126,6 +140,18 @@ describe("resolveAnimation：模型能力回退", () => {
 describe("配置一致性", () => {
   it("STATE_RULES 覆盖协议全部 6 状态", () => {
     expect(Object.keys(STATE_RULES).sort()).toEqual([...CHARACTER_STATES].sort());
+  });
+
+  it("thinkingPoseParams：歪头角度在 [9, 19] 内缓慢摆动，低头为负", () => {
+    for (const t of [0, 1, 2.7, 5, 100.5]) {
+      const pose = thinkingPoseParams(t);
+      expect(pose.ParamAngleZ).toBeGreaterThanOrEqual(9);
+      expect(pose.ParamAngleZ).toBeLessThanOrEqual(19);
+      expect(pose.ParamAngleY).toBeLessThan(0); // 微微低头，与视线上瞟叠加
+      expect(Math.abs(pose.ParamBodyAngleZ)).toBeLessThanOrEqual(30);
+    }
+    // 摆动确实随时间变化（否则姿态僵死）
+    expect(thinkingPoseParams(0).ParamAngleZ).not.toBeCloseTo(thinkingPoseParams(2).ParamAngleZ, 1);
   });
 
   it("情绪预设值均在归一化范围 [-1, 1]（角度类例外需组件层换算）", () => {

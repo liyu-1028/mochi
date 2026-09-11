@@ -33,6 +33,9 @@ export interface AnimationPlan {
   gazeEnabled: boolean;
   /** 视线纵向偏移（思考时上瞟） */
   gazeOffsetY: number;
+  /** 思考姿态（2.2 细化）：歪头 + 缓慢摆动（thinkingPoseParams），
+      与 confused 表情、视线上瞟叠加成完整「思考」表现 */
+  thinkingPose: boolean;
   /** 身体微晃（working） */
   bodySway: boolean;
   /** 目标帧率（性能护栏，Phase 7 使用） */
@@ -60,6 +63,19 @@ export const SLEEPING_PRESET: Record<string, number> = {
   ParamMouthForm: 0,
 };
 
+/** 思考姿态参数（纯函数，便于 vitest 覆盖）：歪头 + 缓慢头部摆动 +
+ *  身体微倾。数值为 Hiyori 实际参数单位（角度），驱动层按模型范围
+ *  钳制；nowSec 为秒级时钟，驱动缓慢摆动（周期 ~5.7s）。
+ *  与视线上瞟（gazeOffsetY>0）叠加：低头沉思 + 眼睛上瞟。 */
+export function thinkingPoseParams(nowSec: number): Record<string, number> {
+  const sway = Math.sin(nowSec * 1.1);
+  return {
+    ParamAngleZ: 14 + sway * 5,
+    ParamAngleY: -6,
+    ParamBodyAngleZ: 5,
+  };
+}
+
 interface StateRule {
   /** 按偏好顺序尝试的动作组（取模型实际拥有的第一个） */
   motionPreference: readonly string[];
@@ -70,6 +86,7 @@ interface StateRule {
   mouthEnabled: boolean;
   gazeEnabled: boolean;
   gazeOffsetY: number;
+  thinkingPose: boolean;
   bodySway: boolean;
   tickerFps: 15 | 30 | 60;
 }
@@ -83,6 +100,7 @@ export const STATE_RULES: Record<CharacterState, StateRule> = {
     mouthEnabled: false,
     gazeEnabled: true,
     gazeOffsetY: 0,
+    thinkingPose: false,
     bodySway: false,
     tickerFps: 30,
   },
@@ -93,17 +111,19 @@ export const STATE_RULES: Record<CharacterState, StateRule> = {
     mouthEnabled: true,
     gazeEnabled: true,
     gazeOffsetY: 0,
+    thinkingPose: false,
     bodySway: false,
     tickerFps: 60,
   },
   thinking: {
-    motionPreference: ["Idle"],
+    motionPreference: ["Think", "Idle"],
     motionPriority: "normal",
     forcedEmotion: "confused",
     eyesClosed: false,
     mouthEnabled: false,
     gazeEnabled: true,
     gazeOffsetY: 0.4,
+    thinkingPose: true,
     bodySway: false,
     tickerFps: 60,
   },
@@ -114,6 +134,7 @@ export const STATE_RULES: Record<CharacterState, StateRule> = {
     mouthEnabled: false,
     gazeEnabled: true,
     gazeOffsetY: 0,
+    thinkingPose: false,
     bodySway: true,
     tickerFps: 60,
   },
@@ -125,6 +146,7 @@ export const STATE_RULES: Record<CharacterState, StateRule> = {
     mouthEnabled: false,
     gazeEnabled: false,
     gazeOffsetY: -0.2,
+    thinkingPose: false,
     bodySway: false,
     tickerFps: 30,
   },
@@ -136,6 +158,7 @@ export const STATE_RULES: Record<CharacterState, StateRule> = {
     mouthEnabled: false,
     gazeEnabled: false,
     gazeOffsetY: 0,
+    thinkingPose: false,
     bodySway: false,
     tickerFps: 30,
   },
@@ -175,6 +198,7 @@ export function resolveAnimation(
     mouthEnabled: rule.mouthEnabled,
     gazeEnabled: rule.gazeEnabled,
     gazeOffsetY: rule.gazeOffsetY,
+    thinkingPose: rule.thinkingPose,
     bodySway: rule.bodySway,
     tickerFps: rule.tickerFps,
   };
