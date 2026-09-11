@@ -16,9 +16,11 @@ use std::io::{Seek, Write};
 use std::sync::OnceLock;
 
 use serde::Serialize;
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Runtime};
 use zip::write::SimpleFileOptions;
 use zip::ZipWriter;
+
+use crate::datadir;
 
 #[derive(Serialize)]
 struct SystemInfo {
@@ -56,10 +58,8 @@ fn redact_text(text: &str) -> String {
 /// 收集诊断 zip 到 `path`；返回写入内容字节数（供前端反馈）。
 #[tauri::command]
 pub fn export_diagnostics<R: Runtime>(app: AppHandle<R>, path: String) -> Result<u64, String> {
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("无法定位数据目录：{e}"))?;
+    let data_dir = datadir::resolve_data_dir(&app)
+        .ok_or_else(|| "无法定位数据目录".to_string())?;
     let bytes = build_diagnostic_zip(
         &data_dir,
         &app.package_info().version.to_string(),

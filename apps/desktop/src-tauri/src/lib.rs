@@ -9,6 +9,7 @@
 //! 诊断包导出与设置导入导出（1.8/7.1）：命令见 diagnostics.rs，
 //! 文件路径选择由前端 dialog 插件承担。
 
+mod datadir;
 mod diagnostics;
 mod runtime;
 mod sidecar;

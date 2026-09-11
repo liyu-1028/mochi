@@ -14,7 +14,9 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, Runtime};
+use tauri::{AppHandle, Emitter, Runtime};
+
+use crate::datadir;
 
 pub const RUNTIME_READY_EVENT: &str = "mochi://sidecar-ready";
 const RUNTIME_FILE_NAME: &str = "runtime.json";
@@ -56,10 +58,8 @@ pub fn spawn_runtime_discovery<R: Runtime>(app: AppHandle<R>) {
 }
 
 fn runtime_file_path<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
-    app.path()
-        .app_data_dir()
-        .ok()
-        .map(|dir| dir.join(RUNTIME_FILE_NAME))
+    // 便携模式（Windows zip 版）下重定向到解压目录，与 sidecar 写入侧对齐
+    datadir::resolve_data_dir(app).map(|dir| dir.join(RUNTIME_FILE_NAME))
 }
 
 /// 解析 runtime.json 的 port 字段；文件缺失/半截/畸形一律视为未就绪。
