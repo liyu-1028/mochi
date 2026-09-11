@@ -4,7 +4,12 @@
 # 矩阵均为原生架构构建（无交叉编译）：
 #   macos-15       → Apple Silicon（aarch64-apple-darwin）dmg
 #   macos-15-intel → Intel（x86_64-apple-darwin）dmg（macos-13 已于 2025-12 退役）
-#   windows-latest → x86_64-pc-windows-msvc，nsis 安装包
+#   windows-latest → x86_64-pc-windows-msvc，nsis 安装包 + 便携版 zip
+#
+# 便携版 zip（仅 Windows，推荐 Win10/11）：解压 NSIS 安装包得到完整
+# 运行时布局，根目录内置 mochi.portable 标记——应用探测到即把数据
+# 目录切到解压目录（双侧对齐：Rust datadir.rs / Python paths.py），
+# 拷走整个文件夹即完成迁移。
 #
 # sidecar 由 beforeBuildCommand 链中的 scripts/package-sidecar.sh 用
 # PyInstaller 现机构建（PyInstaller 不支持交叉编译，必须与目标机同架构）。
@@ -79,6 +84,44 @@ jobs:
       - name: 构建安装包
         run: pnpm --filter @mochi/desktop exec tauri build --bundles ${{ matrix.bundles }}
 
+      # 便携版 zip（仅 Windows）：从 NSIS 安装包解出完整运行时布局
+      #（Mochi.exe + resources/sidecar + WebView2Loader 等），去安装器
+      # 专用文件、打便携标记、附使用说明后重新压缩。
+      - name: 打包便携版 zip（仅 Windows）
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          SETUP="$(ls apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe | head -1)"
+          BUNDLE_ROOT="apps/desktop/src-tauri/target/release/bundle/portable"
+          PORTABLE_DIR="$BUNDLE_ROOT/Mochi"
+          mkdir -p "$PORTABLE_DIR"
+          7z x "$SETUP" -o"$PORTABLE_DIR" > /dev/null
+          # 清掉 NSIS 安装器专用残留：卸载器/插件目录/脚本不属于便携版
+          rm -rf "$PORTABLE_DIR/uninstall.exe" "$PORTABLE_DIR/\$PLUGINSDIR" "$PORTABLE_DIR/[NSIS].nsi"
+          # 便携标记：应用探测到即把数据目录切到本目录（datadir.rs / paths.py）
+          touch "$PORTABLE_DIR/mochi.portable"
+          cat > "$PORTABLE_DIR/使用说明.txt" <<EOF
+          Mochi 便携版 v${VERSION}（推荐 Windows 10 / 11）
+
+          【使用】
+          1. 解压到任意有写入权限的目录（不要放在 Program Files）
+          2. 双击 Mochi.exe 运行
+
+          【说明】
+          - 本目录即工作目录：配置、皮肤、会话记录全部保存在这里，
+            拷贝整个文件夹即可迁移到其他电脑
+          - 与安装版互不干扰（安装版数据在 %APPDATA%）
+          - 需要系统已安装 WebView2 运行时（Windows 11 自带；Windows 10
+            通常已随 Edge 更新安装，缺失时请安装官方版后重试）
+
+          【卸载】
+          退出 Mochi 后删除整个文件夹即可，不留任何残留
+          EOF
+          ZIP_NAME="Mochi_${VERSION}_x64-portable.zip"
+          (cd "$BUNDLE_ROOT" && 7z a -tzip "$ZIP_NAME" Mochi > /dev/null)
+          echo "✓ 便携版：$BUNDLE_ROOT/$ZIP_NAME"
+
       - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
@@ -86,6 +129,7 @@ jobs:
           path: |
             apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
             apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
+            apps/desktop/src-tauri/target/release/bundle/portable/*.zip
           if-no-files-found: error
 
   publish:
@@ -108,12 +152,12 @@ jobs:
           merge-multiple: true
 
       # upload-artifact 会保留 bundle/dmg、bundle/nsis 目录结构，递归查找
-      - name: 校验产物（至少一个安装包）
+      - name: 校验产物（至少一个安装包或便携包）
         run: |
           find dist -type f | sort
-          COUNT="$(find dist -type f \( -name '*.dmg' -o -name '*.exe' \) | wc -l | tr -d ' ')"
-          echo "待发布安装包：${COUNT} 个"
-          [ "$COUNT" -gt 0 ] || { echo "✗ 无任何安装包产物，取消发布" >&2; exit 1; }
+          COUNT="$(find dist -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.zip' \) | wc -l | tr -d ' ')"
+          echo "待发布产物：${COUNT} 个"
+          [ "$COUNT" -gt 0 ] || { echo "✗ 无任何安装包/便携包产物，取消发布" >&2; exit 1; }
 
       # Release Notes 取 CHANGELOG.md 中本 tag 的手写段落（commit-convention §4），
       # 不用 GitHub 自动生成（避免 "Full Changelog:" 链接样式）
@@ -137,5 +181,6 @@ jobs:
           files: |
             dist/**/*.dmg
             dist/**/*.exe
+            dist/**/*.zip
           body_path: RELEASE_NOTES.md
           fail_on_unmatched_files: true
