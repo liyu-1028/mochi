@@ -1,6 +1,6 @@
 <div align="center">
 
-# 团子 Mochi 🍡
+# <img src="assets/icon-1024.png" width="56" alt="团子图标" align="top" /> 团子 Mochi
 
 [![GitHub release](https://img.shields.io/github/v/release/liyu-1028/mochi?style=flat-square&logo=github&color=369eff)](https://github.com/liyu-1028/mochi/releases)
 [![License](https://img.shields.io/github/license/liyu-1028/mochi?style=flat-square)](./LICENSE)
