@@ -34,6 +34,9 @@ export interface CharacterDriver {
   readonly kind: "live2d";
   /** 应用动画计划：切换动作与表情/参数预设，调整目标帧率 */
   applyPlan(plan: AnimationPlan): void;
+  /** 播放 one-shot 动作（M-B body 通道）：不打断状态机计划登记，
+   *  动作播完后 pixi-live2d-display 自动回落 idle 组（状态 loop 接管） */
+  playMotion(group: string, priority: "normal" | "force"): void;
   /** 注册每帧参数覆写（口型/视线用）；返回注销函数 */
   addFrameOverride(fn: FrameOverride): () => void;
   /** 写单个参数（按模型实际范围钳制） */
@@ -116,6 +119,11 @@ export function createDriver(stage: StageHandle): CharacterDriver {
       if (next.expression.kind === "file") {
         void model.expression(next.expression.name);
       }
+    },
+
+    playMotion(group, priority) {
+      // index 缺省 = 组内随机；组不存在时库内部静默忽略（调用方已先解析能力）
+      void model.motion(group, undefined, MOTION_PRIORITY[priority]);
     },
 
     addFrameOverride(fn) {

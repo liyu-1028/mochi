@@ -72,7 +72,30 @@ function opaqueRatio(mask: AlphaMask): number {
   for (const v of mask.alpha) if (v >= 16) n += 1;
   return n / mask.alpha.length;
 }
-import { resolveAnimation, type AnimationPlan, type ModelProfile } from "../live2d/stateMachine";
+import {
+  resolveAnimation,
+  EMOTION_PRESETS,
+  type AnimationPlan,
+  type ModelProfile,
+} from "../live2d/stateMachine";
+import type { Emotion } from "@mochi/protocol";
+import {
+  createDirectorState,
+  submitCue,
+  tickDirector,
+  activeOn,
+  type DirectorContext,
+  type DirectorCue,
+  type DirectorState,
+} from "../live2d/actionDirector";
+import {
+  buildCue,
+  isRepeatTap,
+  toolReflexCues,
+  TAP_WINDOW_MS,
+  HOLD_THRESHOLD_MS,
+} from "../live2d/reflexRules";
+import { resolveAction, type ResolvedAction } from "../live2d/actionRegistry";
 import {
   createSampleWindow,
   decorationsPaused,
@@ -207,6 +230,72 @@ export function CharacterStage({
   const powerSave = useSettings((s) => s.powerSave);
 
   const isLive2D = skin?.resourceType === "live2d";
+
+  // ---------------------------------------------------------------------------
+  // Action Director（M-B）：本地反射与 one-shot 动作调度（face/body/effect 分通道）
+  // ---------------------------------------------------------------------------
+  const toolCalls = useConversation((s) => s.toolCalls);
+  const directorRef = useRef<DirectorState>(createDirectorState());
+  /** 帧闭包读的最新运行上下文（每渲染同步） */
+  const directorCtxRef = useRef<DirectorContext>({
+    state: "idle",
+    speaking: false,
+    dragging: false,
+    decorationsPaused: false,
+  });
+  /** 连续轻戳时间戳（2s 窗口） */
+  const tapsRef = useRef<number[]>([]);
+  /** 按住/拖起定时器 + 拖拽中标记（守卫用） */
+  const holdTimerRef = useRef<number | null>(null);
+  const holdActiveAtRef = useRef<number | null>(null);
+  /** 工具 chip 状态 diff 基准（上一状态表） */
+  const toolStatusRef = useRef<Map<string, string>>(new Map());
+  /** 静态路径：活跃 body cue → 解析后的动作计划缓存（避免每帧 resolveAction） */
+  const staticActionCacheRef = useRef<Map<string, ResolvedAction>>(new Map());
+  /** 帧闭包读的最新皮肤（帧覆写 effect 不随换肤重建） */
+  const skinRef = useRef(skin);
+  skinRef.current = skin;
+
+  // 每渲染同步 director 上下文（帧闭包读 ref，不重建）
+  directorCtxRef.current = {
+    state: ttsPlaying ? "talking" : characterState,
+    speaking: ttsPlaying,
+    dragging: holdActiveAtRef.current !== null && Date.now() - holdActiveAtRef.current < 2000,
+    decorationsPaused: decorationsPaused(powerLevelRef.current),
+  };
+
+  /** 反射入口：批量提交 cue（dev 下打点，B4 观测） */
+  const submitReflexes = useCallback((cues: DirectorCue[]) => {
+    const ctx = directorCtxRef.current;
+    for (const cue of cues) {
+      const verdict = submitCue(directorRef.current, cue, ctx, Date.now());
+      if (import.meta.env.DEV) {
+        console.debug(
+          `[director] ${verdict.accepted ? "accept" : "reject"}(${verdict.accepted ? "" : verdict.reason}) ${cue.channel}:${cue.actionId} pri=${cue.priority}`,
+        );
+      }
+    }
+  }, []);
+
+  // 工具生命周期反射：chip 状态流转 → cue（B3；确定性事件不经 LLM）
+  useEffect(() => {
+    const prev = toolStatusRef.current;
+    let latest: { status: string; at: number } | null = null;
+    for (const call of toolCalls) {
+      if (prev.get(call.toolCallId) !== call.status) {
+        prev.set(call.toolCallId, call.status);
+        latest = { status: call.status, at: Date.now() };
+      }
+    }
+    if (latest === null) return;
+    if (!skin) return;
+    const cues = toolReflexCues(latest.status as "running" | "success" | "error" | "denied", {
+      resourceType: skin.resourceType,
+      now: latest.at,
+      actions: skin.actions,
+    });
+    if (cues.length > 0) submitReflexes(cues);
+  }, [toolCalls, skin, submitReflexes]);
 
   /** 舞台矩形 → 交互参考矩形：静态皮肤取精灵实际矩形（源图掩码是精灵轮廓，
    *  映射整舞台会错位——精灵只占底部中央，窗口还有宽度下限撑宽）；
@@ -498,6 +587,22 @@ export function CharacterStage({
       lastNow = now;
       const plan = planRef.current;
 
+      // Action Director 推进（M-B）：one-shot 到期/出队结算；
+      // body 通道启动 → 播 one-shot motion（播完自动回落 idle 组，状态 loop 接管）
+      const nowMs = Date.now();
+      const tick = tickDirector(directorRef.current, directorCtxRef.current, nowMs);
+      const skinNow = skinRef.current;
+      for (const started of tick.started) {
+        if (started.cue.channel !== "body" || !skinNow) continue;
+        const actionPlan = resolveAction(started.cue.actionId, skinNow, profileForSkin(skinNow));
+        if (actionPlan.resourceType === "live2d" && actionPlan.motionGroup) {
+          driver.playMotion(
+            actionPlan.motionGroup,
+            started.cue.priority >= 80 ? "force" : "normal",
+          );
+        }
+      }
+
       // 口型：播报期音量驱动（2.7），否则 delta 节奏 + 平滑衰减
       if (ttsPlaying) {
         const open = volumeToOpen(ttsPlayer.level());
@@ -517,6 +622,16 @@ export function CharacterStage({
         gazeCurrentRef.current = lerpGaze(gazeCurrentRef.current, gazeTargetRef.current);
         driver.setParam("ParamEyeBallX", gazeCurrentRef.current.x);
         driver.setParam("ParamEyeBallY", gazeCurrentRef.current.y + plan.gazeOffsetY);
+      }
+
+      // face 通道（M-B）：表情参数覆写——在状态机表情预设之后写入，
+      // one-shot 结束后停写，状态机计划自然回落（face/body 并行不清除）
+      const face = activeOn(directorRef.current, "face");
+      if (face !== null && !plan?.eyesClosed) {
+        const preset = EMOTION_PRESETS[face.cue.actionId as Emotion];
+        if (preset) {
+          for (const [id, v] of Object.entries(preset)) driver.setParam(id, v);
+        }
       }
 
       // 分区点击反应（2.4）：摸头=眼笑+嘴角+头偏包络；戳身体=衰减摆动。
@@ -547,6 +662,11 @@ export function CharacterStage({
     return driver.addFrameOverride((_tSec, base) => {
       let tr = base;
       const plan = staticPlanRef.current;
+
+      // Action Director 推进（M-B）：结算 one-shot 到期/出队
+      const nowMs = Date.now();
+      tickDirector(directorRef.current, directorCtxRef.current, nowMs);
+
       if (!plan?.sleeping && !plan?.error) {
         gazeTargetRef.current = stageGazeTarget();
         gazeCurrentRef.current = lerpGaze(gazeCurrentRef.current, gazeTargetRef.current);
@@ -610,6 +730,51 @@ export function CharacterStage({
           staticReactionRef.current = null;
         }
       }
+
+      // body 通道（M-B）：活跃 one-shot 的静态包络叠加（sleeping/error 不播）
+      const bodyAction = activeOn(directorRef.current, "body");
+      if (
+        bodyAction !== null &&
+        !plan?.sleeping &&
+        !plan?.error &&
+        !decorationsPaused(powerLevelRef.current)
+      ) {
+        const cache = staticActionCacheRef.current;
+        let resolved = cache.get(bodyAction.cue.cueId);
+        if (resolved === undefined && skinRef.current) {
+          resolved = resolveAction(bodyAction.cue.actionId, skinRef.current, {
+            motionGroups: [],
+            expressions: [],
+          });
+          cache.set(bodyAction.cue.cueId, resolved);
+          if (cache.size > 8) cache.clear(); // 简单防膨胀（cueId 含时间戳，不会无限命中）
+        }
+        const envelope = resolved?.resourceType === "static" ? resolved.envelope : null;
+        const delta = envelope?.apply(nowMs - bodyAction.startedAt) ?? null;
+        if (delta) {
+          tr = {
+            ...tr,
+            dx: tr.dx + delta.dx,
+            dy: tr.dy + delta.dy,
+            rotation: tr.rotation + delta.rotation,
+            scaleX: (tr.scaleX ?? tr.scale) * delta.sx,
+            scaleY: (tr.scaleY ?? tr.scale) * delta.sy,
+          };
+        }
+      }
+
+      // effect 通道（M-B，预留通道最小视觉）：静态精灵轻微脉冲
+      const effect = activeOn(directorRef.current, "effect");
+      if (effect !== null && !plan?.sleeping) {
+        const p = Math.min(1, (nowMs - effect.startedAt) / Math.max(1, effect.cue.durationMs));
+        const pulse = 1 + 0.03 * Math.sin(Math.PI * p);
+        tr = {
+          ...tr,
+          scaleX: (tr.scaleX ?? tr.scale) * pulse,
+          scaleY: (tr.scaleY ?? tr.scale) * pulse,
+        };
+      }
+
       return tr;
     });
   }, [ready, isLive2D, stageGazeTarget]);
@@ -643,6 +808,21 @@ export function CharacterStage({
       staticReactionRef.current = { startedAt: Date.now() };
     }
     idleRef.current.lastActiveAt = Date.now(); // 点击重置闲置计时（2.8）
+    // 反射（M-B）：连续轻戳（2s 内 ≥3 次）→ surprised；单次轻拍不另加动作
+    //（既有分区反应/弹跳已是单次反馈，避免叠加过度）
+    const nowMs = Date.now();
+    tapsRef.current = [...tapsRef.current.filter((t) => nowMs - t <= TAP_WINDOW_MS), nowMs];
+    if (skinRef.current && isRepeatTap(tapsRef.current, nowMs)) {
+      submitReflexes([
+        buildCue("surprised", {
+          channel: "body",
+          source: "reflex",
+          resourceType: skinRef.current.resourceType,
+          now: nowMs,
+          actions: skinRef.current.actions,
+        }),
+      ]);
+    }
     onActivate?.();
   };
   // 拖拽（1.3）：命中角色才可拖动（自绘 startDragging，取代铺满画布的
@@ -650,7 +830,34 @@ export function CharacterStage({
   const handlePointerDown = (e: ReactMouseEvent) => {
     if (e.button !== 0) return;
     if (!hitTestRef.current(e.clientX, e.clientY)) return;
+    // 反射（M-B）：按住超过阈值（拖起/拿起）→ surprised。
+    // OS 接管拖窗后 pointerup 不可靠，定时器式判定；用户交互级优先级过守卫
+    if (holdTimerRef.current === null) {
+      holdTimerRef.current = window.setTimeout(() => {
+        holdTimerRef.current = null;
+        holdActiveAtRef.current = Date.now();
+        if (skinRef.current) {
+          submitReflexes([
+            buildCue("surprised", {
+              channel: "body",
+              source: "reflex",
+              resourceType: skinRef.current.resourceType,
+              now: Date.now(),
+              actions: skinRef.current.actions,
+              priority: 80,
+            }),
+          ]);
+        }
+      }, HOLD_THRESHOLD_MS);
+    }
     if ("__TAURI_INTERNALS__" in window) void getCurrentWindow().startDragging();
+  };
+  // 抬起未达按住阈值：取消「被拿起」定时（普通点击）
+  const handlePointerUp = () => {
+    if (holdTimerRef.current !== null) {
+      window.clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
   };
   const handleContextMenu = (e: ReactMouseEvent) => {
     e.preventDefault();
@@ -664,6 +871,7 @@ export function CharacterStage({
         onClick={handleClick}
         onContextMenu={handleContextMenu}
         onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
       >
         <CharacterBadge />
       </div>
@@ -676,6 +884,7 @@ export function CharacterStage({
       onClick={handleClick}
       onContextMenu={handleContextMenu}
       onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
     />
   );
 }
