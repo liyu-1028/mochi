@@ -9,7 +9,15 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { ACTION_CHANNELS, SEMANTIC_ACTIONS } from "../src/index";
+import {
+  ACTION_CHANNELS,
+  CUE_INTERRUPT_POLICIES,
+  CUE_SOURCES,
+  CUE_SYNC,
+  EVENT_TYPES,
+  type CharacterCueData,
+  SEMANTIC_ACTIONS,
+} from "../src/index";
 
 const fixturePath = fileURLToPath(new URL("../testdata/semantic-actions.json", import.meta.url));
 
@@ -34,5 +42,37 @@ describe("语义动作注册表（协议规范 §11）", () => {
     for (const id of SEMANTIC_ACTIONS) {
       expect(id).toMatch(/^[a-z][a-z0-9_]*$/);
     }
+  });
+});
+
+describe("character.cue 负载（协议规范 §5.6，M-C）", () => {
+  const cueFixturePath = fileURLToPath(new URL("../testdata/character-cue.json", import.meta.url));
+  const cueFixture = JSON.parse(readFileSync(cueFixturePath, "utf-8")) as {
+    event: { type: string; data: CharacterCueData };
+    expectedEnums: Record<string, string[]>;
+  };
+
+  it("EVENT_TYPES 含 CharacterCue（character.cue）", () => {
+    expect(EVENT_TYPES.CharacterCue).toBe("character.cue");
+    expect(cueFixture.event.type).toBe(EVENT_TYPES.CharacterCue);
+  });
+
+  it("夹具负载字段与 TS 类型形态一致（结构回归锚点）", () => {
+    const data = cueFixture.event.data;
+    expect(data.cueId).toBe("c-1a2b3c4d5e6f");
+    expect(data.source).toBe("reply");
+    expect(data.sync).toBe("sentence_boundary");
+    expect(data.sentenceIndex).toBe(2);
+    expect(data.channels.face?.emotion).toBe("happy");
+    expect(data.channels.body?.actionId).toBe("comfort");
+    expect(data.priority).toBe(45);
+    expect(data.interruptPolicy).toBe("replace");
+    expect(data.ttlMs).toBe(15000);
+  });
+
+  it("cue 枚举与夹具 expectedEnums 一致", () => {
+    expect([...CUE_SOURCES]).toEqual(cueFixture.expectedEnums.CUE_SOURCES);
+    expect([...CUE_SYNC]).toEqual(cueFixture.expectedEnums.CUE_SYNC);
+    expect([...CUE_INTERRUPT_POLICIES]).toEqual(cueFixture.expectedEnums.CUE_INTERRUPT_POLICIES);
   });
 });

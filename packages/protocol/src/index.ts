@@ -113,6 +113,7 @@ export const EVENT_TYPES = {
   ToolCallEnd: "tool.call.end",
   Emotion: "emotion",
   StateChange: "state.change",
+  CharacterCue: "character.cue",
 } as const;
 
 export type EventType = (typeof EVENT_TYPES)[keyof typeof EVENT_TYPES];
@@ -188,6 +189,79 @@ export type RunFinishReason = (typeof RUN_FINISH_REASONS)[number];
 
 export const TOOL_CALL_STATUSES = ["success", "error", "denied"] as const;
 export type ToolCallStatus = (typeof TOOL_CALL_STATUSES)[number];
+
+// ---------------------------------------------------------------------------
+// 表演节拍 cue（M-C，调研报告 §8.3）
+// ---------------------------------------------------------------------------
+// character.cue 事件的枚举与负载。控制信息不进气泡、不进 TTS；
+// 模型只能选择 agentSelectable 动作 id（服务端白名单强校验，越权丢弃）。
+// 双端镜像：server/src/mochi_server/events.py；夹具：testdata/character-cue.json。
+
+/** cue 来源：reflex=本地反射（M-B 前端内产生，不经协议）；reply=回复节拍；
+ *  system=系统级（工具/错误等）；proactive=主动开口（M-D 预留） */
+export const CUE_SOURCES = ["reflex", "reply", "system", "proactive"] as const;
+export type CueSource = (typeof CUE_SOURCES)[number];
+
+/** 节拍对齐点：immediate=立即；speech_start=开始播报；
+ *  sentence_boundary=第 sentenceIndex 句开始播报；speech_end=播报结束 */
+export const CUE_SYNC = ["immediate", "speech_start", "sentence_boundary", "speech_end"] as const;
+export type CueSync = (typeof CUE_SYNC)[number];
+
+/** 同通道新 cue 到达时对当前动作的处理（语义与 director interruptPolicy 一致） */
+export const CUE_INTERRUPT_POLICIES = ["replace", "queue", "ignore"] as const;
+export type CueInterruptPolicy = (typeof CUE_INTERRUPT_POLICIES)[number];
+
+/** face 通道：emotion ∈ EMOTIONS 词表（服务端校验） */
+export interface CueFaceChannel {
+  emotion: Emotion;
+  /** 0~1，缺省 0.75 */
+  intensity?: number;
+}
+
+/** body 通道：actionId ∈ SEMANTic_ACTIONS（服务端白名单强校验） */
+export interface CueBodyChannel {
+  actionId: SemanticActionId | string;
+  /** 预留：同动作的变体 */
+  variant?: string;
+}
+
+/** 以下通道 M-C 预留（服务端不产出，前端忽略）；字段形态按调研报告 §8.3 冻结 */
+export interface CueLocomotionChannel {
+  actionId: string;
+}
+export interface CueVoiceChannel {
+  tone?: string;
+  /** 语速倍率，1.0 = 正常 */
+  rate?: number;
+}
+export interface CueEffectChannel {
+  id: string;
+}
+
+export interface CueChannels {
+  face?: CueFaceChannel;
+  body?: CueBodyChannel;
+  locomotion?: CueLocomotionChannel;
+  voice?: CueVoiceChannel;
+  effect?: CueEffectChannel;
+}
+
+/** character.cue 负载：一次回答中的单个表演节拍 */
+export interface CharacterCueData {
+  cueId: string;
+  runId?: string;
+  messageId?: string;
+  source: CueSource;
+  channels: CueChannels;
+  sync: CueSync;
+  /** 1-based；sync=sentence_boundary 时必填，表示「该句开始播报时执行」 */
+  sentenceIndex?: number;
+  /** 0~100；reply 来源服务端定值，模型不可指定 */
+  priority: number;
+  interruptPolicy: CueInterruptPolicy;
+  /** 从信封 ts 起算的存活窗口；过期不补演 */
+  ttlMs: number;
+}
 
 // --- 事件负载 ---
 
@@ -346,4 +420,5 @@ export type ServerEvent =
   | Envelope<ToolCallStartData>
   | Envelope<ToolCallEndData>
   | Envelope<EmotionData>
-  | Envelope<StateChangeData>;
+  | Envelope<StateChangeData>
+  | Envelope<CharacterCueData>;

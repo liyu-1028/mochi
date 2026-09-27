@@ -18,8 +18,10 @@ from mochi_server.events import (
     ACTION_CHANNELS,
     COMMAND_DATA_MODELS,
     EVENT_DATA_MODELS,
+    EVENT_TYPES,
     PROTOCOL_VERSION,
     SEMANTIC_ACTIONS,
+    CharacterCueData,
     CharacterState,
     Emotion,
     TextDeltaData,
@@ -176,3 +178,41 @@ def test_semantic_actions_constraints() -> None:
 
     for action_id in SEMANTIC_ACTIONS:
         assert re.fullmatch(r"[a-z][a-z0-9_]*", action_id), action_id
+
+
+# ---------------------------------------------------------------------------
+# character.cue（M-C）：负载黄金夹具一致性
+# ---------------------------------------------------------------------------
+
+CUE_FIXTURE = GOLDEN_DIR / "character-cue.json"
+
+
+def _load_cue_fixture() -> dict:
+    with CUE_FIXTURE.open(encoding="utf-8") as f:
+        return json.load(f)
+
+
+def test_character_cue_type_registered() -> None:
+    """EVENT_TYPES/EVENT_DATA_MODELS 注册 character.cue，夹具 type 一致。"""
+    assert EVENT_TYPES["character.cue"] == "character.cue"
+    assert EVENT_DATA_MODELS["character.cue"] is CharacterCueData
+    fixture = _load_cue_fixture()
+    assert fixture["event"]["type"] == "character.cue"
+
+
+def test_character_cue_payload_matches_fixture() -> None:
+    """夹具负载经 CharacterCueData 校验，camelCase 线上格式逐字段一致。"""
+    fixture = _load_cue_fixture()
+    data = CharacterCueData.model_validate(fixture["event"]["data"])
+    wire = data.model_dump(by_alias=True, exclude_none=True)
+    assert wire == fixture["event"]["data"]
+
+
+def test_character_cue_enums_match_fixture() -> None:
+    """cue 枚举字面量与夹具 expectedEnums 一致。"""
+    from mochi_server.events import CUE_INTERRUPT_POLICY_VALUES, CUE_SOURCE_VALUES, CUE_SYNC_VALUES
+
+    fixture = _load_cue_fixture()["expectedEnums"]
+    assert list(CUE_SOURCE_VALUES) == fixture["CUE_SOURCES"]
+    assert list(CUE_SYNC_VALUES) == fixture["CUE_SYNC"]
+    assert list(CUE_INTERRUPT_POLICY_VALUES) == fixture["CUE_INTERRUPT_POLICIES"]

@@ -1,0 +1,29 @@
+{
+  "comment": "character.cue 负载黄金夹具（M-C）：TS 与 Python 镜像的一致性对照样例。reply 来源、face+body 并行、sentence_boundary 对齐。服务端只产出 face/body 通道（locomotion/voice/effect 预留）。",
+  "event": {
+    "v": "0.1",
+    "type": "character.cue",
+    "id": "0f9d3a10-6f7e-4c1a-9a3e-2b6c5d8e1f70",
+    "ts": 1758900000000,
+    "data": {
+      "cueId": "c-1a2b3c4d5e6f",
+      "runId": "r-8f4e3d2c1b0a",
+      "messageId": "m-7a6b5c4d3e2f",
+      "source": "reply",
+      "channels": {
+        "face": { "emotion": "happy", "intensity": 0.75 },
+        "body": { "actionId": "comfort" }
+      },
+      "sync": "sentence_boundary",
+      "sentenceIndex": 2,
+      "priority": 45,
+      "interruptPolicy": "replace",
+      "ttlMs": 15000
+    }
+  },
+  "expectedEnums": {
+    "CUE_SOURCES": ["reflex", "reply", "system", "proactive"],
+    "CUE_SYNC": ["immediate", "speech_start", "sentence_boundary", "speech_end"],
+    "CUE_INTERRUPT_POLICIES": ["replace", "queue", "ignore"]
+  }
+}

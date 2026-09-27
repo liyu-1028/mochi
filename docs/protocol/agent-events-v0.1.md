@@ -135,10 +135,11 @@ UI 可选择折叠展示，但动画状态必须响应。
 
 ### 5.6 角色表现（Mochi 扩展）
 
-| type           | data                                  | 说明                                |
-| -------------- | ------------------------------------- | ----------------------------------- |
-| `emotion`      | `runId?`，`emotion`，`intensity: 0~1` | 情绪标签 → 表情映射（功能清单 2.5） |
-| `state.change` | `state`                               | 动画状态机切换（功能清单 2.2）      |
+| type            | data                                  | 说明                                |
+| --------------- | ------------------------------------- | ----------------------------------- |
+| `emotion`       | `runId?`，`emotion`，`intensity: 0~1` | 情绪标签 → 表情映射（功能清单 2.5） |
+| `state.change`  | `state`                               | 动画状态机切换（功能清单 2.2）      |
+| `character.cue` | `CharacterCueData`（见下）            | 表演节拍（M-C，调研报告 §8.3）      |
 
 枚举定义：
 
@@ -146,6 +147,38 @@ UI 可选择折叠展示，但动画状态必须响应。
 emotion ∈ neutral | happy | sad | confused | surprised | embarrassed | angry
 state   ∈ idle | talking | thinking | working | error | sleeping
 ```
+
+#### character.cue 负载（M-C）
+
+一次回答中的单个表演节拍；与 `text.*` 同一 run 内关联，与 TTS 分句对齐。
+控制信息不进气泡、不进 TTS；模型只能选择 agentSelectable 动作 id，
+服务端白名单强校验（越权/未知 id 丢弃并计数，§11 铁律）。
+
+```jsonc
+{
+  "cueId": "c-1a2b3c4d5e6f",
+  "runId": "r-8f4e3d2c1b0a", // 可选；关联回合
+  "messageId": "m-7a6b5c4d3e2f", // 可选；关联回答文本
+  "source": "reply", // reflex | reply | system | proactive
+  "channels": {
+    // 只产出 face / body，其余预留
+    "face": { "emotion": "happy", "intensity": 0.75 }, // emotion ∈ §5.6 枚举
+    "body": { "actionId": "comfort" }, // actionId ∈ §11 词表
+  },
+  "sync": "sentence_boundary", // immediate | speech_start | sentence_boundary | speech_end
+  "sentenceIndex": 2, // 1-based；sentence_boundary 时必填
+  "priority": 45, // 0~100；服务端定值，模型不可指定
+  "interruptPolicy": "replace", // replace | queue | ignore
+  "ttlMs": 15000, // 自信封 ts 起算；过期不补演
+}
+```
+
+约束：
+
+- **不补演**：客户端在 `run.finished` 后到达、或信封 `ts + ttlMs` 已过的 cue 直接丢弃；
+- **互斥**：同一 run 内 `source: "reply"` 的 cue 与 `emotion` 事件互斥——
+  收到过 reply cue 的 run，迟到 emotion 分类不覆盖（§5.6 emotion 降级为兑底）；
+- `reflex` 来源的 cue 由客户端本地产生，不经协议传输；`proactive` 为 M-D 预留。
 
 ## 6. ErrorPayload 结构
 
@@ -232,10 +265,11 @@ run.finished(reason: "cancelled")   ← 已输出的 delta 前端保留展示
 
 ## 变更记录
 
-| 版本 | 日期       | 变更                                                                                                                               |
-| ---- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| 0.1  | 2026-08-03 | 初版冻结：信封、握手、5 类命令、16 类事件、错误码表                                                                                |
-| 0.1  | 2026-08-03 | 类型收窄（线上格式不变）：`usage`/`client`/`server` 结构化为 UsageInfo/ClientInfo/ServerInfo；`tool.call.start` 的 `args` 双端必填 |
-| 0.1  | 2026-08-18 | additive（§9.1，功能清单 6.5）：新增客户端命令 `tool.confirm`（第 6 类）；`tool.call.start` 增可选字段 `requiresConfirmation`      |
-| 0.1  | 2026-08-06 | 错误码表新增 `ERR_MODEL_QUOTA`（账户余额/配额不足）                                                                                |
-| 0.1  | 2026-09-27 | additive（§9.1，M-A）：新增 §11 语义动作注册表（`SEMANTIC_ACTIONS` 12 项 + `ACTION_CHANNELS`），无新事件/字段                      |
+| 版本 | 日期       | 变更                                                                                                                                                |
+| ---- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0.1  | 2026-08-03 | 初版冻结：信封、握手、5 类命令、16 类事件、错误码表                                                                                                 |
+| 0.1  | 2026-08-03 | 类型收窄（线上格式不变）：`usage`/`client`/`server` 结构化为 UsageInfo/ClientInfo/ServerInfo；`tool.call.start` 的 `args` 双端必填                  |
+| 0.1  | 2026-08-18 | additive（§9.1，功能清单 6.5）：新增客户端命令 `tool.confirm`（第 6 类）；`tool.call.start` 增可选字段 `requiresConfirmation`                       |
+| 0.1  | 2026-08-06 | 错误码表新增 `ERR_MODEL_QUOTA`（账户余额/配额不足）                                                                                                 |
+| 0.1  | 2026-09-27 | additive（§9.1，M-A）：新增 §11 语义动作注册表（`SEMANTIC_ACTIONS` 12 项 + `ACTION_CHANNELS`），无新事件/字段                                       |
+| 0.1  | 2026-09-28 | additive（§9.1，M-C）：新增事件 `character.cue`（§5.6），枚举 `CUE_SOURCES`/`CUE_SYNC`/`CUE_INTERRUPT_POLICIES`，夹具 `testdata/character-cue.json` |

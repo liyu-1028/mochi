@@ -292,6 +292,79 @@ class StateChangeData(CamelModel):
 
 
 # ---------------------------------------------------------------------------
+# 表演节拍 cue（M-C，调研报告 §8.3）
+# ---------------------------------------------------------------------------
+# TS 侧：CUE_SOURCES / CUE_SYNC / CUE_INTERRUPT_POLICIES / CharacterCueData；
+# 夹具：packages/protocol/testdata/character-cue.json。控制信息不进气泡、
+# 不进 TTS；模型只能选择 agentSelectable 动作 id（服务端白名单强校验）。
+
+CueSource = Literal["reflex", "reply", "system", "proactive"]
+CueSync = Literal["immediate", "speech_start", "sentence_boundary", "speech_end"]
+CueInterruptPolicy = Literal["replace", "queue", "ignore"]
+
+#: 枚举值显式登记（Literal 无法反射；cue 提取器校验与夹具测试共用，顺序敏感）
+CUE_SOURCE_VALUES = ("reflex", "reply", "system", "proactive")
+CUE_SYNC_VALUES = ("immediate", "speech_start", "sentence_boundary", "speech_end")
+CUE_INTERRUPT_POLICY_VALUES = ("replace", "queue", "ignore")
+
+
+class CueFaceChannel(CamelModel):
+    """face 通道：emotion ∈ EMOTIONS（服务端校验）。"""
+
+    emotion: Emotion
+    intensity: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
+class CueBodyChannel(CamelModel):
+    """body 通道：actionId ∈ SEMANTIC_ACTIONS（白名单强校验）。"""
+
+    action_id: str
+    variant: str | None = None
+
+
+class CueLocomotionChannel(CamelModel):
+    """M-C 预留：服务端不产出，前端忽略。"""
+
+    action_id: str
+
+
+class CueVoiceChannel(CamelModel):
+    """M-C 预留：服务端不产出，前端忽略。"""
+
+    tone: str | None = None
+    rate: float | None = None
+
+
+class CueEffectChannel(CamelModel):
+    """M-C 预留：服务端不产出，前端忽略。"""
+
+    id: str
+
+
+class CueChannels(CamelModel):
+    face: CueFaceChannel | None = None
+    body: CueBodyChannel | None = None
+    locomotion: CueLocomotionChannel | None = None
+    voice: CueVoiceChannel | None = None
+    effect: CueEffectChannel | None = None
+
+
+class CharacterCueData(CamelModel):
+    """character.cue 负载：一次回答中的单个表演节拍。"""
+
+    cue_id: str
+    run_id: str | None = None
+    message_id: str | None = None
+    source: CueSource
+    channels: CueChannels
+    sync: CueSync
+    sentence_index: int | None = None  # 1-based；sentence_boundary 时必填
+    priority: int = Field(ge=0, le=100)  # reply 来源服务端定值，模型不可指定
+    interrupt_policy: CueInterruptPolicy
+    ttl_ms: int = Field(ge=0)  # 从信封 ts 起算，过期不补演
+
+
+# ---------------------------------------------------------------------------
 # 事件类型常量与负载注册表（与 TS 侧 EVENT_TYPES / COMMAND_TYPES 一致）
 # ---------------------------------------------------------------------------
 COMMAND_TYPES = {
@@ -320,6 +393,7 @@ EVENT_TYPES = {
     "tool.call.end": "tool.call.end",
     "emotion": "emotion",
     "state.change": "state.change",
+    "character.cue": "character.cue",
 }
 
 COMMAND_DATA_MODELS: dict[str, type[CamelModel]] = {
@@ -348,4 +422,5 @@ EVENT_DATA_MODELS: dict[str, type[CamelModel]] = {
     "tool.call.end": ToolCallEndData,
     "emotion": EmotionData,
     "state.change": StateChangeData,
+    "character.cue": CharacterCueData,
 }
