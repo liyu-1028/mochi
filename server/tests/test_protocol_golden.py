@@ -15,9 +15,11 @@ import pytest
 from pydantic import ValidationError
 
 from mochi_server.events import (
+    ACTION_CHANNELS,
     COMMAND_DATA_MODELS,
     EVENT_DATA_MODELS,
     PROTOCOL_VERSION,
+    SEMANTIC_ACTIONS,
     CharacterState,
     Emotion,
     TextDeltaData,
@@ -140,3 +142,37 @@ def test_tool_confirm_decision_enum_and_default() -> None:
 
     with pytest.raises(ValidationError):
         ToolConfirmData.model_validate({"runId": "r1", "toolCallId": "tc1", "decision": "maybe"})
+
+
+# ---------------------------------------------------------------------------
+# 语义动作注册表（M-A，协议规范 §11）：常量 vs 共享夹具
+# TS 侧对应测试：packages/protocol/test/constants.test.ts
+# ---------------------------------------------------------------------------
+
+SEMANTIC_FIXTURE = GOLDEN_DIR / "semantic-actions.json"
+
+
+def _load_semantic_fixture() -> dict:
+    with SEMANTIC_FIXTURE.open(encoding="utf-8") as f:
+        return json.load(f)
+
+
+def test_semantic_actions_match_fixture() -> None:
+    """SEMANTIC_ACTIONS 与共享夹具逐项一致（顺序敏感）。"""
+    fixture = _load_semantic_fixture()
+    assert list(SEMANTIC_ACTIONS) == fixture["semanticActions"]
+
+
+def test_action_channels_match_fixture() -> None:
+    """ACTION_CHANNELS 与共享夹具逐项一致（顺序敏感）。"""
+    fixture = _load_semantic_fixture()
+    assert list(ACTION_CHANNELS) == fixture["actionChannels"]
+
+
+def test_semantic_actions_constraints() -> None:
+    """词表约束：idle_neutral 必在（全链路兜底终点）、id 均为 snake_case。"""
+    assert "idle_neutral" in SEMANTIC_ACTIONS
+    import re
+
+    for action_id in SEMANTIC_ACTIONS:
+        assert re.fullmatch(r"[a-z][a-z0-9_]*", action_id), action_id

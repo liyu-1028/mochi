@@ -55,6 +55,32 @@ class CharacterState(StrEnum):
     SLEEPING = "sleeping"
 
 
+# ---------------------------------------------------------------------------
+# 语义动作注册表（M-A，角色行为运行时）
+# ---------------------------------------------------------------------------
+# 白名单词表：skin manifest `actions` 字段与后续 character.cue 事件共用的
+# 动作 id 集合。皮肤只需实现子集，未实现的沿 fallback 链降级到 idle_neutral。
+# 双端镜像：packages/protocol/src/index.ts；共享夹具：testdata/semantic-actions.json。
+# 语义动作 id 集合（TS 侧 `SemanticActionId`）
+SEMANTIC_ACTIONS = (
+    "idle_neutral",
+    "look_around",
+    "think",
+    "listen",
+    "wave",
+    "nod",
+    "shake_head",
+    "celebrate",
+    "comfort",
+    "surprised",
+    "stretch",
+    "doze",
+)
+
+# 动作通道（调研报告 §8.3）；M-A 仅 face/body/effect 可执行，其余预留
+ACTION_CHANNELS = ("face", "body", "locomotion", "voice", "effect")
+
+
 class ErrorCode(StrEnum):
     """标准化错误码（规范文档 §7）。"""
 

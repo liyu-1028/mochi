@@ -215,6 +215,21 @@ run.finished(reason: "cancelled")   ← 已输出的 delta 前端保留展示
 - 多会话并发的 run 调度策略（M1）
 - 语音流（ASR 音频上行 / TTS 音频下行走独立通道，M1 另行规范）
 
+## 11. 语义动作注册表（M-A，共享词表）
+
+> 严格说不是事件，而是后续协议扩展（`character.cue`）与 skin manifest `actions` 字段
+> 共用的白名单词表；因双端镜像与黄金夹具机制与本协议一致，登记于此。
+
+- **`SEMANTIC_ACTIONS`**（12 个，snake_case）：`idle_neutral` / `look_around` / `think` /
+  `listen` / `wave` / `nod` / `shake_head` / `celebrate` / `comfort` / `surprised` /
+  `stretch` / `doze`；
+- **`ACTION_CHANNELS`**：`face` / `body` / `locomotion` / `voice` / `effect`
+  （首版 face/body/effect 可执行，其余预留）；
+- 共享夹具 `packages/protocol/testdata/semantic-actions.json`，双端测试各自校验常量与夹具一致
+  （TS：`packages/protocol/test/constants.test.ts`；Python：`server/tests/test_protocol_golden.py`）；
+- 白名单铁律：模型永远只能选择皮肤声明为 `agentSelectable: true` 的动作 id；
+  皮肤未实现的动作沿 fallback 链降级，链走死落 `idle_neutral`。
+
 ## 变更记录
 
 | 版本 | 日期       | 变更                                                                                                                               |
@@ -223,3 +238,4 @@ run.finished(reason: "cancelled")   ← 已输出的 delta 前端保留展示
 | 0.1  | 2026-08-03 | 类型收窄（线上格式不变）：`usage`/`client`/`server` 结构化为 UsageInfo/ClientInfo/ServerInfo；`tool.call.start` 的 `args` 双端必填 |
 | 0.1  | 2026-08-18 | additive（§9.1，功能清单 6.5）：新增客户端命令 `tool.confirm`（第 6 类）；`tool.call.start` 增可选字段 `requiresConfirmation`      |
 | 0.1  | 2026-08-06 | 错误码表新增 `ERR_MODEL_QUOTA`（账户余额/配额不足）                                                                                |
+| 0.1  | 2026-09-27 | additive（§9.1，M-A）：新增 §11 语义动作注册表（`SEMANTIC_ACTIONS` 12 项 + `ACTION_CHANNELS`），无新事件/字段                      |

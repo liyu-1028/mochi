@@ -1,0 +1,17 @@
+{
+  "semanticActions": [
+    "idle_neutral",
+    "look_around",
+    "think",
+    "listen",
+    "wave",
+    "nod",
+    "shake_head",
+    "celebrate",
+    "comfort",
+    "surprised",
+    "stretch",
+    "doze"
+  ],
+  "actionChannels": ["face", "body", "locomotion", "voice", "effect"]
+}

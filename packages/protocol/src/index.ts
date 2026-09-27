@@ -140,6 +140,33 @@ export const CHARACTER_STATES = [
 ] as const;
 export type CharacterState = (typeof CHARACTER_STATES)[number];
 
+// ---------------------------------------------------------------------------
+// 语义动作注册表（M-A，角色行为运行时）
+// ---------------------------------------------------------------------------
+// 白名单词表：skin manifest `actions` 字段与后续 character.cue 事件共用的
+// 动作 id 集合。皮肤只需实现子集，未实现的沿 fallback 链降级到 idle_neutral。
+// 双端镜像：server/src/mochi_server/events.py；共享夹具：testdata/semantic-actions.json。
+
+export const SEMANTIC_ACTIONS = [
+  "idle_neutral",
+  "look_around",
+  "think",
+  "listen",
+  "wave",
+  "nod",
+  "shake_head",
+  "celebrate",
+  "comfort",
+  "surprised",
+  "stretch",
+  "doze",
+] as const;
+export type SemanticActionId = (typeof SEMANTIC_ACTIONS)[number];
+
+/** 动作通道（调研报告 §8.3）；M-A 仅 face/body/effect 可执行，其余预留 */
+export const ACTION_CHANNELS = ["face", "body", "locomotion", "voice", "effect"] as const;
+export type ActionChannel = (typeof ACTION_CHANNELS)[number];
+
 /** 标准化错误码（规范文档 §7） */
 export const ERROR_CODES = {
   VersionMismatch: "ERR_VERSION_MISMATCH",
