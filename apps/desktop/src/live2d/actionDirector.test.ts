@@ -224,6 +224,22 @@ describe("省电降档", () => {
         .accepted,
     ).toBe(true);
   });
+
+  it("reply 来源豁免省电与打断守卫（M-C）：回答节拍是播报期表演本体", () => {
+    const state = createDirectorState();
+    const speaking = ctx({ speaking: true, decorationsPaused: true });
+    const replyCue = cue({ source: "reply", priority: 45 });
+    expect(submitCue(state, replyCue, speaking, T0).accepted).toBe(true);
+  });
+
+  it("其他来源仍受守卫约束：speaking 期间 reply 之外的低优先级被拒（零回归锚点）", () => {
+    const state = createDirectorState();
+    const speaking = ctx({ speaking: true });
+    expect(submitCue(state, cue({ source: "reflex", priority: 45 }), speaking, T0)).toEqual({
+      accepted: false,
+      reason: "busy_guard",
+    });
+  });
 });
 
 describe("非法输入", () => {

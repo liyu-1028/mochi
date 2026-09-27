@@ -17,10 +17,22 @@ import { voiceEvents } from "../store/voiceEvents";
 interface TTSState {
   playing: boolean;
   engine: string | null;
+  /** 播报上下文（M-C）：cueScheduler 的句对齐基准；playing=false 时仍保留末次值 */
+  speechText: string;
+  speechStartedAt: number;
+  speechDurationMs: number | null;
 }
 
+const TTS_INITIAL = {
+  playing: false,
+  engine: null,
+  speechText: "",
+  speechStartedAt: 0,
+  speechDurationMs: null,
+};
+
 /** CharacterStage 据此把播报期角色态视为 talking（服务端 text.end 后即 idle）。 */
-export const useTTSState = create<TTSState>(() => ({ playing: false, engine: null }));
+export const useTTSState = create<TTSState>(() => ({ ...TTS_INITIAL }));
 
 /** 播放令牌：stop 后使在途合成失效，避免停播后被迟到音频复活。 */
 let session = 0;
@@ -32,7 +44,6 @@ export function stopSpeaking(): void {
   ttsPlayer.stop();
   useTTSState.setState({ playing: false, engine: null });
 }
-
 /** 合成并播报全文；设置面板试听按钮共用。失败一律静默降级。 */
 export async function speakText(text: string): Promise<void> {
   const token = ++session;
@@ -46,12 +57,25 @@ export async function speakText(text: string): Promise<void> {
   if (!result || token !== session) return;
   if (!result.audio) return; // 204：静音/纯文本降级 → 不出声、不报错
 
+  // 播报上下文（M-C）：先记开始时刻与文本；真实时长由 onStarted（解码后）补——
+  // 它在 play() 内部先于返回值触发，故用局部变量中转
+  const startedAt = Date.now();
+  let durationMs: number | null = null;
+  ttsPlayer.onStarted = (d) => {
+    durationMs = d;
+  };
   const started = await ttsPlayer.play(result.audio);
   if (!started || token !== session) {
     if (token === session) stopSpeaking();
     return;
   }
-  useTTSState.setState({ playing: true, engine: result.engine });
+  useTTSState.setState({
+    playing: true,
+    engine: result.engine,
+    speechText: text,
+    speechStartedAt: startedAt,
+    speechDurationMs: durationMs,
+  });
 }
 
 export function useTTS(): void {

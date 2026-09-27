@@ -119,12 +119,15 @@ function decide(
   if ((state.cooldownUntil[cue.actionId] ?? 0) > now) {
     return { accepted: false, reason: "cooldown" };
   }
-  // 省电降档：仅系统级信息性 cue 放行（装饰性动作暂停）
-  if (ctx.decorationsPaused && cue.priority < BUSY_GUARD_PRIORITY) {
+  // 省电降档：仅系统级信息性 cue 放行（装饰性动作暂停）。
+  // reply 节拍豁免：它是回答本身的表演（M-C），不是装饰，低帧率下仍应演出
+  if (ctx.decorationsPaused && cue.priority < BUSY_GUARD_PRIORITY && cue.source !== "reply") {
     return { accepted: false, reason: "power_save" };
   }
-  // 打断守卫：说话/拖拽期间，低优先级不得打扰（直接拒绝，不排队）
-  if (isBusy(ctx) && cue.priority < BUSY_GUARD_PRIORITY) {
+  // 打断守卫：说话/拖拽期间，低优先级不得打扰（直接拒绝，不排队）。
+  // reply 节拍豁免：它就发生在播报期内、由服务端按句对齐（M-C C3），
+  // 是「说话时的表演」而非打断；其余来源仍受守卫约束
+  if (isBusy(ctx) && cue.priority < BUSY_GUARD_PRIORITY && cue.source !== "reply") {
     return { accepted: false, reason: "busy_guard" };
   }
   return { accepted: true, channel: cue.channel, startImmediately: false };

@@ -12,6 +12,12 @@ export class TtsPlayer {
   private samples: Float32Array<ArrayBuffer> | null = null;
   /** 自然播完回调（stop() 主动停不触发）。 */
   onEnded: (() => void) | null = null;
+  /**
+   * 播报开始回调（M-C）：解码成功后带真实音频时长调用；
+   * cueScheduler 据此把 sentenceIndex 映射为播报进度时间点。
+   * 失败/静音降级不触发（调用方以估算时长兑底）。
+   */
+  onStarted: ((durationMs: number) => void) | null = null;
 
   /** 用户手势时调用解锁（App 根节点 pointerdown），幂等。 */
   unlock(): void {
@@ -45,6 +51,7 @@ export class TtsPlayer {
       this.source = source;
       this.analyser = analyser;
       this.samples = new Float32Array(analyser.fftSize);
+      this.onStarted?.(Math.round(buffer.duration * 1000));
       source.start();
       return true;
     } catch {

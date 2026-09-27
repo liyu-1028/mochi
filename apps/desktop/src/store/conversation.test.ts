@@ -44,6 +44,8 @@ beforeEach(() => {
     lastSpokenText: null,
     lastTextEndAt: 0,
     lastFinishReason: null,
+    pendingCues: [],
+    cueRunIds: [],
   });
 });
 
@@ -439,5 +441,80 @@ describe("黄金样例回放（M1-S4：确认流全帧驱动 UI 状态机）", (
     expect(s.toolCalls[0]).toMatchObject({ name: "fs.write_text", status: "success" });
     expect(s.characterState).toBe("idle");
     expect(s.messages.at(-1)?.text).toContain("日报"); // 终稿气泡
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 表演节拍（M-C）：character.cue 到达规则与 emotion 互斥
+// ---------------------------------------------------------------------------
+
+const CUE = {
+  cueId: "c-1",
+  runId: "r-1",
+  messageId: "m-1",
+  source: "reply",
+  channels: { body: { actionId: "comfort" } },
+  sync: "sentence_boundary",
+  sentenceIndex: 1,
+  priority: 45,
+  interruptPolicy: "replace",
+  ttlMs: 15000,
+} as const;
+
+describe("character.cue 到达规则（M-C）", () => {
+  it("run 内到达 → 入 pendingCues 并记录 runId", () => {
+    const { applyEvent } = useConversation.getState();
+    applyEvent(ev("run.started", { runId: "r-1", sessionId: "s" }));
+    applyEvent(ev("character.cue", { ...CUE }));
+    const { pendingCues, cueRunIds } = useConversation.getState();
+    expect(pendingCues).toHaveLength(1);
+    expect(pendingCues[0].cue.cueId).toBe("c-1");
+    expect(cueRunIds).toContain("r-1");
+  });
+
+  it("run.finished 后到达（迟到）→ 直接丢弃，不补演", () => {
+    const { applyEvent } = useConversation.getState();
+    applyEvent(ev("run.started", { runId: "r-1", sessionId: "s" }));
+    applyEvent(ev("run.finished", { runId: "r-1", reason: "complete" }));
+    applyEvent(ev("character.cue", { ...CUE }));
+    expect(useConversation.getState().pendingCues).toHaveLength(0);
+  });
+
+  it("新回合开始 → 清空上一回合未消费的节拍", () => {
+    const { applyEvent } = useConversation.getState();
+    applyEvent(ev("run.started", { runId: "r-1", sessionId: "s" }));
+    applyEvent(ev("character.cue", { ...CUE }));
+    applyEvent(ev("run.started", { runId: "r-2", sessionId: "s" }));
+    expect(useConversation.getState().pendingCues).toHaveLength(0);
+  });
+
+  it("run.error → 未消费节拍作废", () => {
+    const { applyEvent } = useConversation.getState();
+    applyEvent(ev("run.started", { runId: "r-1", sessionId: "s" }));
+    applyEvent(ev("character.cue", { ...CUE }));
+    applyEvent(
+      ev("run.error", {
+        runId: "r-1",
+        error: { code: "ERR_NETWORK", message: "x", retryable: true },
+      }),
+    );
+    expect(useConversation.getState().pendingCues).toHaveLength(0);
+  });
+});
+
+describe("reply cue 与 emotion 互斥（M-C）", () => {
+  it("发过 cue 的 run：迟到 emotion 不覆盖", () => {
+    const { applyEvent } = useConversation.getState();
+    applyEvent(ev("run.started", { runId: "r-1", sessionId: "s" }));
+    applyEvent(ev("character.cue", { ...CUE }));
+    applyEvent(ev("run.finished", { runId: "r-1", reason: "complete" }));
+    applyEvent(ev("emotion", { runId: "r-1", emotion: "sad", intensity: 0.75 }));
+    expect(useConversation.getState().emotion).toBeNull();
+  });
+
+  it("未发过 cue 的 run：emotion 正常生效（兜底路径零回归）", () => {
+    const { applyEvent } = useConversation.getState();
+    applyEvent(ev("emotion", { runId: "r-other", emotion: "sad", intensity: 0.75 }));
+    expect(useConversation.getState().emotion).toBe("sad");
   });
 });

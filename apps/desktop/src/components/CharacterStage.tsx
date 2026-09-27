@@ -77,9 +77,11 @@ function opaqueRatio(mask: AlphaMask): number {
  * DEV 观测钩子（M-B B4/实测断言用）：挂到 window.__mochiDirector（仅 dev 构建），
  * GUI 自动化测试据此断言 playMotion 确实发生（避免“日志 accept 但未播放”的盲区）。
  */
-export const devHook: { lastPlayMotion: { group: string; at: number } | null } = {
-  lastPlayMotion: null,
-};
+export const devHook: {
+  lastPlayMotion: { group: string; at: number } | null;
+  /** M-C：最近提交到 director 的 reply 节拍（端到端实测断言用） */
+  lastReplyCue: { actionId: string; channel: string; at: number } | null;
+} = { lastPlayMotion: null, lastReplyCue: null };
 import {
   resolveAnimation,
   EMOTION_PRESETS,
@@ -104,6 +106,15 @@ import {
   TAP_WINDOW_MS,
   HOLD_THRESHOLD_MS,
 } from "../live2d/reflexRules";
+import {
+  beginSpeech,
+  createCueScheduler,
+  dueCues as dueReplyCues,
+  endSpeech,
+  resetCues as resetReplyCues,
+  submitCue as scheduleReplyCue,
+  type CueConverter,
+} from "../cue/cueScheduler";
 import { resolveAction, type ResolvedAction } from "../live2d/actionRegistry";
 import {
   createSampleWindow,
@@ -235,6 +246,11 @@ export function CharacterStage({
   const emotion = useConversation((s) => s.emotion);
   const lastTextDeltaAt = useConversation((s) => s.lastTextDeltaAt);
   const lastTextDelta = useConversation((s) => s.lastTextDelta);
+  // 表演节拍（M-C）：服务端 character.cue 队列 + 播报上下文（句对齐基准）
+  const pendingCues = useConversation((s) => s.pendingCues);
+  const speechText = useTTSState((s) => s.speechText);
+  const speechStartedAt = useTTSState((s) => s.speechStartedAt);
+  const speechDurationMs = useTTSState((s) => s.speechDurationMs);
   // 省电模式（2.6）：钉最低档 + 暂停装饰动画；事实源 sidecar，跨窗口同步
   const powerSave = useSettings((s) => s.powerSave);
 
@@ -244,6 +260,13 @@ export function CharacterStage({
   useEffect(() => {
     if (import.meta.env.DEV) {
       (window as unknown as { __mochiDirector?: typeof devHook }).__mochiDirector = devHook;
+      // M-C 调度器快照（端到端实测排查用）
+      (window as unknown as { __mochiCueDebug?: () => unknown }).__mochiCueDebug = () => ({
+        pending: cueSchedulerRef.current.pending.map((p) => p.cue.cueId),
+        hasSpeech: cueSchedulerRef.current.speech !== null,
+        starts: cueSchedulerRef.current.speech?.starts ?? null,
+        fired: [...cueSchedulerRef.current.fired],
+      });
     }
   }, []);
 
@@ -280,6 +303,75 @@ export function CharacterStage({
     speaking: ttsPlaying,
     dragging: holdActiveAtRef.current !== null && Date.now() - holdActiveAtRef.current < 2000,
     decorationsPaused: decorationsPaused(powerLevelRef.current),
+  };
+
+  // ---------------------------------------------------------------------------
+  // 表演节拍调度（M-C C3）：character.cue → 按 sync 与 TTS 对齐 → director
+  // ---------------------------------------------------------------------------
+  const cueSchedulerRef = useRef(createCueScheduler());
+
+  // 新回合开始 → 作废上一回合未到期的节拍（旧 TTS 已被 stopSpeaking 停止）。
+  // 注意：run 结束（activeRunId→null）时【不】作废——句对齐节拍要随 TTS 续播；
+  // 「迟到不补演」在到达时判定（store），已入调度器的随新回合 reset。
+  // 【声明顺序约束】本 effect 必须先于下方 drain effect：run.started 与
+  // character.cue 同批到达时，effects 按声明序执行——先 reset 旧回合，
+  // 再排水新 cue，否则刚入队的 cue 会被误清（实测 2026-09-28）
+  const activeRunId = useConversation((s) => s.activeRunId);
+  const prevRunIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (activeRunId !== null && activeRunId !== prevRunIdRef.current) {
+      resetReplyCues(cueSchedulerRef.current);
+    }
+    prevRunIdRef.current = activeRunId;
+  }, [activeRunId]);
+
+  // 队列排水：新到达的 cue 提交调度器（ttl 到达即校验，过期丢弃）；
+  // 已入调度器的从 store 移除（保持「待消费队列」语义干净）
+  const consumePendingCues = useConversation((s) => s.consumePendingCues);
+  useEffect(() => {
+    if (pendingCues.length === 0) return;
+    for (const { cue, ts } of pendingCues) {
+      scheduleReplyCue(cueSchedulerRef.current, cue, ts, Date.now());
+    }
+    consumePendingCues(pendingCues.length);
+  }, [pendingCues, consumePendingCues]);
+
+  // 播报上下文：开始（含真实/估算时长）→ beginSpeech；结束 → speech_end 提前到期
+  const speechKeyRef = useRef(0);
+  useEffect(() => {
+    if (ttsPlaying && speechStartedAt > 0 && speechStartedAt !== speechKeyRef.current) {
+      speechKeyRef.current = speechStartedAt;
+      beginSpeech(cueSchedulerRef.current, speechText, speechDurationMs, Date.now());
+    } else if (!ttsPlaying && speechKeyRef.current !== 0) {
+      endSpeech(cueSchedulerRef.current, Date.now());
+      speechKeyRef.current = 0;
+    }
+  }, [ttsPlaying, speechStartedAt, speechText, speechDurationMs]);
+
+  /** 协议 cue → DirectorCue：经 buildCue 解析皮肤声明（冷却/时长），
+   *  覆盖协议定值（cueId/priority/interruptPolicy/ttl）。帧闭包经 ref 读取。 */
+  const cueConvertRef = useRef<CueConverter>(() => null);
+  cueConvertRef.current = (proto, channel, now) => {
+    const skinNow = skinRef.current;
+    const actionId =
+      channel === "face"
+        ? (proto.channels.face?.emotion ?? "neutral")
+        : (proto.channels.body?.actionId ?? "idle_neutral");
+    const base = buildCue(actionId, {
+      channel,
+      source: "reply",
+      resourceType: skinNow?.resourceType ?? "static",
+      now,
+      actions: skinNow?.actions,
+      ttlMs: proto.ttlMs,
+      priority: proto.priority,
+    });
+    return {
+      ...base,
+      cueId: `${proto.cueId}:${channel}`,
+      interruptPolicy: proto.interruptPolicy,
+      createdAt: now,
+    };
   };
 
   /** 反射入口：批量提交 cue（dev 下打点，B4 观测） */
@@ -611,6 +703,11 @@ export function CharacterStage({
       // 不再依赖 tick.started）；播完自动回落 idle 组，状态 loop 接管
       const nowMs = Date.now();
       tickDirector(directorRef.current, directorCtxRef.current, nowMs);
+      // 表演节拍（M-C）：到期的 reply cue 提交 director（与反射同一条提交路径）
+      for (const c of dueReplyCues(cueSchedulerRef.current, nowMs, cueConvertRef.current)) {
+        submitCue(directorRef.current, c, directorCtxRef.current, nowMs);
+        devHook.lastReplyCue = { actionId: c.actionId, channel: c.channel, at: nowMs };
+      }
       const skinNow = skinRef.current;
       const bodyAction = activeOn(directorRef.current, "body");
       if (bodyAction !== null && bodyHandledRef.current !== bodyAction.cue.cueId && skinNow) {
@@ -687,9 +784,13 @@ export function CharacterStage({
       let tr = base;
       const plan = staticPlanRef.current;
 
-      // Action Director 推进（M-B）：结算 one-shot 到期/出队
+      // Action Director 推进（M-B）：结算 one-shot 到期/出队；
+      // 表演节拍（M-C）：到期的 reply cue 提交 director
       const nowMs = Date.now();
       tickDirector(directorRef.current, directorCtxRef.current, nowMs);
+      for (const c of dueReplyCues(cueSchedulerRef.current, nowMs, cueConvertRef.current)) {
+        submitCue(directorRef.current, c, directorCtxRef.current, nowMs);
+      }
 
       if (!plan?.sleeping && !plan?.error) {
         gazeTargetRef.current = stageGazeTarget();

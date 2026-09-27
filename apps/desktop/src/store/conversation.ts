@@ -4,7 +4,13 @@
  * 纯状态逻辑（不持有 WebSocket 实例），便于 vitest 直测。
  * 未知事件类型一律忽略（协议 §1.3 前向兼容）。
  */
-import { EVENT_TYPES, type CharacterState, type Emotion, type ServerEvent } from "@mochi/protocol";
+import {
+  EVENT_TYPES,
+  type CharacterCueData,
+  type CharacterState,
+  type Emotion,
+  type ServerEvent,
+} from "@mochi/protocol";
 import { create } from "zustand";
 import type { ConnectionStatus } from "../ws/WebSocketClient";
 
@@ -33,6 +39,12 @@ export interface ToolCallView {
 
 /** 内存中保留的消息上限（M1-S1）：超出裁掉最旧，历史事实源在 sidecar SQLite。 */
 export const MAX_IN_MEMORY_MESSAGES = 40;
+
+/** 记录「发过 reply cue」的 run 上限（迟到 emotion 互斥判定用，M-C）。 */
+export const MAX_CUE_RUN_IDS = 20;
+
+/** 排队中的 cue 上限（单回合服务的节拍数；超出丢弃防膨胀）。 */
+export const MAX_PENDING_CUES = 32;
 
 /** 纯函数：追加一条消息并裁剪到最近 max 条（保持时间正序）。 */
 export function appendCapped(
@@ -99,6 +111,12 @@ export interface ConversationState {
   lastSpokenText: string | null;
   lastTextEndAt: number;
   lastFinishReason: string | null;
+  /** 表演节拍（M-C）：run 内到达、待 cueScheduler 消费的 character.cue 队列 */
+  pendingCues: Array<{ cue: CharacterCueData; ts: number }>;
+  /** 消费头部 n 条已入调度器的节拍（CharacterStage 排水后调用，保持队列语义干净） */
+  consumePendingCues: (n: number) => void;
+  /** 发过 reply cue 的 run（迟到 emotion 互斥；新回合不清空，容量截断） */
+  cueRunIds: string[];
 
   setStatus: (status: ConnectionStatus) => void;
   addUserMessage: (text: string) => void;
@@ -126,6 +144,10 @@ export const useConversation = create<ConversationState>()((set, get) => ({
   lastSpokenText: null,
   lastTextEndAt: 0,
   lastFinishReason: null,
+  pendingCues: [],
+  cueRunIds: [],
+
+  consumePendingCues: (n) => set((s) => (n > 0 ? { pendingCues: s.pendingCues.slice(n) } : {})),
 
   setStatus: (status) => set({ status }),
 
@@ -164,6 +186,7 @@ export const useConversation = create<ConversationState>()((set, get) => ({
           notice: null,
           toolCalls: [], // 新回合清空上一回合的 chip（M1-S4）
           pendingConfirm: null,
+          pendingCues: [], // 新回合清空上一回合未消费的节拍（M-C）
         });
         break;
 
@@ -177,6 +200,8 @@ export const useConversation = create<ConversationState>()((set, get) => ({
           lastFinishReason: (data.reason as string) ?? null,
           toolCalls: finalizeToolCalls(s.toolCalls),
           pendingConfirm: null, // 回合终止（如 cancel）→ 确认框必须消失
+          // 注意：pendingCues 不清——句对齐节拍在 run.finished 后仍随 TTS 播放；
+          // 「迟到」判定在到达时做（CharacterCue 分支），不在终态时做
         }));
         break;
 
@@ -190,6 +215,7 @@ export const useConversation = create<ConversationState>()((set, get) => ({
           isSpeaking: false,
           pendingConfirm: null,
           toolCalls: finalizeToolCalls(s.toolCalls),
+          pendingCues: [], // 回合异常终止 → 未消费节拍作废
         }));
         break;
       }
@@ -238,9 +264,30 @@ export const useConversation = create<ConversationState>()((set, get) => ({
         set({ characterState: data.state as CharacterState });
         break;
 
-      case EVENT_TYPES.Emotion:
+      case EVENT_TYPES.Emotion: {
+        // 互斥（M-C 验收）：同一 run 收到过 reply cue → 迟到 emotion 分类不覆盖
+        //（cue 表演优先；服务端已同规则双保险）
+        const emotionRunId = typeof data.runId === "string" ? data.runId : null;
+        if (emotionRunId !== null && get().cueRunIds.includes(emotionRunId)) break;
         set({ emotion: data.emotion as Emotion });
         break;
+      }
+
+      case EVENT_TYPES.CharacterCue: {
+        // 迟到丢弃（协议 §5.6）：run.finished 后到达（activeRunId 已清）→ 不补演；
+        // ttl 到期丢弃在 cueScheduler.submitCue 到达时校验
+        const s = get();
+        if (!s.activeRunId) break;
+        const cue = data as unknown as CharacterCueData;
+        const cueRunId = typeof cue.runId === "string" ? cue.runId : s.activeRunId;
+        set({
+          pendingCues: [...s.pendingCues.slice(-(MAX_PENDING_CUES - 1)), { cue, ts: event.ts }],
+          cueRunIds: s.cueRunIds.includes(cueRunId)
+            ? s.cueRunIds
+            : [...s.cueRunIds.slice(-(MAX_CUE_RUN_IDS - 1)), cueRunId],
+        });
+        break;
+      }
 
       case EVENT_TYPES.ToolCallStart: {
         // 工具调用 chip（M1-S4，6.5/6.6）：requiresConfirmation → 弹确认框
