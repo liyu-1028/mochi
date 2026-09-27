@@ -62,6 +62,8 @@ _TAG_ATTEMPT = re.compile(r"\[\[\s*cue", re.IGNORECASE)
 _ATTEMPT_LITERAL = "[[cue"
 #: 完整标记：[[cue:id]]（id 限 [a-z_]，容忍两侧空白；大小写敏感——词表全小写）
 _TAG_COMPLETE = re.compile(r"\[\[\s*cue\s*:\s*([a-z_]{1,32})\s*\]\]")
+#: 流末残骸的最小标记语法前缀（[[cue:id——用于只丢残骸、保住其后正文）
+_MALFORMED_PREFIX = re.compile(r"\[\[\s*cue\s*:\s*[A-Za-z_]*")
 
 #: 白名单丢弃原因（日志计数键）
 _DROP_UNKNOWN = "unknown_action"
@@ -132,11 +134,30 @@ class CueStreamParser:
         out: list[ParserOutput] = []
         if self._hold:
             if _TAG_ATTEMPT.match(self._hold):
-                self._count(_DROP_MALFORMED)  # 截断到流末仍是 cue 尝试 → 丢弃（零泄漏）
+                out.extend(self._emit_text(self._drop_malformed_hold()))
             else:
                 out.extend(self._emit_text(self._hold))
             self._hold = ""
         return out
+
+    def _drop_malformed_hold(self) -> str:
+        """畸形标记残骸的丢弃策略：只丢残骸、尽量保留其后正文。
+
+        流末仍未闭合的标记会一直占用 hold——若整段丢弃，标记后的正常回复
+        内容会一并丢失（用户看到回复被截断，实测 2026-09-28）。零泄漏红线
+        不变：控制序列本身绝不外泄，只尽可能多保住正文：
+        - 含 ``]]``：丢弃到 ``]]``（含），如 ``[[cue:BAD]]正文`` → ``正文``；
+        - 无 ``]]``：丢弃标记语法前缀（``[[cue:id``），如
+          ``[[cue:sad我很难过`` → ``我很难过``；
+        - 连语法都不完整（``[[cue``）：整段丢弃（无法可靠切分）。
+        """
+        end = self._hold.find("]]")
+        if end >= 0:
+            self._count(_DROP_MALFORMED)
+            return self._hold[end + 2 :]
+        prefix = _MALFORMED_PREFIX.match(self._hold)
+        self._count(_DROP_MALFORMED)
+        return self._hold[prefix.end() :] if prefix else ""
 
     # -- 内部 ---------------------------------------------------------------
 

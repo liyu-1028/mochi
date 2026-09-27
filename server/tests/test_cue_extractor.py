@@ -100,6 +100,28 @@ def test_malformed_tags_never_leak(malformed: str) -> None:
     assert _cues(outs) == []
 
 
+def test_unterminated_tag_keeps_trailing_text() -> None:
+    """流末未闭合标记：只丢标记残骸，其后正文保留（审查修复 2026-09-28）。
+
+    cues 默认 auto——小模型输出畸形标记是常态，整段丢弃会造成回复截断。
+    """
+    p = CueStreamParser("r", "m")
+    outs = p.feed("第一句。[[cue:sad 我很难过，因为没解决。")
+    outs += p.flush()
+    assert _texts(outs) == "第一句。 我很难过，因为没解决。"
+    assert _cues(outs) == []  # 不产生 cue（id 非法）
+    assert p.dropped.get("malformed_tag") == 1
+
+
+def test_bad_id_with_close_keeps_trailing_text() -> None:
+    """非法 id 且已闭合：丢到 ]] 为止，其后正文保留。"""
+    p = CueStreamParser("r", "m")
+    outs = p.feed("正文[[cue:BAD]]保留我")
+    outs += p.flush()
+    assert _texts(outs) == "正文保留我"
+    assert _cues(outs) == []
+
+
 def test_extra_bracket_tolerated() -> None:
     """[[ cue : happy ]]]：宽容解析为合法 cue，仅多余 ] 字符放行（标记本体零泄漏）。"""
     p = CueStreamParser("r", "m")
