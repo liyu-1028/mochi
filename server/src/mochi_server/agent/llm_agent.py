@@ -138,6 +138,15 @@ class LLMAgentService(AgentService):
             logger.exception("读取会话历史失败，降级为单轮：session_id=%s", session_id)
             return []
 
+    async def _persist_assistant_only(self, session_id: str, reply: str) -> None:
+        """proactive 回合落盘（M-D D4）：只记录真正说出的 assistant utterance。"""
+        if self._store is None:
+            return
+        try:
+            await self._store.append_message(session_id, "assistant", reply)
+        except Exception:
+            logger.exception("主动回复落盘失败（不影响本回合）：session_id=%s", session_id)
+
     async def _persist_turn(self, session_id: str, user_text: str, reply: str) -> None:
         if self._store is None:
             return
@@ -149,16 +158,25 @@ class LLMAgentService(AgentService):
 
     async def run(self, ctx: AgentContext) -> AsyncIterator[AgentEvent]:
         message_id = f"m-{uuid.uuid4().hex[:12]}"
+        proactive = ctx.source == "proactive"
 
-        # 记忆召回（6.4）：按用户输入检索相关记忆，注入 system prompt
+        # 记忆召回（6.4）：按用户输入检索相关记忆，注入 system prompt；
+        # proactive 回合无用户输入（ctx.text 是引擎触发指令），跳过检索
         memory_section = ""
-        if self._memory is not None:
+        if self._memory is not None and not proactive:
             memory_section = await self._memory.recall_for_prompt(ctx.text)
 
         # 多轮拼装（6.2）+ 上下文预算（4.4）：system + 预算内历史 + 本轮 user；
         # 超限自动截断并注入省略标记，长对话不报错、对用户无感
         history = await self._load_history(ctx.session_id)
         effective_system = self._system_prompt + memory_section
+        if proactive:
+            # M-D：触发上下文由引擎生成（不落盘），模型以「主动关心/提醒」
+            # 姿态回复，不假装在回答用户问题
+            effective_system += (
+                "\n\n（当前是你主动开口的时刻：下面这条消息是系统触发的关心/提醒"
+                "上下文，不是用户发言。请用符合你性格的方式自然地说出来。）"
+            )
         if self._tools is not None and self._tools.list_specs():
             effective_system += _TOOL_NUDGE
         if self._cue_enabled:
@@ -176,7 +194,12 @@ class LLMAgentService(AgentService):
         thinking_closed = False
         text_started = False
         parts: list[str] = []
-        cue_parser = CueStreamParser(ctx.run_id, message_id) if self._cue_enabled else None
+        cue_source = "proactive" if proactive else "reply"
+        cue_parser = (
+            CueStreamParser(ctx.run_id, message_id, source=cue_source)
+            if self._cue_enabled
+            else None
+        )
         cue_emitted = False  # 本 run 已发 reply cue → 与迟到 emotion 分类互斥
 
         graph = build_react_graph(
@@ -262,7 +285,10 @@ class LLMAgentService(AgentService):
                                 yield (
                                     "text.delta",
                                     TextDeltaData(
-                                        run_id=ctx.run_id, message_id=message_id, delta=delta
+                                        run_id=ctx.run_id,
+                                        message_id=message_id,
+                                        delta=delta,
+                                        source=ctx.source,
                                     ),
                                 )
                             else:
@@ -277,6 +303,7 @@ class LLMAgentService(AgentService):
                                                 run_id=ctx.run_id,
                                                 message_id=message_id,
                                                 delta=out.text,
+                                                source=ctx.source,
                                             ),
                                         )
                                     else:
@@ -316,7 +343,12 @@ class LLMAgentService(AgentService):
                     parts.append(out.text)
                     yield (
                         "text.delta",
-                        TextDeltaData(run_id=ctx.run_id, message_id=message_id, delta=out.text),
+                        TextDeltaData(
+                            run_id=ctx.run_id,
+                            message_id=message_id,
+                            delta=out.text,
+                            source=ctx.source,
+                        ),
                     )
                 else:
                     cue_emitted = True
@@ -325,11 +357,16 @@ class LLMAgentService(AgentService):
                 logger.info("character.cue 丢弃计数：run_id=%s %s", ctx.run_id, cue_parser.dropped)
 
         full_text = "".join(parts)
-        # 落盘本轮（4.3）：仅完整回合入库，取消/出错不落盘
-        await self._persist_turn(ctx.session_id, ctx.text, full_text)
+        # 落盘本轮（4.3）：仅完整回合入库，取消/出错不落盘；
+        # proactive 只落 assistant（D4 记忆边界：不伪造 user message）
+        if proactive:
+            await self._persist_assistant_only(ctx.session_id, full_text)
+        else:
+            await self._persist_turn(ctx.session_id, ctx.text, full_text)
         # 记忆自动沉淀（6.4，v0.7.1 回退后重开）：fire-and-forget 不阻塞回合；
-        # 开关/每日上限在 MemoryManager 内部闸门
-        self._schedule_extract(ctx.text, full_text)
+        # 开关/每日上限在 MemoryManager 内部闸门；proactive 无用户消息，跳过
+        if not proactive:
+            self._schedule_extract(ctx.text, full_text)
         # 情绪后置（2.5，ADR-0009）：暂存回复供 post_run_events 分类；
         # run 正常走到这里才会补发，取消/出错路径不暂存（无表情变化）。
         # 互斥（M-C 验收）：本 run 已发 reply cue → 跳过后置分类，
@@ -338,7 +375,12 @@ class LLMAgentService(AgentService):
             self._last_reply[ctx.run_id] = full_text
         yield (
             "text.end",
-            TextEndData(run_id=ctx.run_id, message_id=message_id, full_text=full_text),
+            TextEndData(
+                run_id=ctx.run_id,
+                message_id=message_id,
+                full_text=full_text,
+                source=ctx.source,
+            ),
         )
 
         # --- 回到待机 ---
@@ -425,7 +467,16 @@ class LLMAgentService(AgentService):
         events.append(
             ("emotion", EmotionData(run_id=ctx.run_id, emotion=Emotion.NEUTRAL, intensity=0.5))
         )
-        events.append(("text.start", TextStartData(run_id=ctx.run_id, message_id=message_id)))
+        events.append(
+            (
+                "text.start",
+                TextStartData(
+                    run_id=ctx.run_id,
+                    message_id=message_id,
+                    source=getattr(ctx, "source", "user"),
+                ),
+            )
+        )
         return events
 
     @staticmethod

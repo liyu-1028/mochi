@@ -29,6 +29,8 @@ from .agent.registry import AgentFactory
 from .agent.service import AgentService
 from .api import config_router, memory_router, session_router, skin_router, tts_router
 from .api.security import ALLOWED_CORS_ORIGINS, SensitiveDataFilter
+from .attention.bridge import CompanionCoordinator, start_pump_loop
+from .attention.engine import AttentionEngine, settings_from_config
 from .config import AppConfig, load_config
 from .events import (
     EVENT_TYPES,
@@ -37,6 +39,7 @@ from .events import (
     ChatCancelData,
     ChatInterruptData,
     ChatSendData,
+    CompanionSignalData,
     ErrorCode,
     ErrorPayload,
     HelloAckData,
@@ -62,7 +65,7 @@ logger = logging.getLogger(__name__)
 # 休眠永不触发（详见 ADR-0002 D9）。
 _SLEEP_THRESHOLD_S = 300.0
 _BUSINESS_FRAME_TYPES = frozenset(
-    {"hello", "chat.send", "chat.cancel", "chat.interrupt", "tool.confirm"}
+    {"hello", "chat.send", "chat.cancel", "chat.interrupt", "tool.confirm", "companion.signal"}
 )
 
 
@@ -111,6 +114,18 @@ def _setup_file_logging() -> None:
     except OSError:
         # 落盘失败不阻断启动（控制台/丢弃日志仍可工作）
         pass
+
+
+def _resolve_app_config(app: FastAPI) -> AppConfig | None:
+    """取当前生效配置：显式注入优先，其次 registry 持有（热切换后仍最新）。"""
+    if app.state.agent is not None:  # 测试显式注入路径：无 config 语境
+        return None
+    registry = getattr(app.state, "registry", None)
+    if registry is not None and getattr(registry, "_config", None) is not None:
+        cfg = registry._config  # type: ignore[attr-defined]
+        if isinstance(cfg, AppConfig):
+            return cfg
+    return None
 
 
 class RequestLogMiddleware(BaseHTTPMiddleware):
@@ -229,6 +244,22 @@ def create_app(
             ws.send_json,
             error_recovery_delay_s=getattr(app.state, "error_recovery_delay_s", 3.0),
         )
+        # 注意力引擎（M-D）：[agent].attention=auto 才创建协调器；off（默认）
+        # 时 companion.signal 直接忽略——M-C 结束点行为零变更（验收项）
+        coordinator: CompanionCoordinator | None = None
+        pump_task: asyncio.Task[None] | None = None
+        resolved_cfg = _resolve_app_config(app)
+        if resolved_cfg is not None and resolved_cfg.agent.attention == "auto":
+            engine = AttentionEngine(settings_from_config(resolved_cfg.attention))
+            coordinator = CompanionCoordinator(
+                engine,
+                manager,
+                ws.send_json,
+                store=app.state.store,
+                session_id=getattr(app.state, "attention_session_id", "default"),
+            )
+            manager.attach_coordinator(coordinator)
+            pump_task = asyncio.create_task(start_pump_loop(coordinator))
         sleep_threshold_s = getattr(app.state, "sleep_threshold_s", _SLEEP_THRESHOLD_S)
         check_interval_s = min(30.0, sleep_threshold_s)
         handshaken = False
@@ -306,6 +337,18 @@ def create_app(
                     except KeyError:
                         logger.warning("命令缺少 data：%s", msg_type)
 
+                elif msg_type == "companion.signal":
+                    # 陪伴信号（M-D）：off → 忽略（验收：关闭即 M-C 行为）
+                    if not handshaken or coordinator is None:
+                        continue
+                    try:
+                        payload = CompanionSignalData.model_validate(frame["data"])
+                        await coordinator.handle_signal(payload)
+                    except ValidationError:
+                        logger.warning("命令负载校验失败：%s %s", msg_type, frame.get("data"))
+                    except KeyError:
+                        logger.warning("命令缺少 data：%s", msg_type)
+
                 elif msg_type == "tool.confirm":
                     # 危险工具确认（6.5，M1-S4）：唤醒挂起中的回合。
                     # agent_source 可能是实例（显式注入）或零参可调用（registry 热切换）
@@ -354,7 +397,12 @@ def create_app(
                     sleeping = True
 
         except WebSocketDisconnect:
+            if pump_task is not None:
+                pump_task.cancel()
             return
+        finally:
+            if pump_task is not None:
+                pump_task.cancel()
 
     return app
 

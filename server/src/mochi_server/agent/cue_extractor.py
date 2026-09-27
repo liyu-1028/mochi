@@ -88,9 +88,11 @@ class CueStreamParser:
     决策后要么提取、要么放行/丢弃。非线程安全（单事件循环内使用）。
     """
 
-    def __init__(self, run_id: str, message_id: str) -> None:
+    def __init__(self, run_id: str, message_id: str, *, source: str = "reply") -> None:
         self._run_id = run_id
         self._message_id = message_id
+        # cue source（M-D）：用户回复节拍 reply；proactive run 的节拍 proactive
+        self._source = source
         self._hold = ""  # 疑似标记前缀缓存（尚未决策）
         self._sentences_done = 0  # 已完成分句边界数
         self._pending_tail = ""  # 上一段文本末尾的终止符串（跨增量折叠，未确认完成）
@@ -221,7 +223,7 @@ class CueStreamParser:
                     cue_id=f"c-{uuid.uuid4().hex[:12]}",
                     run_id=self._run_id,
                     message_id=self._message_id,
-                    source="reply",
+                    source=self._source,
                     channels=channels,
                     sync=sync,
                     sentence_index=sentence_index,

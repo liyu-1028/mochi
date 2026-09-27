@@ -20,6 +20,7 @@ import contextlib
 import logging
 import time
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any
 
 from ..events import (
@@ -42,6 +43,20 @@ logger = logging.getLogger(__name__)
 _POST_RUN_TIMEOUT_S = 3.0
 
 SendFrame = Callable[[dict[str, Any]], Awaitable[None]]
+
+
+@dataclass(slots=True)
+class ProactiveStart:
+    """主动回合输入（M-D）：引擎意图 → proactive run（无用户输入）。
+
+    text 为触发指令（引擎生成的现场上下文）：发给 LLM 但不落盘为 user
+    message（D4 记忆边界，见 LLMAgentService._persist_assistant_only）。
+    """
+
+    run_id: str
+    session_id: str
+    intent_id: str
+    text: str
 
 
 def _now_ms() -> int:
@@ -72,6 +87,10 @@ class RunManager:
         # error 状态停留时长：足够用户看到出错表情，又不至于卡住（2.2）
         self._error_recovery_delay_s = error_recovery_delay_s
         self._error_recovery_task: asyncio.Task[None] | None = None
+        # 注意力协调器（M-D，可选）：run 活跃/用户消息通知 + proactive 收口记账
+        self._coordinator: object | None = None
+        # 协程通知的后台任务登记（防 GC 中途回收）
+        self._attention_tasks: set[asyncio.Task[None]] = set()
 
     @property
     def has_active_runs(self) -> bool:
@@ -84,7 +103,36 @@ class RunManager:
             logger.warning("重复的 runId，忽略：%s", data.run_id)
             return
         self._cancel_error_recovery()  # 新回合开始，error 表情让位给 thinking
+        self._notify_attention(lambda c: c.notify_user_message())  # 用户消息（M-D）
         self._runs[data.run_id] = asyncio.create_task(self._run_loop(data))
+
+    async def start_proactive_run(self, start: ProactiveStart) -> None:
+        """主动回合（M-D）：引擎意图触发；与用户回合共用生命周期包裹。"""
+        existing = self._runs.get(start.run_id)
+        if existing and not existing.done():
+            logger.warning("重复的主动 runId，忽略：%s", start.run_id)
+            return
+        self._cancel_error_recovery()
+        self._notify_attention(lambda c: c.notify_run_active(True))
+        self._runs[start.run_id] = asyncio.create_task(self._run_loop(start))
+
+    def attach_coordinator(self, coordinator: object) -> None:
+        """挂载注意力协调器（M-D）：未挂载时行为与 M-C 结束点一致。"""
+        self._coordinator = coordinator
+
+    def _notify_attention(self, method: Callable[[object], Any]) -> None:
+        """通知协调器；协程返回值调度为后台任务（fire-and-forget，异常收敛）。"""
+        if self._coordinator is None:
+            return
+        try:
+            result = method(self._coordinator)
+        except Exception:
+            logger.exception("注意力协调器通知失败（忽略）")
+            return
+        if asyncio.iscoroutine(result):
+            task = asyncio.create_task(result)
+            self._attention_tasks.add(task)
+            task.add_done_callback(self._attention_tasks.discard)
 
     async def cancel_run(self, run_id: str) -> None:
         task = self._runs.get(run_id)
@@ -137,12 +185,26 @@ class RunManager:
                 )
             )
 
-    async def _run_loop(self, data: ChatSendData) -> None:
-        ctx = AgentContext(run_id=data.run_id, session_id=data.session_id, text=data.text)
+    async def _run_loop(self, data: ChatSendData | ProactiveStart) -> None:
+        if isinstance(data, ProactiveStart):
+            ctx = AgentContext(
+                run_id=data.run_id,
+                session_id=data.session_id,
+                text=data.text,
+                source="proactive",
+                intent_id=data.intent_id,
+            )
+        else:
+            ctx = AgentContext(run_id=data.run_id, session_id=data.session_id, text=data.text)
         await self._send(
             make_frame(
                 EVENT_TYPES["run.started"],
-                RunStartedData(run_id=ctx.run_id, session_id=ctx.session_id),
+                RunStartedData(
+                    run_id=ctx.run_id,
+                    session_id=ctx.session_id,
+                    source=ctx.source,
+                    intent_id=ctx.intent_id,
+                ),
                 _now_ms(),
             )
         )
@@ -197,5 +259,8 @@ class RunManager:
                 ):
                     await self._send(make_frame(event_type, payload, _now_ms()))
 
+        self._notify_attention(lambda c: c.notify_run_active(False))
+        if isinstance(data, ProactiveStart):
+            self._notify_attention(lambda c: c.on_run_finished(reason))  # type: ignore[attr-defined]
         self._runs.pop(data.run_id, None)
         self._interrupted.discard(data.run_id)

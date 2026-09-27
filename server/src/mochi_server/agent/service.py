@@ -25,6 +25,11 @@ class AgentContext:
     run_id: str
     session_id: str
     text: str
+    #: 回合来源（M-D）：user = 用户输入；proactive = 主动发起（text 为触发
+    #: 指令，不落盘为 user message，D4 记忆边界）
+    source: str = "user"
+    #: proactive 时关联的意图 id（run.started.intentId）
+    intent_id: str | None = None
 
 
 class AgentService(ABC):

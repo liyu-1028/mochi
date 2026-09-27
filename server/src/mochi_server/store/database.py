@@ -63,6 +63,21 @@ _MIGRATIONS: dict[int, list[str]] = {
         )
         """,
     ],
+    # M-D（D4 记忆边界，调研报告 §8.7）：主动触发元数据单独持久化——
+    # 不伪造 user message；仅真正说出后由 messages 表记 assistant utterance
+    3: [
+        """
+        CREATE TABLE triggers (
+            id          TEXT PRIMARY KEY,
+            session_id  TEXT NOT NULL,
+            kind        TEXT NOT NULL,
+            intent_kind TEXT NOT NULL,
+            dedupe_key  TEXT,
+            status      TEXT NOT NULL DEFAULT 'fired',
+            created_at  INTEGER NOT NULL
+        )
+        """,
+    ],
 }
 
 # 会话标题取自首条用户消息的前 N 个字符。
@@ -194,8 +209,38 @@ class SessionStore:
             conn = await self._open()
             cursor = await conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
             await conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
+            await conn.execute("DELETE FROM triggers WHERE session_id = ?", (session_id,))
             await conn.commit()
             return cursor.rowcount > 0
+
+    # -- 主动触发元数据（M-D D4，调研报告 §8.7）---------------------------
+
+    async def add_trigger(
+        self,
+        trigger_id: str,
+        session_id: str,
+        kind: str,
+        intent_kind: str,
+        dedupe_key: str | None = None,
+        *,
+        status: str = "fired",
+    ) -> None:
+        """记录一次主动触发（与 messages 表分离：不伪造 user message）。"""
+        async with self._lock:
+            conn = await self._open()
+            await conn.execute(
+                "INSERT INTO triggers (id, session_id, kind, intent_kind, dedupe_key, status, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (trigger_id, session_id, kind, intent_kind, dedupe_key, status, _now_ms()),
+            )
+            await conn.commit()
+
+    async def update_trigger_status(self, trigger_id: str, status: str) -> None:
+        """更新触发状态（answered/expired/dismissed/snoozed…）。"""
+        async with self._lock:
+            conn = await self._open()
+            await conn.execute("UPDATE triggers SET status = ? WHERE id = ?", (status, trigger_id))
+            await conn.commit()
 
     # -- 记忆 CRUD（M1-S3，功能清单 6.4）------------------------------------
 
