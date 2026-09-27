@@ -136,9 +136,12 @@ class MemoryConfig(BaseModel):
 
 
 class AgentConfig(BaseModel):
-    """认知行为开关（2.5 情绪推断，ADR-0009）。"""
+    """认知行为开关（2.5 情绪推断，ADR-0009；M-C 表演节拍）。"""
 
     emotion: Literal["auto", "off"] = "auto"  # 回复后置情绪分类；off → 恒 neutral
+    # 表演节拍 cue（M-C）：auto → 回复流解析 [[cue:id]] 标记并发 character.cue；
+    # off → 标记解析完全旁路（标记原样进文本），行为与 M-B 结束点一致
+    cues: Literal["auto", "off"] = "auto"
 
 
 class ToolsConfig(BaseModel):

@@ -57,6 +57,7 @@ from ..store import HISTORY_LIMIT, SessionStore
 from .adapters.base import ChatMessage
 from .adapters.langchain import LangChainAdapter, _deltas_from_chunk, _to_lc_messages
 from .context import build_context_messages
+from .cue_extractor import CueStreamParser, cue_prompt_section
 from .emotion import classify_reply_emotion
 from .errors import AgentError
 from .react_graph import build_react_graph, is_llm_chunk
@@ -101,6 +102,7 @@ class LLMAgentService(AgentService):
         tool_policy: ToolPolicy | None = None,
         context_window: int | None = None,
         emotion_enabled: bool = True,
+        cue_enabled: bool = False,
     ):
         self._adapter = adapter
         self._system_prompt = system_prompt
@@ -111,6 +113,8 @@ class LLMAgentService(AgentService):
         self._policy = tool_policy  # None → 危险工具不确认（直接执行）
         self._context_window = context_window  # 4.4 预算裁剪；None → 缺省 8192
         self._emotion_enabled = emotion_enabled  # 2.5 情绪后置；False → 不分类
+        # 表演节拍（M-C）：默认 False（黄金样例/既有测试零影响）；registry 按配置开启
+        self._cue_enabled = cue_enabled
         self._pending: dict[str, _PendingConfirm] = {}
         # 后台任务（6.4 记忆提取）持引用，防 fire-and-forget 被 GC 中途回收
         self._background: set[asyncio.Task[None]] = set()
@@ -157,6 +161,8 @@ class LLMAgentService(AgentService):
         effective_system = self._system_prompt + memory_section
         if self._tools is not None and self._tools.list_specs():
             effective_system += _TOOL_NUDGE
+        if self._cue_enabled:
+            effective_system += cue_prompt_section()
         messages, budget, dropped = build_context_messages(
             effective_system, history, ctx.text, context_window=self._context_window
         )
@@ -170,6 +176,8 @@ class LLMAgentService(AgentService):
         thinking_closed = False
         text_started = False
         parts: list[str] = []
+        cue_parser = CueStreamParser(ctx.run_id, message_id) if self._cue_enabled else None
+        cue_emitted = False  # 本 run 已发 reply cue → 与迟到 emotion 分类互斥
 
         graph = build_react_graph(
             self._adapter.chat_model,
@@ -248,13 +256,32 @@ class LLMAgentService(AgentService):
                                     elif event_type == "text.start":
                                         text_started = True
                                     yield event_type, event_payload
-                            parts.append(delta)
-                            yield (
-                                "text.delta",
-                                TextDeltaData(
-                                    run_id=ctx.run_id, message_id=message_id, delta=delta
-                                ),
-                            )
+                            if cue_parser is None:
+                                # cue 路径关闭：原始增量直发（M-B 行为，零变更）
+                                parts.append(delta)
+                                yield (
+                                    "text.delta",
+                                    TextDeltaData(
+                                        run_id=ctx.run_id, message_id=message_id, delta=delta
+                                    ),
+                                )
+                            else:
+                                # cue 路径（M-C）：增量经标记解析器清洗——
+                                # 文本增量只含清洗后文本（标记不进气泡/TTS/落盘）
+                                for out in cue_parser.feed(delta):
+                                    if out.kind == "text":
+                                        parts.append(out.text)
+                                        yield (
+                                            "text.delta",
+                                            TextDeltaData(
+                                                run_id=ctx.run_id,
+                                                message_id=message_id,
+                                                delta=out.text,
+                                            ),
+                                        )
+                                    else:
+                                        cue_emitted = True
+                                        yield "character.cue", out.cue
                 if pending_call_id is None:
                     break  # 真完成（或本轮流内已闭合确认）
                 # 挂起：等用户裁决。cancel → CancelledError 经 await 自然传播；
@@ -282,6 +309,21 @@ class LLMAgentService(AgentService):
             ):
                 yield event_type, event_payload
 
+        # cue 路径：流末收口解析器（畸形标记丢弃、非标记残余放行为文本增量）
+        if cue_parser is not None:
+            for out in cue_parser.flush():
+                if out.kind == "text":
+                    parts.append(out.text)
+                    yield (
+                        "text.delta",
+                        TextDeltaData(run_id=ctx.run_id, message_id=message_id, delta=out.text),
+                    )
+                else:
+                    cue_emitted = True
+                    yield "character.cue", out.cue
+            if cue_parser.dropped:
+                logger.info("character.cue 丢弃计数：run_id=%s %s", ctx.run_id, cue_parser.dropped)
+
         full_text = "".join(parts)
         # 落盘本轮（4.3）：仅完整回合入库，取消/出错不落盘
         await self._persist_turn(ctx.session_id, ctx.text, full_text)
@@ -289,8 +331,11 @@ class LLMAgentService(AgentService):
         # 开关/每日上限在 MemoryManager 内部闸门
         self._schedule_extract(ctx.text, full_text)
         # 情绪后置（2.5，ADR-0009）：暂存回复供 post_run_events 分类；
-        # run 正常走到这里才会补发，取消/出错路径不暂存（无表情变化）
-        self._last_reply[ctx.run_id] = full_text
+        # run 正常走到这里才会补发，取消/出错路径不暂存（无表情变化）。
+        # 互斥（M-C 验收）：本 run 已发 reply cue → 跳过后置分类，
+        # 迟到 emotion 不覆盖 cue 表演（前端同规则双保险）
+        if not cue_emitted:
+            self._last_reply[ctx.run_id] = full_text
         yield (
             "text.end",
             TextEndData(run_id=ctx.run_id, message_id=message_id, full_text=full_text),
