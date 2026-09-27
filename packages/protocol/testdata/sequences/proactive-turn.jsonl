@@ -1,0 +1,6 @@
+{"v":"0.1","type":"run.started","id":"d4e5f6a7-0b82-4c3d-8e4f-5a6b7c8d9e0f","ts":1758900000000,"data":{"runId":"r-p1","sessionId":"s-1","source":"proactive","intentId":"intent-7a6b5c4d3e2f"}}
+{"v":"0.1","type":"text.start","id":"d4e5f6a7-0b82-4c3d-8e4f-5a6b7c8d9e10","ts":1758900000200,"data":{"runId":"r-p1","messageId":"m-p1","role":"assistant","source":"proactive"}}
+{"v":"0.1","type":"text.delta","id":"d4e5f6a7-0b82-4c3d-8e4f-5a6b7c8d9e11","ts":1758900000250,"data":{"runId":"r-p1","messageId":"m-p1","delta":"连续几次都没跑通，","source":"proactive"}}
+{"v":"0.1","type":"text.delta","id":"d4e5f6a7-0b82-4c3d-8e4f-5a6b7c8d9e12","ts":1758900000300,"data":{"runId":"r-p1","messageId":"m-p1","delta":"要我换个方向试试吗？","source":"proactive"}}
+{"v":"0.1","type":"text.end","id":"d4e5f6a7-0b82-4c3d-8e4f-5a6b7c8d9e13","ts":1758900000350,"data":{"runId":"r-p1","messageId":"m-p1","fullText":"连续几次都没跑通，要我换个方向试试吗？","source":"proactive"}}
+{"v":"0.1","type":"run.finished","id":"d4e5f6a7-0b82-4c3d-8e4f-5a6b7c8d9e14","ts":1758900000400,"data":{"runId":"r-p1","reason":"complete"}}

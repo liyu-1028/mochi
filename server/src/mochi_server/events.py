@@ -183,6 +183,68 @@ class ChatInterruptData(CamelModel):
     run_id: str
 
 
+# ---------------------------------------------------------------------------
+# 陪伴信号（M-D，调研报告 §8.2 决策点 3）
+# ---------------------------------------------------------------------------
+# 信号只描述事实，不直接命令角色「说某句话」；是否开口由服务端注意力引擎
+# 经打扰门控（§8.6）决定。信号源在两端（前端：idle/触摸；服务端：工具事件），
+# 统一汇聚到服务端。
+
+#: 信号类别（TS 侧 SIGNAL_KINDS）；intent_response = ask 快速操作的回传
+SIGNAL_KINDS = (
+    "touch",
+    "drag",
+    "message",
+    "tool_started",
+    "tool_finished",
+    "tool_failed",
+    "tool_needs_user",
+    "idle",
+    "focus_session",
+    "commitment_due",
+    "context_summary",
+    "intent_response",
+)
+
+#: 信号显著性 0~3（弱/普通/强，调研报告 §4.2）
+SIGNAL_SALIENCE = (0, 1, 2, 3)
+
+#: 主动意图动作（§4.3 两阶段决策；silent/action_intent 不出事件）
+INTENT_ACTIONS = ("speak", "ask")
+
+#: ask_intent 的快速操作按钮（§8.6：尽量提供「稍后」「不用提醒」）
+INTENT_QUICK_REPLIES = ("later", "dismiss")
+
+#: 快速操作回传决定（经 companion.signal kind=intent_response）
+INTENT_DECISIONS = ("later", "dismiss", "now")
+
+#: 回合/消息来源（§8 决策点 4，已定）：主动消息复用 text 事件族 + source 字段
+MESSAGE_SOURCES = ("user", "proactive")
+
+
+class CompanionSignalData(CamelModel):
+    """companion.signal 命令负载：一次陪伴信号上报。"""
+
+    signal_id: str  # 客户端生成的去重 id
+    kind: str  # SIGNAL_KINDS 之一
+    occurred_at: int  # 信号发生时刻（epoch ms）
+    salience: int = Field(ge=0, le=3)
+    dedupe_key: str | None = None  # 同主题合并/冷却键（如 tool:bash）
+    not_before: int | None = None  # 最早允许处理时刻（epoch ms）
+    expires_at: int | None = None  # 过期时刻；过期信号无声丢弃
+    payload: dict[str, Any] = Field(default_factory=dict)  # kind 相关事实载荷
+
+
+class CompanionIntentData(CamelModel):
+    """companion.intent 事件负载：通过门控的主动意图（speak/ask）。"""
+
+    intent_id: str
+    action: str  # INTENT_ACTIONS 之一
+    kind: str  # 触发信号 kind
+    quick_replies: list[str] = Field(default_factory=list)  # INTENT_QUICK_REPLIES 子集
+    expires_at: int | None = None  # 无声过期时刻：过期后前端移除提示，不残留 UI
+
+
 class ToolConfirmData(CamelModel):
     """危险工具确认（M1-S4，功能清单 6.5；协议 §4）。
 
@@ -216,6 +278,9 @@ class PongData(CamelModel):
 class RunStartedData(CamelModel):
     run_id: str
     session_id: str
+    # 回合来源（M-D）：proactive = 主动发起（无用户输入）；缺省按 user
+    source: str = "user"
+    intent_id: str | None = None  # proactive 时关联的意图 id（companion.intent 同名）
 
 
 class RunFinishedData(CamelModel):
@@ -233,18 +298,21 @@ class TextStartData(CamelModel):
     run_id: str
     message_id: str
     role: Literal["assistant"] = "assistant"
+    source: str = "user"  # 消息来源（M-D §8 决策点 4）：缺省按 user
 
 
 class TextDeltaData(CamelModel):
     run_id: str
     message_id: str
     delta: str
+    source: str = "user"  # 与 text.start 一致（M-D）；缺省按 user
 
 
 class TextEndData(CamelModel):
     run_id: str
     message_id: str
     full_text: str
+    source: str = "user"  # 与 text.start 一致（M-D）；缺省按 user
 
 
 class ThinkingStartData(CamelModel):
@@ -374,6 +442,7 @@ COMMAND_TYPES = {
     "chat.cancel": "chat.cancel",
     "chat.interrupt": "chat.interrupt",
     "tool.confirm": "tool.confirm",
+    "companion.signal": "companion.signal",
 }
 
 EVENT_TYPES = {
@@ -394,6 +463,7 @@ EVENT_TYPES = {
     "emotion": "emotion",
     "state.change": "state.change",
     "character.cue": "character.cue",
+    "companion.intent": "companion.intent",
 }
 
 COMMAND_DATA_MODELS: dict[str, type[CamelModel]] = {
@@ -403,6 +473,7 @@ COMMAND_DATA_MODELS: dict[str, type[CamelModel]] = {
     "chat.cancel": ChatCancelData,
     "chat.interrupt": ChatInterruptData,
     "tool.confirm": ToolConfirmData,
+    "companion.signal": CompanionSignalData,
 }
 
 EVENT_DATA_MODELS: dict[str, type[CamelModel]] = {
@@ -423,4 +494,5 @@ EVENT_DATA_MODELS: dict[str, type[CamelModel]] = {
     "emotion": EmotionData,
     "state.change": StateChangeData,
     "character.cue": CharacterCueData,
+    "companion.intent": CompanionIntentData,
 }

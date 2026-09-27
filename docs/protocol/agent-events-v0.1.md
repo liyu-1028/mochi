@@ -56,14 +56,15 @@
 
 ## 4. 客户端 → 服务端：命令
 
-| type             | 说明                                                        | data 字段                                                              |
-| ---------------- | ----------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `hello`          | 握手                                                        | `versions: string[]`，`client: {name, version}`                        |
-| `ping`           | 保活/RTT                                                    | `token?: string`（原样回传）                                           |
-| `chat.send`      | 发起对话回合                                                | `runId`（客户端生成 UUID），`sessionId`，`text`，`attachments?`        |
-| `chat.cancel`    | 取消生成，丢弃后续输出                                      | `runId`                                                                |
-| `chat.interrupt` | 打断播报（停 TTS/展示，保留已生成内容；语音 barge-in 场景） | `runId`                                                                |
-| `tool.confirm`   | 危险工具确认（功能清单 6.5，M1-S4）                         | `runId`，`toolCallId`，`decision: allow \| deny`，`remember?: boolean` |
+| type               | 说明                                                        | data 字段                                                              |
+| ------------------ | ----------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `hello`            | 握手                                                        | `versions: string[]`，`client: {name, version}`                        |
+| `ping`             | 保活/RTT                                                    | `token?: string`（原样回传）                                           |
+| `chat.send`        | 发起对话回合                                                | `runId`（客户端生成 UUID），`sessionId`，`text`，`attachments?`        |
+| `chat.cancel`      | 取消生成，丢弃后续输出                                      | `runId`                                                                |
+| `chat.interrupt`   | 打断播报（停 TTS/展示，保留已生成内容；语音 barge-in 场景） | `runId`                                                                |
+| `tool.confirm`     | 危险工具确认（功能清单 6.5，M1-S4）                         | `runId`，`toolCallId`，`decision: allow \| deny`，`remember?: boolean` |
+| `companion.signal` | 陪伴信号上报（M-D，调研报告 §8.2）                          | 见下方说明                                                             |
 
 `chat.cancel` 与 `chat.interrupt` 的语义区别（功能清单 4.2 / 5.3）：
 
@@ -78,6 +79,29 @@
   `[tools]` 白名单（config.toml），此后不再询问。
 - `deny` → 该调用以 `tool.call.end(status: "denied")` 收口，拒绝事实回灌
   模型自行善后（换方案或向用户解释）。
+
+#### companion.signal 负载（M-D）
+
+信号只描述事实，不直接命令角色「说某句话」；是否开口由服务端注意力引擎
+经打扰门控（调研报告 §8.6）决定。信号源在两端（前端：idle/触摸；服务端：工具事件），
+统一汇聚到服务端。
+
+| 字段         | 类型               | 说明                                                                                                                                                                           |
+| ------------ | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `signalId`   | `string`           | 客户端生成的去重 id                                                                                                                                                            |
+| `kind`       | `SIGNAL_KINDS`     | `touch \| drag \| message \| tool_started \| tool_finished \| tool_failed \| tool_needs_user \| idle \| focus_session \| commitment_due \| context_summary \| intent_response` |
+| `occurredAt` | `number`           | 信号发生时刻（epoch ms）                                                                                                                                                       |
+| `salience`   | `0 \| 1 \| 2 \| 3` | 显著性（弱/普通/强，调研报告 §4.2）                                                                                                                                            |
+| `dedupeKey?` | `string`           | 同主题合并/冷却键（如 `tool:bash`）                                                                                                                                            |
+| `notBefore?` | `number`           | 最早允许处理时刻（epoch ms）；引擎不早于此触发                                                                                                                                 |
+| `expiresAt?` | `number`           | 过期时刻；过期信号无声丢弃                                                                                                                                                     |
+| `payload`    | `object`           | kind 相关事实载荷（如工具失败次数、连续活跃时长）                                                                                                                              |
+
+`kind: "intent_response"` 为 ask_intent 快速操作的回传：
+`payload: { intentId, decision: "later" \| "dismiss" \| "now" }`
+（稍后 → snooze；不用提醒 → 该主题冷却；不用作 user message，不进会话历史）。
+
+共享夹具 `packages/protocol/testdata/companion-signal.json`。
 
 ## 5. 服务端 → 客户端：事件
 
@@ -99,6 +123,10 @@
 
 `reason ∈ complete | cancelled | interrupted | error`。
 
+M-D 起两字段可选：`source?: "user" \| "proactive"`（缺省 user；proactive =
+主动发起，无用户输入）、`intentId?: string`（proactive 时关联
+`companion.intent.intentId`）。
+
 ### 5.3 文本流（Text）—— start/delta/end 生命周期
 
 | type         | data                                      |
@@ -108,6 +136,9 @@
 | `text.end`   | `runId`，`messageId`，`fullText: string`  |
 
 前端在 `text.start`→`text.end` 期间驱动角色「说话」状态与嘴部动画（功能清单 2.3）。
+
+M-D 起三帧可选 `source?: "user" \| "proactive"`（缺省 user，§8 决策点 4 已定：
+主动消息复用现有 text 事件族 + source 字段，不新增事件）。
 
 ### 5.4 思考流（Thinking）—— Mochi 扩展
 
@@ -179,6 +210,26 @@ state   ∈ idle | talking | thinking | working | error | sleeping
 - **互斥**：同一 run 内 `source: "reply"` 的 cue 与 `emotion` 事件互斥——
   收到过 reply cue 的 run，迟到 emotion 分类不覆盖（§5.6 emotion 降级为兑底）；
 - `reflex` 来源的 cue 由客户端本地产生，不经协议传输；`proactive` 为 M-D 预留。
+
+### 5.7 主动陪伴（M-D）
+
+#### companion.intent 负载
+
+注意力引擎（服务端）经打扰门控后产出 speak/ask 意图（silent/action_intent 不出事件）；
+正文由 LangGraph 措辞后经 `text.*`（`source: "proactive"`）送达，
+`run.started.source: "proactive"` + `intentId` 与本事件关联；
+ask 的快速操作经 `companion.signal(kind: "intent_response")` 回传。
+
+| 字段           | 类型                          | 说明                                                    |
+| -------------- | ----------------------------- | ------------------------------------------------------- |
+| `intentId`     | `string`                      | 意图 id；后续 proactive `run.started.intentId` 同名关联 |
+| `action`       | `"speak" \| "ask"`            | silent/action_intent 不出事件                           |
+| `kind`         | `SIGNAL_KINDS`                | 触发信号 kind                                           |
+| `quickReplies` | `Array<"later" \| "dismiss">` | ask 的快速操作按钮；空 = 无                             |
+| `expiresAt?`   | `number`                      | 无声过期时刻：过期后前端移除提示，不残留 UI             |
+
+共享夹具 `packages/protocol/testdata/companion-intent.json`；
+proactive 回合序列夹具 `packages/protocol/testdata/sequences/proactive-turn.jsonl`。
 
 ## 6. ErrorPayload 结构
 
@@ -265,11 +316,12 @@ run.finished(reason: "cancelled")   ← 已输出的 delta 前端保留展示
 
 ## 变更记录
 
-| 版本 | 日期       | 变更                                                                                                                                                |
-| ---- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0.1  | 2026-08-03 | 初版冻结：信封、握手、5 类命令、16 类事件、错误码表                                                                                                 |
-| 0.1  | 2026-08-03 | 类型收窄（线上格式不变）：`usage`/`client`/`server` 结构化为 UsageInfo/ClientInfo/ServerInfo；`tool.call.start` 的 `args` 双端必填                  |
-| 0.1  | 2026-08-18 | additive（§9.1，功能清单 6.5）：新增客户端命令 `tool.confirm`（第 6 类）；`tool.call.start` 增可选字段 `requiresConfirmation`                       |
-| 0.1  | 2026-08-06 | 错误码表新增 `ERR_MODEL_QUOTA`（账户余额/配额不足）                                                                                                 |
-| 0.1  | 2026-09-27 | additive（§9.1，M-A）：新增 §11 语义动作注册表（`SEMANTIC_ACTIONS` 12 项 + `ACTION_CHANNELS`），无新事件/字段                                       |
-| 0.1  | 2026-09-28 | additive（§9.1，M-C）：新增事件 `character.cue`（§5.6），枚举 `CUE_SOURCES`/`CUE_SYNC`/`CUE_INTERRUPT_POLICIES`，夹具 `testdata/character-cue.json` |
+| 版本 | 日期       | 变更                                                                                                                                                                                                                                                                      |
+| ---- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0.1  | 2026-08-03 | 初版冻结：信封、握手、5 类命令、16 类事件、错误码表                                                                                                                                                                                                                       |
+| 0.1  | 2026-08-03 | 类型收窄（线上格式不变）：`usage`/`client`/`server` 结构化为 UsageInfo/ClientInfo/ServerInfo；`tool.call.start` 的 `args` 双端必填                                                                                                                                        |
+| 0.1  | 2026-08-18 | additive（§9.1，功能清单 6.5）：新增客户端命令 `tool.confirm`（第 6 类）；`tool.call.start` 增可选字段 `requiresConfirmation`                                                                                                                                             |
+| 0.1  | 2026-08-06 | 错误码表新增 `ERR_MODEL_QUOTA`（账户余额/配额不足）                                                                                                                                                                                                                       |
+| 0.1  | 2026-09-27 | additive（§9.1，M-A）：新增 §11 语义动作注册表（`SEMANTIC_ACTIONS` 12 项 + `ACTION_CHANNELS`），无新事件/字段                                                                                                                                                             |
+| 0.1  | 2026-09-28 | additive（§9.1，M-C）：新增事件 `character.cue`（§5.6），枚举 `CUE_SOURCES`/`CUE_SYNC`/`CUE_INTERRUPT_POLICIES`，夹具 `testdata/character-cue.json`                                                                                                                       |
+| 0.1  | 2026-09-28 | additive（§9.1，M-D）：新增命令 `companion.signal`（§4）、事件 `companion.intent`（§5.6）；`run.started` 增可选 `source`/`intentId`，`text.*` 增可选 `source`（缺省 user，零破坏）；夹具 `companion-signal.json`/`companion-intent.json`/`sequences/proactive-turn.jsonl` |

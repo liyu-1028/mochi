@@ -17,15 +17,21 @@ from pydantic import ValidationError
 from mochi_server.events import (
     ACTION_CHANNELS,
     COMMAND_DATA_MODELS,
+    COMMAND_TYPES,
     EVENT_DATA_MODELS,
     EVENT_TYPES,
     PROTOCOL_VERSION,
     SEMANTIC_ACTIONS,
     CharacterCueData,
     CharacterState,
+    CompanionIntentData,
+    CompanionSignalData,
     Emotion,
+    RunFinishedData,
+    RunStartedData,
     TextDeltaData,
     TextEndData,
+    TextStartData,
     ToolConfirmData,
 )
 
@@ -216,3 +222,108 @@ def test_character_cue_enums_match_fixture() -> None:
     assert list(CUE_SOURCE_VALUES) == fixture["CUE_SOURCES"]
     assert list(CUE_SYNC_VALUES) == fixture["CUE_SYNC"]
     assert list(CUE_INTERRUPT_POLICY_VALUES) == fixture["CUE_INTERRUPT_POLICIES"]
+
+
+# ---------------------------------------------------------------------------
+# companion.signal / companion.intent（M-D）：负载黄金夹具一致性
+# ---------------------------------------------------------------------------
+SIGNAL_FIXTURE = GOLDEN_DIR / "companion-signal.json"
+INTENT_FIXTURE = GOLDEN_DIR / "companion-intent.json"
+PROACTIVE_TURN = GOLDEN_DIR / "sequences" / "proactive-turn.jsonl"
+
+
+def _load_json(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_companion_signal_type_registered() -> None:
+    """COMMAND_TYPES/COMMAND_DATA_MODELS 注册 companion.signal，夹具 type 一致。"""
+    assert COMMAND_TYPES["companion.signal"] == "companion.signal"
+    assert COMMAND_DATA_MODELS["companion.signal"] is CompanionSignalData
+    fixture = _load_json(SIGNAL_FIXTURE)
+    assert fixture["command"]["type"] == "companion.signal"
+
+
+def test_companion_signal_payload_matches_fixture() -> None:
+    """夹具负载经 CompanionSignalData 校验，camelCase 线上格式逐字段一致。"""
+    fixture = _load_json(SIGNAL_FIXTURE)
+    data = CompanionSignalData.model_validate(fixture["command"]["data"])
+    wire = data.model_dump(by_alias=True, exclude_none=True)
+    assert wire == fixture["command"]["data"]
+
+
+def test_companion_signal_enums_match_fixture() -> None:
+    """信号枚举字面量与夹具 expectedEnums 一致。"""
+    from mochi_server.events import (
+        INTENT_ACTIONS,
+        INTENT_DECISIONS,
+        INTENT_QUICK_REPLIES,
+        MESSAGE_SOURCES,
+        SIGNAL_KINDS,
+        SIGNAL_SALIENCE,
+    )
+
+    fixture = _load_json(SIGNAL_FIXTURE)["expectedEnums"]
+    assert list(SIGNAL_KINDS) == fixture["SIGNAL_KINDS"]
+    assert list(SIGNAL_SALIENCE) == fixture["SIGNAL_SALIENCE"]
+    assert list(INTENT_ACTIONS) == fixture["INTENT_ACTIONS"]
+    assert list(INTENT_QUICK_REPLIES) == fixture["INTENT_QUICK_REPLIES"]
+    assert list(INTENT_DECISIONS) == fixture["INTENT_DECISIONS"]
+    assert list(MESSAGE_SOURCES) == fixture["MESSAGE_SOURCES"]
+
+
+def test_companion_intent_type_registered() -> None:
+    """EVENT_TYPES/EVENT_DATA_MODELS 注册 companion.intent，夹具 type 一致。"""
+    assert EVENT_TYPES["companion.intent"] == "companion.intent"
+    assert EVENT_DATA_MODELS["companion.intent"] is CompanionIntentData
+    fixture = _load_json(INTENT_FIXTURE)
+    assert fixture["event"]["type"] == "companion.intent"
+
+
+def test_companion_intent_payload_matches_fixture() -> None:
+    """夹具负载经 CompanionIntentData 校验，camelCase 线上格式逐字段一致。"""
+    fixture = _load_json(INTENT_FIXTURE)
+    data = CompanionIntentData.model_validate(fixture["event"]["data"])
+    wire = data.model_dump(by_alias=True, exclude_none=True)
+    assert wire == fixture["event"]["data"]
+
+
+def test_proactive_turn_wire_sequence() -> None:
+    """proactive 回合序列（run/text 事件族 source 字段族）逐帧校验。
+
+    验收锚点（§8 决策点 4）：主动消息复用现有事件族 + source="proactive"，
+    run.started.intentId 与 companion.intent.intentId 关联。
+    """
+    raw = PROACTIVE_TURN.read_text(encoding="utf-8")
+    lines = [json.loads(line) for line in raw.splitlines() if line.strip()]
+    types = [line["type"] for line in lines]
+    assert types == [
+        "run.started",
+        "text.start",
+        "text.delta",
+        "text.delta",
+        "text.end",
+        "run.finished",
+    ]
+    for line in lines:
+        if line["type"] == "run.started":
+            data = RunStartedData.model_validate(line["data"])
+            wire = data.model_dump(by_alias=True, exclude_none=True)
+            assert wire["source"] == "proactive"
+            assert wire["intentId"] == "intent-7a6b5c4d3e2f"
+        elif line["type"] == "run.finished":
+            RunFinishedData.model_validate(line["data"])
+        else:
+            model = {
+                "text.start": TextStartData,
+                "text.delta": TextDeltaData,
+                "text.end": TextEndData,
+            }[line["type"]]
+            wire = model.model_validate(line["data"]).model_dump(by_alias=True, exclude_none=True)
+            assert wire["source"] == "proactive"
+
+
+def test_run_text_source_defaults_to_user() -> None:
+    """缺省 source=user：既有帧格式不变（additive 兼容，零回归锚点）。"""
+    assert RunStartedData(run_id="r", session_id="s").source == "user"
+    assert TextDeltaData(run_id="r", message_id="m", delta="x").source == "user"

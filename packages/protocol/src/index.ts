@@ -40,6 +40,7 @@ export const COMMAND_TYPES = {
   ChatCancel: "chat.cancel",
   ChatInterrupt: "chat.interrupt",
   ToolConfirm: "tool.confirm",
+  CompanionSignal: "companion.signal",
 } as const;
 
 export type CommandType = (typeof COMMAND_TYPES)[keyof typeof COMMAND_TYPES];
@@ -93,6 +94,79 @@ export interface ChatInterruptData {
 }
 
 // ---------------------------------------------------------------------------
+// 陪伴信号（M-D，调研报告 §8.2 决策点 3）
+// ---------------------------------------------------------------------------
+// 信号只描述事实，不直接命令角色「说某句话」；是否开口由服务端注意力引擎
+// 经打扰门控（§8.6）决定。信号源在两端（前端：idle/触摸；服务端：工具事件），
+// 统一汇聚到服务端。
+
+export const SIGNAL_KINDS = [
+  "touch",
+  "drag",
+  "message",
+  "tool_started",
+  "tool_finished",
+  "tool_failed",
+  "tool_needs_user",
+  "idle",
+  "focus_session",
+  "commitment_due",
+  "context_summary",
+  "intent_response",
+] as const;
+export type SignalKind = (typeof SIGNAL_KINDS)[number];
+
+/** 信号显著性 0~3（弱/普通/强，调研报告 §4.2）；引擎据此设置等待与合并策略 */
+export const SIGNAL_SALIENCE = [0, 1, 2, 3] as const;
+export type SignalSalience = (typeof SIGNAL_SALIENCE)[number];
+
+/** 主动意图动作（§4.3 两阶段决策：注意力层只产出这四种，前两种不出事件） */
+export const INTENT_ACTIONS = ["speak", "ask"] as const;
+export type IntentAction = (typeof INTENT_ACTIONS)[number];
+
+/** ask_intent 的快速操作按钮（§8.6：尽量提供「稍后」「不用提醒」） */
+export const INTENT_QUICK_REPLIES = ["later", "dismiss"] as const;
+export type IntentQuickReply = (typeof INTENT_QUICK_REPLIES)[number];
+
+/** 快速操作的回传决定（经 companion.signal kind=intent_response） */
+export const INTENT_DECISIONS = ["later", "dismiss", "now"] as const;
+export type IntentDecision = (typeof INTENT_DECISIONS)[number];
+
+/** 回合/消息来源（§8 决策点 4，已定）：主动消息复用 text 事件族 + source 字段 */
+export const MESSAGE_SOURCES = ["user", "proactive"] as const;
+export type MessageSource = (typeof MESSAGE_SOURCES)[number];
+
+/** companion.signal 命令负载：一次陪伴信号上报 */
+export interface CompanionSignalData {
+  /** 客户端生成的去重 id */
+  signalId: string;
+  kind: SignalKind;
+  /** 信号发生时刻（epoch ms） */
+  occurredAt: number;
+  salience: SignalSalience;
+  /** 同主题合并/冷却键（如 tool:bash） */
+  dedupeKey?: string;
+  /** 最早允许处理时刻（epoch ms）；引擎不早于此触发 */
+  notBefore?: number;
+  /** 过期时刻（epoch ms）；过期信号无声丢弃 */
+  expiresAt?: number;
+  /** kind 相关事实载荷（如 tool 失败次数、连续活跃时长） */
+  payload: Record<string, unknown>;
+}
+
+/** companion.intent 事件负载：通过门控的主动意图（speak/ask） */
+export interface CompanionIntentData {
+  intentId: string;
+  action: IntentAction;
+  /** 触发信号 kind */
+  kind: SignalKind;
+  /** ask 的快速操作按钮；空数组 = 无快速操作 */
+  quickReplies: IntentQuickReply[];
+  /** 无声过期时刻（epoch ms）：过期后前端移除提示，不残留 UI */
+  expiresAt?: number;
+}
+
+// ---------------------------------------------------------------------------
 // 服务端 → 客户端：事件
 // ---------------------------------------------------------------------------
 
@@ -114,6 +188,7 @@ export const EVENT_TYPES = {
   Emotion: "emotion",
   StateChange: "state.change",
   CharacterCue: "character.cue",
+  CompanionIntent: "companion.intent",
 } as const;
 
 export type EventType = (typeof EVENT_TYPES)[keyof typeof EVENT_TYPES];
@@ -282,6 +357,10 @@ export interface PongData {
 export interface RunStartedData {
   runId: string;
   sessionId: string;
+  /** 回合来源（M-D）：proactive = 主动发起（无用户输入）；缺省按 user */
+  source?: MessageSource;
+  /** proactive 时关联的意图 id（companion.intent 同名） */
+  intentId?: string;
 }
 
 /** run.finished 的 token 用量（可选） */
@@ -314,18 +393,24 @@ export interface TextStartData {
   runId: string;
   messageId: string;
   role: "assistant";
+  /** 消息来源（M-D §8 决策点 4）：缺省按 user */
+  source?: MessageSource;
 }
 
 export interface TextDeltaData {
   runId: string;
   messageId: string;
   delta: string;
+  /** 与 text.start 一致（M-D）；缺省按 user */
+  source?: MessageSource;
 }
 
 export interface TextEndData {
   runId: string;
   messageId: string;
   fullText: string;
+  /** 与 text.start 一致（M-D）；缺省按 user */
+  source?: MessageSource;
 }
 
 /** Mochi 扩展事件：模型思考过程，驱动角色「思考」动画 */
@@ -391,7 +476,8 @@ export type ClientCommand =
   | Envelope<ChatSendData>
   | Envelope<ChatCancelData>
   | Envelope<ChatInterruptData>
-  | Envelope<ToolConfirmData>;
+  | Envelope<ToolConfirmData>
+  | Envelope<CompanionSignalData>;
 
 /** 构建客户端命令帧（统一填充 v/id/ts，消费方无需手写信封）。 */
 export function createCommand<T>(type: CommandType, data: T): Envelope<T> {
@@ -421,4 +507,5 @@ export type ServerEvent =
   | Envelope<ToolCallEndData>
   | Envelope<EmotionData>
   | Envelope<StateChangeData>
-  | Envelope<CharacterCueData>;
+  | Envelope<CharacterCueData>
+  | Envelope<CompanionIntentData>;

@@ -1,0 +1,40 @@
+{
+  "comment": "companion.signal 命令黄金夹具（M-D）：TS 与 Python 镜像的一致性对照样例。信号只描述事实（调研报告 §8.2），是否开口由服务端注意力引擎门控（§8.6）决定。",
+  "command": {
+    "v": "0.1",
+    "type": "companion.signal",
+    "id": "b2c3d4e5-6f70-4a1b-8c2d-3e4f5a6b7c8d",
+    "ts": 1758900000000,
+    "data": {
+      "signalId": "sig-1a2b3c4d5e6f",
+      "kind": "tool_failed",
+      "occurredAt": 1758900000000,
+      "salience": 2,
+      "dedupeKey": "tool:bash",
+      "notBefore": 1758900300000,
+      "expiresAt": 1758903600000,
+      "payload": { "tool": "bash", "consecutiveFailures": 3 }
+    }
+  },
+  "expectedEnums": {
+    "SIGNAL_KINDS": [
+      "touch",
+      "drag",
+      "message",
+      "tool_started",
+      "tool_finished",
+      "tool_failed",
+      "tool_needs_user",
+      "idle",
+      "focus_session",
+      "commitment_due",
+      "context_summary",
+      "intent_response"
+    ],
+    "SIGNAL_SALIENCE": [0, 1, 2, 3],
+    "INTENT_ACTIONS": ["speak", "ask"],
+    "INTENT_QUICK_REPLIES": ["later", "dismiss"],
+    "INTENT_DECISIONS": ["later", "dismiss", "now"],
+    "MESSAGE_SOURCES": ["user", "proactive"]
+  }
+}
