@@ -4,15 +4,19 @@
  * 确定性事件（触摸/工具生命周期）不问 LLM，直接换算成 director cue
  * （调研报告 §3.3：目标 100ms 内给出身体/表情反馈）。
  *
- * 规则表：
+ * 规则表（与 rollout plan B3 对齐）：
+ * - 单击 tap → body `nod`（轻拍回应）；
  * - 连续轻戳（2s 内 ≥3 次）→ body `surprised`（连续戳 ≠ 轻拍）；
- * - 按住/拖起（pointerdown 500ms 未抬起）→ body `surprised`（被拿起）；
- * - 工具执行中 → face `confused`（专注，仅 Live2D 有视觉，静态降级）；
- * - 工具成功 → body `celebrate` + face `happy`（celebrate 冷却由皮肤基线约束）；
- * - 工具失败 → face `sad`；工具被拒 → body `shake_head`。
+ * - 按住/拖起（pointerdown 500ms 未抬起）→ body `surprised`（被拿起，交互级优先级）；
+ * - 拖拽释放（拖起后的 pointerup）→ body `idle_neutral`（recover，回状态 loop）；
+ * - 工具执行中 → body `think`；
+ * - 工具成功 → body `celebrate` + face `happy`；
+ * - 工具失败 → face `worried`（担忧表情，非语义词表项，见 FACE_REFLEX_PRESETS）；
+ * - 工具被拒 → body `shake_head`。
  *
- * 优先级/冷却默认值镜像服务端 `default_static_actions()` 基线；
- * 皮肤声明了对应动作时以皮肤为准（buildCue 的 actions 查表）。
+ * 优先级/冷却默认值镜像服务端 `default_static_actions()` 基线；两侧数值均以
+ * 共享夹具 `packages/protocol/testdata/action-defaults.json` 为准（双端测试
+ * 各自校验一致性，消除前后端漂移——验收工程问题 1）；皮肤声明优先。
  */
 
 import type { SkinAction } from "../api/skinsClient";
@@ -42,11 +46,14 @@ const DEFAULTS: Record<string, { priority: number; cooldownMs: number }> = {
   surprised: { priority: 70, cooldownMs: 8000 },
   stretch: { priority: 30, cooldownMs: 20_000 },
   doze: { priority: 20, cooldownMs: 30_000 },
-  // face 通道表情 id（情绪名）缺省：信息性覆盖，不抢系统级
+  think: { priority: 40, cooldownMs: 5000 },
+  // face 通道表情 id 缺省：信息性覆盖，不抢系统级
   happy: { priority: 55, cooldownMs: 2000 },
   sad: { priority: 60, cooldownMs: 5000 },
   confused: { priority: 40, cooldownMs: 2000 },
   neutral: { priority: 10, cooldownMs: 0 },
+  // worried 仅反射用（不在语义词表）：数值由 FACE_REFLEX_PRESETS 消费
+  worried: { priority: 60, cooldownMs: 5000 },
 };
 
 export type ToolReflexStatus = "running" | "success" | "error" | "denied";
@@ -98,7 +105,9 @@ export function isRepeatTap(tapTimes: readonly number[], now: number): boolean {
   return window.length >= TAP_REPEAT_COUNT;
 }
 
-/** 工具生命周期 → cue 序列（0~2 个；body+face 可并行）。 */
+/** 工具生命周期 → cue 序列（0~2 个；body+face 可并行）。
+ *  语义对齐 rollout plan B3：start=think、success=celebrate+happy、
+ *  error=worried（担忧表情）、denied=shake_head。 */
 export function toolReflexCues(
   status: ToolReflexStatus,
   opts: { resourceType: "live2d" | "static"; now: number; actions?: readonly SkinAction[] },
@@ -106,14 +115,14 @@ export function toolReflexCues(
   const base = { resourceType: opts.resourceType, now: opts.now, actions: opts.actions };
   switch (status) {
     case "running":
-      return [buildCue("confused", { ...base, channel: "face", source: "tool" })];
+      return [buildCue("think", { ...base, channel: "body", source: "tool", ttlMs: 1000 })];
     case "success":
       return [
         buildCue("celebrate", { ...base, channel: "body", source: "tool" }),
         buildCue("happy", { ...base, channel: "face", source: "tool", ttlMs: 1000 }),
       ];
     case "error":
-      return [buildCue("sad", { ...base, channel: "face", source: "tool", ttlMs: 1000 })];
+      return [buildCue("worried", { ...base, channel: "face", source: "tool", ttlMs: 1000 })];
     case "denied":
       return [buildCue("shake_head", { ...base, channel: "body", source: "tool" })];
   }

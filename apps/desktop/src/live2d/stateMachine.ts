@@ -63,6 +63,22 @@ export const SLEEPING_PRESET: Record<string, number> = {
   ParamMouthForm: 0,
 };
 
+/**
+ * 反射专用表情预设（M-B）：非语义词表/情绪枚举的本地表情。
+ * worried（担忧）：眉心微蹙 + 嘴角下垂 + 头部微偏——工具失败时的关切表情，
+ * 与 sad（明显低落）区分。face 通道查找顺序：EMOTION_PRESETS → 此表。
+ */
+export const FACE_REFLEX_PRESETS: Record<string, Record<string, number>> = {
+  worried: {
+    ParamBrowLY: 0.4,
+    ParamBrowRY: 0.4,
+    ParamBrowLAngle: -0.4,
+    ParamBrowRAngle: -0.4,
+    ParamMouthForm: -0.5,
+    ParamAngleZ: -2,
+  },
+};
+
 /** 思考姿态参数（纯函数，便于 vitest 覆盖）：歪头 + 缓慢头部摆动 +
  *  身体微倾。数值为 Hiyori 实际参数单位（角度），驱动层按模型范围
  *  钳制；nowSec 为秒级时钟，驱动缓慢摆动（周期 ~5.7s）。

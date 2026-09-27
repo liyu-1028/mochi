@@ -1,0 +1,15 @@
+{
+  "comment": "语义动作反射默认优先级/冷却(ms)基线 —— server default_static_actions() 与 desktop reflexRules DEFAULTS 的共享事实源（消除前后端漂移，验收工程问题 1）。双端测试各自校验：server/tests/test_skin_manifest_v2.py、apps/desktop/src/live2d/reflexRules.test.ts。皮肤清单声明的值始终优先于此基线。",
+  "defaults": {
+    "idle_neutral": { "priority": 10, "cooldownMs": 0 },
+    "look_around": { "priority": 20, "cooldownMs": 15000 },
+    "wave": { "priority": 50, "cooldownMs": 3000 },
+    "nod": { "priority": 50, "cooldownMs": 3000 },
+    "shake_head": { "priority": 50, "cooldownMs": 3000 },
+    "celebrate": { "priority": 60, "cooldownMs": 10000 },
+    "comfort": { "priority": 60, "cooldownMs": 10000 },
+    "surprised": { "priority": 70, "cooldownMs": 8000 },
+    "stretch": { "priority": 30, "cooldownMs": 20000 },
+    "doze": { "priority": 20, "cooldownMs": 30000 }
+  }
+}

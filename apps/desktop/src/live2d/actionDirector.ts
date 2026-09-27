@@ -15,13 +15,16 @@
  * 全部决策确定性（无随机源），vitest 全表覆盖；随机性属上游选择策略（M-D）。
  */
 
-import type { CharacterState } from "@mochi/protocol";
+import { ACTION_CHANNELS, type ActionChannel, type CharacterState } from "@mochi/protocol";
 import type { InterruptPolicy } from "../api/skinsClient";
 
-/** 本地可执行通道（voice / locomotion 预留，M-B 不实现） */
-export type DirectorChannel = "face" | "body" | "effect";
+/** 本地可执行通道：从协议词表派生（剔除预留的 voice/locomotion），
+ *  协议通道改名时此处编译期报错，不再硬编码漂移（验收工程问题 2） */
+export type DirectorChannel = Extract<ActionChannel, "face" | "body" | "effect">;
 
-export const DIRECTOR_CHANNELS: readonly DirectorChannel[] = ["face", "body", "effect"];
+export const DIRECTOR_CHANNELS: readonly DirectorChannel[] = ACTION_CHANNELS.filter(
+  (c): c is DirectorChannel => c === "face" || c === "body" || c === "effect",
+);
 
 /** 系统级优先级线：>= 此值的 cue 可打断说话/拖拽（低优先级不得打扰用户交互） */
 export const BUSY_GUARD_PRIORITY = 80;

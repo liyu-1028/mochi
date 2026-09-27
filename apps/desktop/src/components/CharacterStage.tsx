@@ -72,9 +72,18 @@ function opaqueRatio(mask: AlphaMask): number {
   for (const v of mask.alpha) if (v >= 16) n += 1;
   return n / mask.alpha.length;
 }
+
+/**
+ * DEV 观测钩子（M-B B4/实测断言用）：挂到 window.__mochiDirector（仅 dev 构建），
+ * GUI 自动化测试据此断言 playMotion 确实发生（避免“日志 accept 但未播放”的盲区）。
+ */
+export const devHook: { lastPlayMotion: { group: string; at: number } | null } = {
+  lastPlayMotion: null,
+};
 import {
   resolveAnimation,
   EMOTION_PRESETS,
+  FACE_REFLEX_PRESETS,
   type AnimationPlan,
   type ModelProfile,
 } from "../live2d/stateMachine";
@@ -231,6 +240,13 @@ export function CharacterStage({
 
   const isLive2D = skin?.resourceType === "live2d";
 
+  // DEV 观测钩子挂载（仅 dev 构建；release 无 window 副作用）
+  useEffect(() => {
+    if (import.meta.env.DEV) {
+      (window as unknown as { __mochiDirector?: typeof devHook }).__mochiDirector = devHook;
+    }
+  }, []);
+
   // ---------------------------------------------------------------------------
   // Action Director（M-B）：本地反射与 one-shot 动作调度（face/body/effect 分通道）
   // ---------------------------------------------------------------------------
@@ -255,6 +271,8 @@ export function CharacterStage({
   /** 帧闭包读的最新皮肤（帧覆写 effect 不随换肤重建） */
   const skinRef = useRef(skin);
   skinRef.current = skin;
+  /** body 通道已启动处理的 cueId（幂等去重，Live2D P0 修复） */
+  const bodyHandledRef = useRef<string | null>(null);
 
   // 每渲染同步 director 上下文（帧闭包读 ref，不重建）
   directorCtxRef.current = {
@@ -588,18 +606,22 @@ export function CharacterStage({
       const plan = planRef.current;
 
       // Action Director 推进（M-B）：one-shot 到期/出队结算；
-      // body 通道启动 → 播 one-shot motion（播完自动回落 idle 组，状态 loop 接管）
+      // body 通道【幂等消费】每个新 cue（按 cueId 去重，P0 修复：
+      // submitCue 置 active 的即时动作与出队提升的动作走同一条启动路径，
+      // 不再依赖 tick.started）；播完自动回落 idle 组，状态 loop 接管
       const nowMs = Date.now();
-      const tick = tickDirector(directorRef.current, directorCtxRef.current, nowMs);
+      tickDirector(directorRef.current, directorCtxRef.current, nowMs);
       const skinNow = skinRef.current;
-      for (const started of tick.started) {
-        if (started.cue.channel !== "body" || !skinNow) continue;
-        const actionPlan = resolveAction(started.cue.actionId, skinNow, profileForSkin(skinNow));
+      const bodyAction = activeOn(directorRef.current, "body");
+      if (bodyAction !== null && bodyHandledRef.current !== bodyAction.cue.cueId && skinNow) {
+        bodyHandledRef.current = bodyAction.cue.cueId;
+        const actionPlan = resolveAction(bodyAction.cue.actionId, skinNow, profileForSkin(skinNow));
         if (actionPlan.resourceType === "live2d" && actionPlan.motionGroup) {
           driver.playMotion(
             actionPlan.motionGroup,
-            started.cue.priority >= 80 ? "force" : "normal",
+            bodyAction.cue.priority >= 80 ? "force" : "normal",
           );
+          devHook.lastPlayMotion = { group: actionPlan.motionGroup, at: nowMs };
         }
       }
 
@@ -625,10 +647,12 @@ export function CharacterStage({
       }
 
       // face 通道（M-B）：表情参数覆写——在状态机表情预设之后写入，
-      // one-shot 结束后停写，状态机计划自然回落（face/body 并行不清除）
+      // one-shot 结束后停写，状态机计划自然回落（face/body 并行不清除）。
+      // 查找顺序：情绪预设 → 反射专用预设（worried）
       const face = activeOn(directorRef.current, "face");
       if (face !== null && !plan?.eyesClosed) {
-        const preset = EMOTION_PRESETS[face.cue.actionId as Emotion];
+        const preset =
+          EMOTION_PRESETS[face.cue.actionId as Emotion] ?? FACE_REFLEX_PRESETS[face.cue.actionId];
         if (preset) {
           for (const [id, v] of Object.entries(preset)) driver.setParam(id, v);
         }
@@ -808,20 +832,32 @@ export function CharacterStage({
       staticReactionRef.current = { startedAt: Date.now() };
     }
     idleRef.current.lastActiveAt = Date.now(); // 点击重置闲置计时（2.8）
-    // 反射（M-B）：连续轻戳（2s 内 ≥3 次）→ surprised；单次轻拍不另加动作
-    //（既有分区反应/弹跳已是单次反馈，避免叠加过度）
+    // 反射（M-B）：拖拽链 tap 拍——单击 → body nod（轻拍回应）；
+    // 连续轻戳（2s 内 ≥3 次）→ surprised（连续戳 ≠ 轻拍，冷却内不重复）
     const nowMs = Date.now();
     tapsRef.current = [...tapsRef.current.filter((t) => nowMs - t <= TAP_WINDOW_MS), nowMs];
-    if (skinRef.current && isRepeatTap(tapsRef.current, nowMs)) {
-      submitReflexes([
-        buildCue("surprised", {
-          channel: "body",
-          source: "reflex",
-          resourceType: skinRef.current.resourceType,
-          now: nowMs,
-          actions: skinRef.current.actions,
-        }),
-      ]);
+    if (skinRef.current) {
+      if (isRepeatTap(tapsRef.current, nowMs)) {
+        submitReflexes([
+          buildCue("surprised", {
+            channel: "body",
+            source: "reflex",
+            resourceType: skinRef.current.resourceType,
+            now: nowMs,
+            actions: skinRef.current.actions,
+          }),
+        ]);
+      } else {
+        submitReflexes([
+          buildCue("nod", {
+            channel: "body",
+            source: "reflex",
+            resourceType: skinRef.current.resourceType,
+            now: nowMs,
+            actions: skinRef.current.actions,
+          }),
+        ]);
+      }
     }
     onActivate?.();
   };
@@ -852,11 +888,26 @@ export function CharacterStage({
     }
     if ("__TAURI_INTERNALS__" in window) void getCurrentWindow().startDragging();
   };
-  // 抬起未达按住阈值：取消「被拿起」定时（普通点击）
+  // 抬起：取消未到阈值的「被拿起」定时；若刚发生过拖起，拖拽链收尾
+  // release → recover（idle_neutral 回状态 loop；OS 拖窗期间 pointerup
+  // 可能不达——届时 one-shot 自然到期由状态 loop 收口，等效 recover）
   const handlePointerUp = () => {
     if (holdTimerRef.current !== null) {
       window.clearTimeout(holdTimerRef.current);
       holdTimerRef.current = null;
+    }
+    if (holdActiveAtRef.current !== null && skinRef.current) {
+      holdActiveAtRef.current = null;
+      submitReflexes([
+        buildCue("idle_neutral", {
+          channel: "body",
+          source: "reflex",
+          resourceType: skinRef.current.resourceType,
+          now: Date.now(),
+          actions: skinRef.current.actions,
+          priority: 80,
+        }),
+      ]);
     }
   };
   const handleContextMenu = (e: ReactMouseEvent) => {

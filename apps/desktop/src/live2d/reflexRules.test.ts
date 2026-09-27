@@ -92,13 +92,13 @@ describe("isRepeatTap（连续戳）", () => {
   });
 });
 
-describe("toolReflexCues（工具生命周期反射表）", () => {
+describe("toolReflexCues（工具生命周期反射表，对齐 rollout plan B3）", () => {
   const opts = { resourceType: "static" as const, now: NOW };
 
   it.each<[ToolReflexStatus, string[], string[]]>([
-    ["running", [], ["confused"]],
+    ["running", ["think"], []],
     ["success", ["celebrate"], ["happy"]],
-    ["error", [], ["sad"]],
+    ["error", [], ["worried"]],
     ["denied", ["shake_head"], []],
   ])("%s → body %j + face %j", (status, bodyIds, faceIds) => {
     const cues = toolReflexCues(status, opts);
@@ -111,5 +111,29 @@ describe("toolReflexCues（工具生命周期反射表）", () => {
     const cues = toolReflexCues("success", opts);
     expect(cues).toHaveLength(2);
     expect(new Set(cues.map((c) => c.channel))).toEqual(new Set(["body", "face"]));
+  });
+});
+
+describe("共享默认值夹具（验收工程问题 1：消除前后端漂移）", () => {
+  it("reflexRules DEFAULTS 基线与 action-defaults.json 一致", async () => {
+    const { readFileSync } = await import("node:fs");
+    const fixturePath = new URL(
+      "../../../../packages/protocol/testdata/action-defaults.json",
+      import.meta.url,
+    );
+    const fixture = JSON.parse(readFileSync(fixturePath, "utf-8")).defaults as Record<
+      string,
+      { priority: number; cooldownMs: number }
+    >;
+    for (const [actionId, spec] of Object.entries(fixture)) {
+      const cue = buildCue(actionId, {
+        channel: "body",
+        source: "reflex",
+        resourceType: "static",
+        now: NOW,
+      });
+      expect(cue.priority, actionId).toBe(spec.priority);
+      expect(cue.cooldownMs, actionId).toBe(spec.cooldownMs);
+    }
   });
 });

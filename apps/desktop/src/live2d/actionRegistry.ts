@@ -18,6 +18,116 @@ import type { ModelProfile } from "./stateMachine";
 /** 内置兜底动作：全链路降级终点（协议规范 §11）。 */
 export const TERMINAL_ACTION_ID = "idle_neutral";
 
+/**
+ * Live2D 默认动作映射（M-B 验收补）：用户导入的 Live2D 皮肤清单无 `actions`
+ * 字段时（旧版导入），按模型通用动作组（Tap/Flick 系列）给全词表可解析的映射。
+ * 与静态基线同构：stretch/doze 无诚实实现 → 直接 fallback 到 idle_neutral；
+ * 模型实际不存在的组按未命中继续降级，绝不硬猜文件名。
+ */
+export const DEFAULT_LIVE2D_ACTIONS: readonly SkinAction[] = [
+  {
+    id: "wave",
+    kind: "oneshot",
+    channels: ["body"],
+    live2d: { motionGroups: ["Tap", "Flick"] },
+    priority: 50,
+    cooldownMs: 3000,
+    agentSelectable: true,
+  },
+  {
+    id: "nod",
+    kind: "oneshot",
+    channels: ["body"],
+    live2d: { motionGroups: ["Tap@Body", "Tap", "FlickDown"] },
+    priority: 50,
+    cooldownMs: 3000,
+    agentSelectable: true,
+  },
+  {
+    id: "shake_head",
+    kind: "oneshot",
+    channels: ["body"],
+    live2d: { motionGroups: ["Flick@Body", "Flick"] },
+    priority: 50,
+    cooldownMs: 3000,
+    agentSelectable: true,
+  },
+  {
+    id: "celebrate",
+    kind: "oneshot",
+    channels: ["body"],
+    live2d: { motionGroups: ["FlickUp", "Tap"] },
+    priority: 60,
+    cooldownMs: 10_000,
+    agentSelectable: true,
+  },
+  {
+    id: "comfort",
+    kind: "oneshot",
+    channels: ["body"],
+    live2d: { motionGroups: ["FlickDown", "Tap"] },
+    priority: 60,
+    cooldownMs: 10_000,
+    agentSelectable: true,
+  },
+  {
+    id: "surprised",
+    kind: "oneshot",
+    channels: ["body"],
+    live2d: { motionGroups: ["FlickUp", "Tap"] },
+    priority: 70,
+    cooldownMs: 8000,
+    agentSelectable: true,
+  },
+  {
+    id: "look_around",
+    kind: "oneshot",
+    channels: ["body"],
+    live2d: { motionGroups: ["FlickUp", "Flick"] },
+    priority: 20,
+    cooldownMs: 15_000,
+    agentSelectable: true,
+  },
+  {
+    id: "think",
+    kind: "oneshot",
+    channels: ["body"],
+    live2d: { motionGroups: ["Think", "Idle"] },
+    priority: 40,
+    cooldownMs: 5000,
+    agentSelectable: true,
+  },
+  {
+    id: "listen",
+    kind: "oneshot",
+    channels: ["body"],
+    live2d: { motionGroups: ["FlickUp", "Idle"] },
+    priority: 50,
+    cooldownMs: 3000,
+    agentSelectable: true,
+  },
+  {
+    id: "stretch",
+    kind: "oneshot",
+    channels: ["body"],
+    live2d: { motionGroups: ["Flick@Body"] },
+    priority: 30,
+    cooldownMs: 20_000,
+    agentSelectable: true,
+    fallback: "idle_neutral",
+  },
+  {
+    id: "doze",
+    kind: "oneshot",
+    channels: ["body"],
+    live2d: { motionGroups: ["Doze"] },
+    priority: 20,
+    cooldownMs: 30_000,
+    agentSelectable: true,
+    fallback: "idle_neutral",
+  },
+];
+
 interface ResolvedActionBase {
   /** 最初请求的动作 id（供调度层做冷却与日志归因） */
   requestedId: string;
@@ -125,7 +235,14 @@ export function resolveAction(
 ): ResolvedAction {
   if (!skin) return builtinFallbackPlan("static", requestedId);
 
-  const byId = new Map((skin.actions ?? []).map((a) => [a.id, a]));
+  // Live2D 皮肤清单无动作时（旧版导入），回退内置 Live2D 默认映射
+  const declared =
+    (skin.actions?.length ?? 0) > 0
+      ? skin.actions
+      : skin.resourceType === "live2d"
+        ? DEFAULT_LIVE2D_ACTIONS
+        : undefined;
+  const byId = new Map((declared ?? []).map((a) => [a.id, a]));
   const visited = new Set<string>();
   let current: string | undefined = requestedId;
 
@@ -141,8 +258,10 @@ export function resolveAction(
       if (plan) return plan;
     }
 
-    // 降级：清单声明的 fallback；语义词表内动作缺省向 idle_neutral 收敛
-    const next = entry?.fallback;
+    // 降级：清单声明的 fallback；语义词表内动作缺省向 idle_neutral 收敛；
+    // 终点动作（idle_neutral）自身的 fallback 永远忽略（全链路兑底约束）
+    const next: string | null | undefined =
+      current === TERMINAL_ACTION_ID ? undefined : entry?.fallback;
     if (next !== undefined && next !== null) {
       current = next;
     } else if (entry === undefined && SEMANTIC_ACTIONS.includes(current as never)) {

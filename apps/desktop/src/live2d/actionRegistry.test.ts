@@ -10,10 +10,12 @@ import {
   builtinFallbackPlan,
   resolveAction,
   TERMINAL_ACTION_ID,
+  DEFAULT_LIVE2D_ACTIONS,
   type Live2dActionPlan,
   type StaticActionPlan,
 } from "./actionRegistry";
-import type { ModelProfile } from "./stateMachine";
+import { HIYORI_PROFILE, type ModelProfile } from "./stateMachine";
+import { SEMANTIC_ACTIONS } from "@mochi/protocol";
 
 const LIVE2D_PROFILE: ModelProfile = {
   motionGroups: ["Idle", "Tap", "Flick"],
@@ -144,5 +146,93 @@ describe("向后兼容（零回归前提）", () => {
     expect(plan.motionGroup).toBeNull();
     expect(plan.expression).toBeNull();
     expect(plan.requestedId).toBe("celebrate");
+  });
+});
+
+describe("Live2D 默认映射（旧版导入皮肤无 actions 字段，M-B 验收补）", () => {
+  const bareLive2d = live2dSkin(undefined);
+
+  it("无 actions 的 live2d 皮肤：语义词表动作可解析到通用动作组", () => {
+    const plan = resolveAction("wave", bareLive2d, HIYORI_PROFILE) as Live2dActionPlan;
+    expect(plan.resourceType).toBe("live2d");
+    expect(plan.motionGroup).toBe("Tap"); // Hiyori 拥有 Tap 组
+  });
+
+  it("模型缺组时沿 fallback 降级，不硬猜资源", () => {
+    const plan = resolveAction("doze", bareLive2d, HIYORI_PROFILE) as Live2dActionPlan;
+    expect(plan.actionId).toBe(TERMINAL_ACTION_ID);
+    expect(plan.motionGroup).toBeNull();
+  });
+
+  it("清单有 actions 时不套默认映射（皮肤声明优先）", () => {
+    const skin = live2dSkin([action("wave", { live2d: { motionGroups: ["自定义组"] } })]);
+    const plan = resolveAction("wave", skin, HIYORI_PROFILE);
+    expect(plan.actionId).toBe(TERMINAL_ACTION_ID); // 自定义组不存在，无默认救场
+  });
+
+  it("终点动作约束：idle_neutral 的 fallback 被忽略（前端兜底）", () => {
+    const skin = live2dSkin([
+      action("idle_neutral", { live2d: { motionGroups: ["无此组"] }, fallback: "nod" }),
+      action("nod", { live2d: { motionGroups: ["Tap"] } }),
+    ]);
+    const plan = resolveAction("idle_neutral", skin, HIYORI_PROFILE);
+    expect(plan.actionId).toBe(TERMINAL_ACTION_ID);
+  });
+});
+
+describe("M-A/M-B 验收证据：12 动作全词表可解析", () => {
+  const STATIC_BASELINE_IDS = [
+    "idle_neutral",
+    "look_around",
+    "wave",
+    "nod",
+    "shake_head",
+    "celebrate",
+    "comfort",
+    "surprised",
+    "stretch",
+    "doze",
+  ];
+
+  it("Hiyori 能力档案：12 个语义动作均有合法解析（含降级），播放组必为模型实际拥有", () => {
+    for (const id of SEMANTIC_ACTIONS) {
+      const plan = resolveAction(id, live2dSkin(undefined), HIYORI_PROFILE);
+      expect(plan, id).toBeTruthy();
+      if (plan.resourceType === "live2d") {
+        expect(
+          plan.motionGroup === null || HIYORI_PROFILE.motionGroups.includes(plan.motionGroup),
+          `${id} motionGroup=${plan.motionGroup}`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("静态基线皮肤：12 个语义动作均有合法解析（think/listen 按设计降级）", () => {
+    const staticBaseline = {
+      resourceType: "static" as const,
+      actions: STATIC_BASELINE_IDS.map((id) => ({
+        id,
+        static: { animation: id },
+        fallback: id === "idle_neutral" ? undefined : "idle_neutral",
+      })),
+    };
+    for (const id of SEMANTIC_ACTIONS) {
+      const plan = resolveAction(id, staticBaseline, LIVE2D_PROFILE) as StaticActionPlan;
+      expect(plan, id).toBeTruthy();
+      if (["think", "listen"].includes(id)) {
+        expect(plan.actionId, `${id} 应降级到兜底`).toBe(TERMINAL_ACTION_ID);
+      } else {
+        expect(plan.envelope, id).toBeTruthy();
+      }
+    }
+  });
+
+  it("Live2D 默认映射覆盖除 idle_neutral 外的全部词表（含两项降级设计）", () => {
+    const ids = DEFAULT_LIVE2D_ACTIONS.map((a) => a.id);
+    expect(ids.length).toBe(11);
+    expect(ids).not.toContain("idle_neutral");
+    expect(
+      DEFAULT_LIVE2D_ACTIONS.filter((a) => a.fallback === "idle_neutral").map((a) => a.id),
+    ).toEqual(["stretch", "doze"]);
   });
 });
