@@ -7,7 +7,7 @@
 import type { Language } from "../i18n/strings";
 import { DEFAULT_SIDECAR_PORT, getRuntimePort } from "./sidecarRuntime";
 
-export type ProviderKind = "ollama" | "openai_compatible" | "anthropic";
+export type ProviderKind = "ollama" | "openai_compatible" | "openai_responses" | "anthropic";
 
 /** [general] 设置视图（config-format.md）；界面语言为 M1-CTX 设置项。 */
 export interface GeneralSettings {
@@ -37,6 +37,15 @@ export interface OllamaStatus {
 export interface ProviderTestResult {
   ok: boolean;
   hint?: string;
+}
+
+/** 未保存表单的连通性测试输入（保存前强制测试）；apiKey 缺省回退 id 指向的存量 Key。 */
+export interface ProviderDraftTestInput {
+  id?: string;
+  kind: ProviderKind;
+  baseUrl?: string;
+  model: string;
+  apiKey?: string;
 }
 
 /** [voice] 视图（M1-S0 托盘静音；S2 TTS 设置复用）。 */
@@ -164,6 +173,10 @@ export const configApi = {
 
   testProvider: (id: string): Promise<ProviderTestResult> =>
     request(`/config/providers/${encodeURIComponent(id)}/test`, { method: "POST" }),
+
+  /** 测试未保存的表单配置（不落盘、不写钥匙串；保存前强制测试用）。 */
+  testProviderDraft: (body: ProviderDraftTestInput): Promise<ProviderTestResult> =>
+    request("/config/providers/test-draft", { method: "POST", body: JSON.stringify(body) }),
 
   ollamaStatus: (): Promise<OllamaStatus> => request("/config/providers/ollama-status"),
 

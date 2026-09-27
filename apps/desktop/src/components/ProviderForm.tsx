@@ -5,9 +5,13 @@
  * - 有 initial：编辑模式，回填现有值；id 与类型锁定
  *   （后端 PUT 不支持改 kind/id，换类型请删除后重建）；
  *   API Key 留空 = 保留原 Key 不变。
+ * - 保存门禁（功能清单 7.2）：必须先点「测试」且通过，保存才可用；
+ *   连接相关字段（类型/地址/模型/Key）任一变更即重置测试状态。
+ *   测试走 test-draft 端点：不落盘、不写钥匙串。
  */
 import { useState, type FormEvent } from "react";
 import type { ProviderCreateInput, ProviderKind, ProviderSummary } from "../api/configClient";
+import { configApi } from "../api/configClient";
 import { useI18n } from "../i18n";
 
 interface ProviderFormProps {
@@ -18,6 +22,8 @@ interface ProviderFormProps {
 }
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9_-]*$/;
+
+type TestState = "idle" | "running" | "passed" | "failed";
 
 export function ProviderForm({ initial, onSubmit, onCancel }: ProviderFormProps) {
   const { t } = useI18n();
@@ -30,8 +36,44 @@ export function ProviderForm({ initial, onSubmit, onCancel }: ProviderFormProps)
   const [apiKey, setApiKey] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [testState, setTestState] = useState<TestState>("idle");
+  const [testHint, setTestHint] = useState<string | null>(null);
 
   const isOllama = kind === "ollama";
+  /** 连接相关字段变更 → 已通过的测试失效，须重测。 */
+  function invalidateTest() {
+    setTestState((prev) => (prev === "idle" || prev === "running" ? prev : "idle"));
+    setTestHint(null);
+  }
+
+  async function handleTest() {
+    if (!model.trim()) {
+      setTestState("failed");
+      setTestHint(t("providerForm.errModel"));
+      return;
+    }
+    setError(null);
+    setTestState("running");
+    setTestHint(null);
+    try {
+      const result = await configApi.testProviderDraft({
+        id: isEdit ? initial.id : undefined,
+        kind,
+        baseUrl: baseUrl.trim() || undefined,
+        model: model.trim(),
+        apiKey: isOllama || !apiKey.trim() ? undefined : apiKey.trim(),
+      });
+      if (result.ok) {
+        setTestState("passed");
+      } else {
+        setTestState("failed");
+        setTestHint(result.hint ?? t("settings.unknownReason"));
+      }
+    } catch (err) {
+      setTestState("failed");
+      setTestHint(err instanceof Error ? err.message : t("settings.testError"));
+    }
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -68,12 +110,16 @@ export function ProviderForm({ initial, onSubmit, onCancel }: ProviderFormProps)
         <span>{t("providerForm.kind")}</span>
         <select
           value={kind}
-          onChange={(e) => setKind(e.target.value as ProviderKind)}
+          onChange={(e) => {
+            setKind(e.target.value as ProviderKind);
+            invalidateTest();
+          }}
           disabled={isEdit}
         >
           <option value="openai_compatible">{t("providerForm.kindOpenAi")}</option>
-          <option value="ollama">{t("providerForm.kindOllama")}</option>
+          <option value="openai_responses">{t("providerForm.kindOpenAiResponses")}</option>
           <option value="anthropic">{t("providerForm.kindAnthropic")}</option>
+          <option value="ollama">{t("providerForm.kindOllama")}</option>
         </select>
       </label>
       <label className="settings__field">
@@ -97,15 +143,30 @@ export function ProviderForm({ initial, onSubmit, onCancel }: ProviderFormProps)
         <span>{isOllama ? t("providerForm.ollamaBaseUrl") : t("providerForm.baseUrl")}</span>
         <input
           value={baseUrl}
-          onChange={(e) => setBaseUrl(e.target.value)}
-          placeholder={isOllama ? "http://127.0.0.1:11434" : "https://api.example.com/v1"}
+          onChange={(e) => {
+            setBaseUrl(e.target.value);
+            invalidateTest();
+          }}
+          placeholder={
+            isOllama
+              ? "http://127.0.0.1:11434"
+              : kind === "openai_responses"
+                ? "https://api.openai.com/v1"
+                : "https://api.example.com/v1"
+          }
         />
       </label>
+      {kind === "openai_responses" ? (
+        <p className="settings__hint">{t("providerForm.responsesBaseUrlHint")}</p>
+      ) : null}
       <label className="settings__field">
         <span>{t("providerForm.model")}</span>
         <input
           value={model}
-          onChange={(e) => setModel(e.target.value)}
+          onChange={(e) => {
+            setModel(e.target.value);
+            invalidateTest();
+          }}
           placeholder={
             isOllama
               ? t("providerForm.modelPlaceholderOllama")
@@ -119,17 +180,38 @@ export function ProviderForm({ initial, onSubmit, onCancel }: ProviderFormProps)
           <input
             type="password"
             value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
+            onChange={(e) => {
+              setApiKey(e.target.value);
+              invalidateTest();
+            }}
             placeholder={isEdit ? t("providerForm.apiKeyEditPlaceholder") : "sk-..."}
           />
         </label>
+      ) : null}
+      {testHint ? <p className="settings__error">{testHint}</p> : null}
+      {testState === "passed" ? (
+        <p className="settings__feedback">{t("providerForm.testPassed")}</p>
       ) : null}
       {error ? <p className="settings__error">{error}</p> : null}
       <div className="settings__actions">
         <button type="button" className="btn btn--ghost" onClick={onCancel}>
           {t("common.cancel")}
         </button>
-        <button type="submit" className="btn" disabled={busy}>
+        {/* 保存门禁：测试通过前不可保存 */}
+        <button
+          type="button"
+          className="btn btn--ghost"
+          disabled={testState === "running" || busy}
+          onClick={() => void handleTest()}
+        >
+          {testState === "running" ? t("providerForm.testing") : t("providerForm.test")}
+        </button>
+        <button
+          type="submit"
+          className="btn"
+          disabled={busy || testState !== "passed"}
+          title={testState !== "passed" ? t("providerForm.saveNeedsTest") : undefined}
+        >
           {busy ? t("providerForm.saving") : t("common.save")}
         </button>
       </div>

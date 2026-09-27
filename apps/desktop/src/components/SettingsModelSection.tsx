@@ -31,6 +31,7 @@ export function SettingsModelSection() {
   const kindLabel: Record<string, string> = {
     ollama: t("settings.kindOllama"),
     openai_compatible: t("settings.kindOpenAiCompat"),
+    openai_responses: t("settings.kindOpenAiResponses"),
     anthropic: t("settings.kindAnthropic"),
   };
 
