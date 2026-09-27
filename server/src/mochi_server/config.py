@@ -136,12 +136,31 @@ class MemoryConfig(BaseModel):
 
 
 class AgentConfig(BaseModel):
-    """认知行为开关（2.5 情绪推断，ADR-0009；M-C 表演节拍）。"""
+    """认知行为开关（2.5 情绪推断，ADR-0009；M-C 表演节拍；M-D 注意力引擎）。"""
 
     emotion: Literal["auto", "off"] = "auto"  # 回复后置情绪分类；off → 恒 neutral
     # 表演节拍 cue（M-C）：auto → 回复流解析 [[cue:id]] 标记并发 character.cue；
     # off → 标记解析完全旁路（标记原样进文本），行为与 M-B 结束点一致
     cues: Literal["auto", "off"] = "auto"
+    # 注意力引擎（M-D）：auto → 接收 companion.signal 并按门控主动开口；
+    # off（默认）→ 信号直接忽略，行为与 M-C 结束点一致（主动陪伴 opt-in，克制默认）
+    attention: Literal["auto", "off"] = "off"
+
+
+class AttentionConfig(BaseModel):
+    """注意力引擎门控参数（M-D，调研报告 §8.6）。持久化在 config.toml ——
+    勿扰时段等设置重启后仍生效（验收项）；预算/冷却进程内记账、重启重置。"""
+
+    # 勿扰/安静时段（本地时区，支持跨午夜如 22:00–08:00）；None = 不启用
+    quiet_hours: tuple[str, str] | None = None
+    silence_window_ms: int = 5 * 60 * 1000  # 用户刚发消息后的静默窗
+    topic_cooldown_ms: int = 30 * 60 * 1000  # 同主题冷却
+    snooze_ms: int = 10 * 60 * 1000  # 「稍后」
+    hourly_budget: int = 2
+    daily_budget: int = 6
+    ask_expires_ms: int = 10 * 60 * 1000  # ask_intent 无声过期
+    long_tool_ms: int = 30_000  # 工具完成超过该时长才值得庆祝
+    focus_active_ms: int = 50 * 60 * 1000  # 连续活跃超过该时长才建议休息
 
 
 class ToolsConfig(BaseModel):
@@ -160,6 +179,7 @@ class AppConfig(BaseModel):
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     agent: AgentConfig = Field(default_factory=AgentConfig)
+    attention: AttentionConfig = Field(default_factory=AttentionConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
 
 
