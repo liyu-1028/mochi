@@ -201,13 +201,13 @@ export default function App() {
   }, []);
 
   /**
-   * 重新探测初始设置状态：有 provider → 完成；无 → 待设置（状态栏提示）。
-   * 会话内首次探测到无 provider 时自动弹引导窗，之后只提示不再打扰。
+   * 重新探测初始设置状态：有模型配置 → 完成；无 → 待设置（状态栏提示）。
+   * 会话内首次探测到无模型配置时自动弹引导窗，之后只提示不再打扰。
    */
   const recheckOnboarding = useCallback(async () => {
     try {
-      const providers = await configApi.listProviders();
-      if (providers.length > 0) {
+      const profiles = await configApi.listModelProfiles();
+      if (profiles.length > 0) {
         setOnboardingDone(true);
       } else {
         setOnboardingDone(false);
@@ -222,7 +222,7 @@ export default function App() {
         }
       }
     } catch {
-      // sidecar 尚未就绪：等待下一次连接成功 / provider 变更再探测
+      // sidecar 尚未就绪：等待下一次连接成功 / 模型配置变更再探测
     }
   }, []);
 

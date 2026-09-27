@@ -1,4 +1,4 @@
-"""配置与模型提供方管理路由（功能清单 7.2 接口面 + 6.3 Key 存储）。
+"""配置与模型管理路由（功能清单 7.2 接口面 + 6.3 Key 存储）。
 
 红线：
 - Key 只经 POST/PUT body 单向传入，GET 一律只回 key_ref + masked_key；
@@ -17,25 +17,28 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import Field
 
 from ..agent.ollama_probe import probe_ollama
-from ..agent.registry import ProviderRegistry
+from ..agent.registry import AgentFactory
 from ..config import (
-    TRIAL_PROVIDER_ID,
+    TRIAL_PROFILE_ID,
     AppConfig,
     Language,
-    ModelProviderConfig,
-    ProviderKind,
+    ModelConnectionConfig,
+    ModelProfileConfig,
+    ResolvedModelTarget,
+    WireProtocol,
     save_config,
 )
 from ..events import CamelModel
+from ..model_catalog import catalog_view, get_preset
 from ..persona import CATALOG, valid_preset_id
-from ..secrets import KeyStore, KeyStoreError, key_ref_for
+from ..secrets import KeyStore, KeyStoreError
 from .security import localhost_only
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/config", tags=["config"], dependencies=[Depends(localhost_only)])
 
-_PROVIDER_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+_MODEL_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
 
 # ---------------------------------------------------------------------------
@@ -43,53 +46,43 @@ _PROVIDER_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 # ---------------------------------------------------------------------------
 
 
-class ProviderCreate(CamelModel):
-    id: str
-    kind: ProviderKind
-    display_name: str
+class ModelConfigure(CamelModel):
+    """测试成功后一次性保存 connection + profile。"""
+
+    profile_id: str
+    connection_id: str
+    preset_id: str
+    connection_name: str
+    profile_name: str
+    protocol: WireProtocol
     base_url: str | None = None
     model: str
-    api_key: str | None = None  # 单向传入：落钥匙串后永不回显
-
-
-class ProviderUpdate(CamelModel):
-    display_name: str | None = None
-    base_url: str | None = None
-    model: str | None = None
     api_key: str | None = None
+    context_window: int | None = Field(default=None, gt=0)
 
 
-class ProviderSummary(CamelModel):
+class ModelProfileSummary(CamelModel):
     id: str
-    kind: ProviderKind
+    connection_id: str
+    preset_id: str
+    connection_name: str
     display_name: str
+    protocol: WireProtocol
     base_url: str | None = None
     model: str
+    context_window: int | None = None
     key_ref: str | None = None
     masked_key: str | None = None
     is_default: bool = False
 
 
-class ProviderTestResult(CamelModel):
+class ModelTestResult(CamelModel):
     ok: bool
     hint: str | None = None
 
 
-class ProviderDraftTest(CamelModel):
-    """未保存表单的连通性测试输入（保存前强制测试）。
-
-    api_key 缺省时回退 id 指向的存量 Key（编辑模式「留空 = 保留原 Key」）。
-    """
-
-    id: str | None = None  # 编辑模式：原 provider id（存量 Key 回退用）
-    kind: ProviderKind
-    base_url: str | None = None
-    model: str
-    api_key: str | None = None  # 仅本次测试内存态使用，不写钥匙串
-
-
-class DefaultProviderUpdate(CamelModel):
-    default_provider: str
+class DefaultProfileUpdate(CamelModel):
+    default_profile: str
 
 
 class GeneralUpdate(CamelModel):
@@ -174,7 +167,7 @@ def _persona_view(config: AppConfig) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _registry(request: Request) -> ProviderRegistry:
+def _registry(request: Request) -> AgentFactory:
     registry = request.app.state.registry
     if registry is None:
         raise HTTPException(status_code=503, detail="配置服务未就绪")
@@ -185,26 +178,34 @@ def _config_path(request: Request):
     return request.app.state.config_path
 
 
-def _summary(provider_id: str, cfg, default_provider: str, key_store: KeyStore) -> ProviderSummary:
+def _profile_summary(
+    profile_id: str, config: AppConfig, key_store: KeyStore
+) -> ModelProfileSummary:
+    profile = config.model.profiles[profile_id]
+    connection = config.model.connections[profile.connection_id]
+    preset = get_preset(connection.preset_id)
     masked = None
-    if cfg.key_ref:
-        secret = key_store.get_key(provider_id)
+    if connection.key_ref:
+        secret = key_store.get_key(profile.connection_id)
         masked = KeyStore.mask(secret) if secret else None
-    return ProviderSummary(
-        id=provider_id,
-        kind=cfg.kind,
-        display_name=cfg.display_name,
-        base_url=cfg.base_url,
-        model=cfg.model,
-        key_ref=cfg.key_ref,
+    return ModelProfileSummary(
+        id=profile_id,
+        connection_id=profile.connection_id,
+        preset_id=connection.preset_id,
+        connection_name=connection.display_name,
+        display_name=profile.display_name,
+        protocol=profile.protocol,
+        base_url=connection.endpoints.get(profile.protocol)
+        or preset.default_endpoints.get(profile.protocol),
+        model=profile.model,
+        context_window=profile.context_window,
+        key_ref=connection.key_ref,
         masked_key=masked,
-        is_default=provider_id == default_provider,
+        is_default=profile_id == config.model.default_profile,
     )
 
 
-def _apply(
-    registry: ProviderRegistry, config_path, mutate: Callable[[AppConfig], None]
-) -> AppConfig:
+def _apply(registry: AgentFactory, config_path, mutate: Callable[[AppConfig], None]) -> AppConfig:
     """深拷贝 → 变更 → 原子落盘 → registry 热更新。"""
     new_config = registry.config.model_copy(deep=True)
     mutate(new_config)
@@ -220,153 +221,194 @@ def _apply(
 
 @router.get("")
 async def get_config(request: Request) -> dict:
-    """脱敏配置视图：providers 只含 key_ref + masked_key。"""
+    """脱敏配置视图；配置文件中只含 key_ref，不含明文 Key。"""
     registry = _registry(request)
     cfg = registry.config
     data = cfg.model_dump(mode="json", by_alias=True, exclude_none=True)
     # general 段包一层 camelCase 视图（2.6 powerSave；旧客户端 language 键不变）
     data["general"] = _general_view(cfg)
-    data["model"]["providers"] = [
-        _summary(pid, pcfg, cfg.model.default_provider, registry.key_store).model_dump(
-            by_alias=True, exclude_none=True
-        )
-        for pid, pcfg in cfg.model.providers.items()
-    ]
     return data
 
 
-@router.get("/providers")
-async def list_providers(request: Request) -> list[dict]:
+@router.get("/model-presets")
+async def list_model_presets() -> list[dict]:
+    """服务端厂商目录是设置界面的唯一事实源。"""
+    from pydantic.alias_generators import to_camel
+
+    return [{to_camel(key): value for key, value in item.items()} for item in catalog_view()]
+
+
+@router.get("/model-profiles")
+async def list_model_profiles(request: Request) -> list[dict]:
     registry = _registry(request)
     cfg = registry.config
     return [
-        _summary(pid, pcfg, cfg.model.default_provider, registry.key_store).model_dump(
+        _profile_summary(profile_id, cfg, registry.key_store).model_dump(
             by_alias=True, exclude_none=True
         )
-        for pid, pcfg in cfg.model.providers.items()
+        for profile_id in cfg.model.profiles
     ]
 
 
-@router.post("/providers", status_code=201)
-async def create_provider(body: ProviderCreate, request: Request) -> dict:
+@router.post("/model-profiles/configure")
+async def configure_model_profile(body: ModelConfigure, request: Request) -> dict:
+    """用同一份草稿完成真实探测与保存；失败时不留下 Key 或配置。"""
     registry = _registry(request)
-    provider_id = body.id
-    if not _PROVIDER_ID_PATTERN.match(provider_id):
+    for field_name, value in (
+        ("profileId", body.profile_id),
+        ("connectionId", body.connection_id),
+    ):
+        if not _MODEL_ID_PATTERN.fullmatch(value):
+            raise HTTPException(
+                status_code=422,
+                detail=f"{field_name} 仅限小写字母/数字/下划线/连字符，且以字母数字开头",
+            )
+    if body.profile_id == TRIAL_PROFILE_ID or body.connection_id == TRIAL_PROFILE_ID:
+        raise HTTPException(status_code=409, detail="trial 是内置试用模式标识")
+    try:
+        preset = get_preset(body.preset_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if body.protocol not in preset.protocols:
         raise HTTPException(
-            status_code=422, detail="provider id 仅限小写字母/数字/下划线/连字符，且以字母数字开头"
+            status_code=422,
+            detail=f"{preset.display_name} 不支持协议 {body.protocol}",
         )
-    if provider_id == TRIAL_PROVIDER_ID or provider_id in registry.config.model.providers:
-        raise HTTPException(status_code=409, detail=f"提供方 {provider_id} 已存在")
+    if not body.model.strip():
+        raise HTTPException(status_code=422, detail="请填写模型名称")
+    existing_connection = registry.config.model.connections.get(body.connection_id)
+    if existing_connection is not None and existing_connection.preset_id != body.preset_id:
+        raise HTTPException(status_code=409, detail="已有连接不能更换厂商模板")
+    if body.preset_id == "custom" and not body.base_url:
+        raise HTTPException(status_code=422, detail="自定义兼容接口必须填写 Base URL")
 
-    key_ref = None
+    effective_key = body.api_key
+    if effective_key is None and existing_connection is not None:
+        effective_key = registry.key_store.get_key(body.connection_id)
+    base_url = body.base_url or (
+        existing_connection.endpoints.get(body.protocol) if existing_connection else None
+    )
+    base_url = base_url or preset.default_endpoints.get(body.protocol)
+    target = ResolvedModelTarget(
+        connection_id=body.connection_id,
+        preset_id=body.preset_id,
+        display_name=body.profile_name or body.model,
+        protocol=body.protocol,
+        base_url=base_url,
+        model=body.model.strip(),
+        context_window=body.context_window,
+    )
+    ok, hint = await registry.test_draft(target, api_key=effective_key)
+    if not ok:
+        return ModelTestResult(ok=False, hint=hint).model_dump(by_alias=True, exclude_none=True)
+
+    old_key = registry.key_store.get_key(body.connection_id)
+    key_changed = bool(body.api_key)
+    key_ref = existing_connection.key_ref if existing_connection else None
     if body.api_key:
         try:
-            key_ref = registry.key_store.set_key(provider_id, body.api_key)
-        except KeyStoreError as exc:
-            # 钥匙串写入失败：返回可读错误（经正常响应路径，带 CORS 头），
-            # 避免未处理异常 → 500 无 CORS 头 → 前端表现为 "Load failed"
-            raise HTTPException(
-                status_code=500,
-                detail=f"API Key 存入系统钥匙串失败：{exc}",
-            ) from exc
-
-    def mutate(config: AppConfig) -> None:
-        config.model.providers[provider_id] = ModelProviderConfig(
-            kind=body.kind,
-            display_name=body.display_name,
-            base_url=body.base_url,
-            model=body.model,
-            key_ref=key_ref,
-        )
-
-    new_config = _apply(registry, _config_path(request), mutate)
-    logger.info("新增提供方：%s（kind=%s）", provider_id, body.kind)
-    return _summary(
-        provider_id,
-        new_config.model.providers[provider_id],
-        new_config.model.default_provider,
-        registry.key_store,
-    ).model_dump(by_alias=True, exclude_none=True)
-
-
-@router.put("/providers/{provider_id}")
-async def update_provider(provider_id: str, body: ProviderUpdate, request: Request) -> dict:
-    registry = _registry(request)
-    existing = registry.config.model.providers.get(provider_id)
-    if existing is None:
-        raise HTTPException(status_code=404, detail=f"提供方 {provider_id} 不存在")
-
-    if body.api_key:
-        try:
-            registry.key_store.set_key(provider_id, body.api_key)
+            key_ref = registry.key_store.set_key(body.connection_id, body.api_key)
         except KeyStoreError as exc:
             raise HTTPException(
                 status_code=500,
                 detail=f"API Key 存入系统钥匙串失败：{exc}",
             ) from exc
 
-    def mutate(config: AppConfig) -> None:
-        cfg = config.model.providers[provider_id]
-        if body.display_name is not None:
-            cfg.display_name = body.display_name
-        if body.base_url is not None:
-            cfg.base_url = body.base_url
-        if body.model is not None:
-            cfg.model = body.model
-        if body.api_key:
-            cfg.key_ref = key_ref_for(provider_id)
+    new_config = registry.config.model_copy(deep=True)
+    endpoints = dict(existing_connection.endpoints) if existing_connection else {}
+    if body.base_url:
+        endpoints[body.protocol] = body.base_url.rstrip("/")
+    new_config.model.connections[body.connection_id] = ModelConnectionConfig(
+        preset_id=body.preset_id,
+        display_name=body.connection_name.strip() or preset.display_name,
+        endpoints=endpoints,
+        key_ref=key_ref,
+    )
+    new_config.model.profiles[body.profile_id] = ModelProfileConfig(
+        connection_id=body.connection_id,
+        display_name=body.profile_name.strip() or body.model.strip(),
+        protocol=body.protocol,
+        model=body.model.strip(),
+        context_window=body.context_window,
+    )
+    if new_config.model.default_profile == TRIAL_PROFILE_ID:
+        new_config.model.default_profile = body.profile_id
+    try:
+        save_config(_config_path(request), new_config)
+    except OSError as exc:
+        if key_changed:
+            if old_key is None:
+                registry.key_store.delete_key(body.connection_id)
+            else:
+                registry.key_store.set_key(body.connection_id, old_key)
+        raise HTTPException(status_code=500, detail="模型配置保存失败") from exc
+    registry.update_config(new_config)
+    logger.info(
+        "模型配置已保存：profile=%s connection=%s protocol=%s",
+        body.profile_id,
+        body.connection_id,
+        body.protocol,
+    )
+    return {
+        "ok": True,
+        "profile": _profile_summary(body.profile_id, new_config, registry.key_store).model_dump(
+            by_alias=True, exclude_none=True
+        ),
+    }
 
-    new_config = _apply(registry, _config_path(request), mutate)
-    return _summary(
-        provider_id,
-        new_config.model.providers[provider_id],
-        new_config.model.default_provider,
-        registry.key_store,
-    ).model_dump(by_alias=True, exclude_none=True)
 
-
-@router.delete("/providers/{provider_id}", status_code=204)
-async def delete_provider(provider_id: str, request: Request) -> None:
+@router.delete("/model-profiles/{profile_id}", status_code=204)
+async def delete_model_profile(profile_id: str, request: Request) -> None:
     registry = _registry(request)
-    if provider_id not in registry.config.model.providers:
-        raise HTTPException(status_code=404, detail=f"提供方 {provider_id} 不存在")
+    if profile_id not in registry.config.model.profiles:
+        raise HTTPException(status_code=404, detail=f"模型配置 {profile_id} 不存在")
 
     def mutate(config: AppConfig) -> None:
-        del config.model.providers[provider_id]
-        if config.model.default_provider == provider_id:
-            config.model.default_provider = TRIAL_PROVIDER_ID
+        del config.model.profiles[profile_id]
+        if config.model.default_profile == profile_id:
+            config.model.default_profile = TRIAL_PROFILE_ID
 
     _apply(registry, _config_path(request), mutate)
-    registry.key_store.delete_key(provider_id)
-    logger.info("删除提供方：%s", provider_id)
 
 
-@router.put("/providers/{provider_id}/default")
-async def set_default_provider(provider_id: str, request: Request) -> dict:
+@router.delete("/model-connections/{connection_id}", status_code=204)
+async def delete_model_connection(connection_id: str, request: Request) -> None:
     registry = _registry(request)
-    if provider_id != TRIAL_PROVIDER_ID and provider_id not in registry.config.model.providers:
-        raise HTTPException(status_code=404, detail=f"提供方 {provider_id} 不存在")
+    if connection_id not in registry.config.model.connections:
+        raise HTTPException(status_code=404, detail=f"模型连接 {connection_id} 不存在")
 
+    def mutate(config: AppConfig) -> None:
+        removed = [
+            profile_id
+            for profile_id, profile in config.model.profiles.items()
+            if profile.connection_id == connection_id
+        ]
+        for profile_id in removed:
+            del config.model.profiles[profile_id]
+        if config.model.default_profile in removed:
+            config.model.default_profile = TRIAL_PROFILE_ID
+        del config.model.connections[connection_id]
+
+    _apply(registry, _config_path(request), mutate)
+    registry.key_store.delete_key(connection_id)
+
+
+@router.put("/model-profiles/{profile_id}/default")
+async def set_default_profile(profile_id: str, request: Request) -> dict:
+    registry = _registry(request)
+    if profile_id != TRIAL_PROFILE_ID and profile_id not in registry.config.model.profiles:
+        raise HTTPException(status_code=404, detail=f"模型配置 {profile_id} 不存在")
     new_config = _apply(
         registry,
         _config_path(request),
-        lambda config: setattr(config.model, "default_provider", provider_id),
+        lambda config: setattr(config.model, "default_profile", profile_id),
     )
-    return {"defaultProvider": new_config.model.default_provider}
+    return {"defaultProfile": new_config.model.default_profile}
 
 
 @router.put("/model/default")
-async def update_default_provider(body: DefaultProviderUpdate, request: Request) -> dict:
-    registry = _registry(request)
-    target = body.default_provider
-    if target != TRIAL_PROVIDER_ID and target not in registry.config.model.providers:
-        raise HTTPException(status_code=404, detail=f"提供方 {target} 不存在")
-    new_config = _apply(
-        registry,
-        _config_path(request),
-        lambda config: setattr(config.model, "default_provider", target),
-    )
-    return {"defaultProvider": new_config.model.default_provider}
+async def update_default_profile(body: DefaultProfileUpdate, request: Request) -> dict:
+    return await set_default_profile(body.default_profile, request)
 
 
 @router.put("/general")
@@ -495,33 +537,24 @@ async def update_character(body: CharacterUpdate, request: Request) -> dict:
     return _character_view(new_config)
 
 
-@router.post("/providers/test-draft")
-async def test_provider_draft(body: ProviderDraftTest, request: Request) -> dict:
-    """测试未保存的表单配置：不落盘、不写钥匙串。"""
+@router.post("/model-profiles/{profile_id}/test")
+async def test_model_profile(profile_id: str, request: Request) -> dict:
     registry = _registry(request)
-    cfg = ModelProviderConfig(
-        kind=body.kind,
-        display_name="草稿",
-        base_url=body.base_url,
-        model=body.model,
-    )
-    ok, hint = await registry.test_draft(cfg, api_key=body.api_key, existing_id=body.id)
-    return ProviderTestResult(ok=ok, hint=hint).model_dump(by_alias=True, exclude_none=True)
+    ok, hint = await registry.test_profile(profile_id)
+    return ModelTestResult(ok=ok, hint=hint).model_dump(by_alias=True, exclude_none=True)
 
 
-@router.post("/providers/{provider_id}/test")
-async def test_provider(provider_id: str, request: Request) -> dict:
-    registry = _registry(request)
-    ok, hint = await registry.test_provider(provider_id)
-    return ProviderTestResult(ok=ok, hint=hint).model_dump(by_alias=True, exclude_none=True)
-
-
-@router.get("/providers/ollama-status")
+@router.get("/models/ollama-status")
 async def ollama_status(request: Request) -> dict:
     registry = _registry(request)
-    ollama_cfg = next(
-        (p for p in registry.config.model.providers.values() if p.kind == "ollama"), None
+    ollama_connection = next(
+        (
+            connection
+            for connection in registry.config.model.connections.values()
+            if connection.preset_id == "ollama"
+        ),
+        None,
     )
-    base_url = ollama_cfg.base_url if ollama_cfg and ollama_cfg.base_url else None
+    base_url = ollama_connection.endpoints.get("openai_chat") if ollama_connection else None
     result = await probe_ollama(base_url) if base_url else await probe_ollama()
     return result.model_dump(by_alias=True, exclude_none=True)

@@ -1,4 +1,4 @@
-"""REST 管理端点测试：provider CRUD、Key 脱敏、守卫、连通性、日志脱敏。"""
+"""REST 管理端点测试：模型配置、Key 脱敏、守卫、连通性、日志脱敏。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,13 @@ from fastapi.testclient import TestClient
 
 from mochi_server.agent.registry import ProviderRegistry
 from mochi_server.api.security import SensitiveDataFilter, scrub_sensitive
-from mochi_server.config import AppConfig, ModelConfig, ModelProviderConfig, load_config
+from mochi_server.config import (
+    AppConfig,
+    ModelConfig,
+    ModelConnectionConfig,
+    ModelProfileConfig,
+    load_config,
+)
 from mochi_server.main import create_app
 from mochi_server.secrets import KeyStore, key_ref_for
 
@@ -19,14 +25,21 @@ _RAW_KEY = "sk-live-secret-ab12"
 def _cloud_config() -> AppConfig:
     return AppConfig(
         model=ModelConfig(
-            default_provider="cloud",
-            providers={
-                "cloud": ModelProviderConfig(
-                    kind="openai_compatible",
+            default_profile="cloud",
+            connections={
+                "cloud": ModelConnectionConfig(
+                    preset_id="custom",
                     display_name="云端",
-                    base_url="https://api.example.com/v1",
-                    model="example-chat",
+                    endpoints={"openai_chat": "https://api.example.com/v1"},
                     key_ref=key_ref_for("cloud"),
+                )
+            },
+            profiles={
+                "cloud": ModelProfileConfig(
+                    connection_id="cloud",
+                    display_name="云端模型",
+                    protocol="openai_chat",
+                    model="example-chat",
                 )
             },
         )
@@ -50,39 +63,63 @@ def test_get_config_never_echoes_raw_key(client):
     assert resp.status_code == 200
     text = resp.text
     assert _RAW_KEY not in text  # 红线：任何响应不得含明文 Key
-    assert "sk-***ab12" in text  # 只回掩码
-    providers = resp.json()["model"]["providers"]
-    assert providers[0]["keyRef"] == "mochi:provider:cloud"
-    assert providers[0]["isDefault"] is True
+    model = resp.json()["model"]
+    assert model["connections"]["cloud"]["key_ref"] == "mochi:provider:cloud"
+    assert model["default_profile"] == "cloud"
 
 
-def test_list_providers_masked(client):
-    resp = client.get("/config/providers")
+def test_list_model_profiles_masked(client):
+    resp = client.get("/config/model-profiles")
     assert resp.status_code == 200
     assert _RAW_KEY not in resp.text
     assert resp.json()[0]["maskedKey"] == "sk-***ab12"
 
 
 # ---------------------------------------------------------------------------
-# 创建 / 更新 / 删除
+# 厂商目录与“测试并保存”
 # ---------------------------------------------------------------------------
 
 
-def test_create_provider_stores_key_in_keychain(client):
+def _configure_payload(**overrides) -> dict:
+    payload = {
+        "profileId": "deepseek-chat",
+        "connectionId": "deepseek",
+        "presetId": "custom",
+        "connectionName": "DeepSeek",
+        "profileName": "DeepSeek Chat",
+        "protocol": "openai_chat",
+        "baseUrl": "https://api.deepseek.com/v1",
+        "model": "deepseek-chat",
+        "apiKey": "sk-new-key-xy98",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_model_presets_expose_friendly_defaults(client):
+    resp = client.get("/config/model-presets")
+    assert resp.status_code == 200
+    presets = {item["id"]: item for item in resp.json()}
+    assert presets["dashscope"]["recommendedProtocol"] == "openai_responses"
+    assert presets["zhipu"]["defaultEndpoints"]["openai_chat"].endswith("/paas/v4")
+    assert presets["ollama"]["authKind"] == "none"
+
+
+def test_configure_profile_tests_then_stores_key(client, monkeypatch):
+    from mochi_server.agent import LangChainAdapter
+
+    async def fake_ping(self):
+        return True, "连接成功"
+
+    monkeypatch.setattr(LangChainAdapter, "ping", fake_ping)
     resp = client.post(
-        "/config/providers",
-        json={
-            "id": "deepseek",
-            "kind": "openai_compatible",
-            "displayName": "DeepSeek",
-            "baseUrl": "https://api.deepseek.com/v1",
-            "model": "deepseek-chat",
-            "apiKey": "sk-new-key-xy98",
-        },
+        "/config/model-profiles/configure",
+        json=_configure_payload(),
     )
-    assert resp.status_code == 201, resp.text
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["ok"] is True
     assert "sk-new-key-xy98" not in resp.text
-    assert resp.json()["maskedKey"] == "sk-***xy98"
+    assert resp.json()["profile"]["maskedKey"] == "sk-***xy98"
 
     # Key 进了钥匙串；配置文件只有 key_ref，无明文
     assert KeyStore().get_key("deepseek") == "sk-new-key-xy98"
@@ -90,64 +127,143 @@ def test_create_provider_stores_key_in_keychain(client):
     assert "mochi:provider:deepseek" in config_text
     assert "sk-new-key-xy98" not in config_text
 
-    # registry 已热更新（切换无需重启）
     registry: ProviderRegistry = client.app.state.registry
-    assert "deepseek" in registry.config.model.providers
+    assert "deepseek" in registry.config.model.connections
+    assert registry.config.model.profiles["deepseek-chat"].connection_id == "deepseek"
 
 
-def test_create_provider_conflict(client):
+def test_configure_failure_does_not_persist_key_or_config(client, monkeypatch):
+    from mochi_server.agent import LangChainAdapter
+
+    async def fake_ping(self):
+        return False, "模型不存在"
+
+    monkeypatch.setattr(LangChainAdapter, "ping", fake_ping)
     resp = client.post(
-        "/config/providers",
-        json={"id": "cloud", "kind": "ollama", "displayName": "x", "model": "m"},
+        "/config/model-profiles/configure",
+        json=_configure_payload(),
     )
-    assert resp.status_code == 409
+    assert resp.json() == {"ok": False, "hint": "模型不存在"}
+    assert KeyStore().get_key("deepseek") is None
+    assert "deepseek" not in client.app.state.registry.config.model.connections
 
 
-def test_create_provider_invalid_id(client):
+def test_configure_invalid_id(client):
     resp = client.post(
-        "/config/providers",
-        json={"id": "Bad ID!", "kind": "ollama", "displayName": "x", "model": "m"},
+        "/config/model-profiles/configure",
+        json=_configure_payload(profileId="Bad ID!"),
     )
     assert resp.status_code == 422
 
 
-def test_update_provider_partial_and_rotate_key(client):
-    resp = client.put(
-        "/config/providers/cloud",
-        json={"model": "example-chat-v2", "apiKey": "sk-rotated-77"},
+def test_edit_profile_reuses_existing_key(client, monkeypatch):
+    from mochi_server.agent import LangChainAdapter
+
+    captured = {}
+
+    async def fake_ping(self):
+        captured["key"] = self._model.openai_api_key.get_secret_value()
+        return True, "连接成功"
+
+    monkeypatch.setattr(LangChainAdapter, "ping", fake_ping)
+    resp = client.post(
+        "/config/model-profiles/configure",
+        json={
+            "profileId": "cloud",
+            "connectionId": "cloud",
+            "presetId": "custom",
+            "connectionName": "云端",
+            "profileName": "云端模型 v2",
+            "protocol": "openai_chat",
+            "baseUrl": "https://api.example.com/v1",
+            "model": "example-chat-v2",
+        },
     )
     assert resp.status_code == 200
-    assert resp.json()["model"] == "example-chat-v2"
-    assert "sk-rotated-77" not in resp.text
-    assert KeyStore().get_key("cloud") == "sk-rotated-77"
+    assert resp.json()["profile"]["model"] == "example-chat-v2"
+    assert captured["key"] == _RAW_KEY
 
 
-def test_update_missing_provider(client):
-    assert client.put("/config/providers/ghost", json={"model": "m"}).status_code == 404
+def test_add_second_profile_reuses_one_connection_and_key(client, monkeypatch):
+    from mochi_server.agent import LangChainAdapter
+
+    async def fake_ping(self):
+        return True, "连接成功"
+
+    monkeypatch.setattr(LangChainAdapter, "ping", fake_ping)
+    resp = client.post(
+        "/config/model-profiles/configure",
+        json={
+            "profileId": "cloud-reasoning",
+            "connectionId": "cloud",
+            "presetId": "custom",
+            "connectionName": "云端",
+            "profileName": "推理模型",
+            "protocol": "openai_responses",
+            "baseUrl": "https://api.example.com/v1",
+            "model": "example-reasoning",
+        },
+    )
+    assert resp.status_code == 200
+    config = client.app.state.registry.config.model
+    assert list(config.connections) == ["cloud"]
+    assert set(config.profiles) == {"cloud", "cloud-reasoning"}
+    assert config.connections["cloud"].endpoints == {
+        "openai_chat": "https://api.example.com/v1",
+        "openai_responses": "https://api.example.com/v1",
+    }
+    assert KeyStore().get_key("cloud") == _RAW_KEY
 
 
-def test_delete_provider_removes_key_and_falls_back_to_trial(client):
-    resp = client.delete("/config/providers/cloud")
+def test_config_save_failure_restores_previous_key(client, monkeypatch):
+    from mochi_server.agent import LangChainAdapter
+
+    async def fake_ping(self):
+        return True, "连接成功"
+
+    def fail_save(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(LangChainAdapter, "ping", fake_ping)
+    monkeypatch.setattr("mochi_server.api.config_routes.save_config", fail_save)
+    resp = client.post(
+        "/config/model-profiles/configure",
+        json={
+            "profileId": "cloud",
+            "connectionId": "cloud",
+            "presetId": "custom",
+            "connectionName": "云端",
+            "profileName": "云端模型",
+            "protocol": "openai_chat",
+            "baseUrl": "https://api.example.com/v1",
+            "model": "example-chat-v2",
+            "apiKey": "sk-replacement",
+        },
+    )
+    assert resp.status_code == 500
+    assert KeyStore().get_key("cloud") == _RAW_KEY
+    assert client.app.state.registry.config.model.profiles["cloud"].model == "example-chat"
+
+
+def test_delete_connection_removes_profiles_key_and_falls_back_to_trial(client):
+    resp = client.delete("/config/model-connections/cloud")
     assert resp.status_code == 204
     assert KeyStore().get_key("cloud") is None  # 钥匙串条目同步删除
 
     registry: ProviderRegistry = client.app.state.registry
-    assert registry.config.model.default_provider == "trial"
+    assert registry.config.model.default_profile == "trial"
+    assert registry.config.model.profiles == {}
 
 
-def test_set_default_provider(client):
-    client.post(
-        "/config/providers",
-        json={"id": "ollama", "kind": "ollama", "displayName": "本地", "model": "qwen3:8b"},
-    )
-    resp = client.put("/config/providers/ollama/default")
+def test_set_default_profile(client):
+    resp = client.put("/config/model-profiles/trial/default")
     assert resp.status_code == 200
-    assert resp.json()["defaultProvider"] == "ollama"
-    assert client.app.state.registry.config.model.default_provider == "ollama"
+    assert resp.json()["defaultProfile"] == "trial"
+    assert client.app.state.registry.config.model.default_profile == "trial"
 
 
-def test_set_default_unknown_provider(client):
-    assert client.put("/config/providers/ghost/default").status_code == 404
+def test_set_default_unknown_profile(client):
+    assert client.put("/config/model-profiles/ghost/default").status_code == 404
 
 
 # ---------------------------------------------------------------------------
@@ -318,13 +434,13 @@ def test_get_config_includes_persona(client):
 
 
 def test_connectivity_trial_always_ok(client):
-    resp = client.post("/config/providers/trial/test")
+    resp = client.post("/config/model-profiles/trial/test")
     assert resp.status_code == 200
     assert resp.json()["ok"] is True
 
 
-def test_connectivity_unknown_provider(client):
-    resp = client.post("/config/providers/ghost/test")
+def test_connectivity_unknown_profile(client):
+    resp = client.post("/config/model-profiles/ghost/test")
     assert resp.json()["ok"] is False
 
 
@@ -335,63 +451,14 @@ def test_connectivity_uses_adapter_ping(client, monkeypatch):
         return True, "连接成功"
 
     monkeypatch.setattr(LangChainAdapter, "ping", fake_ping)
-    resp = client.post("/config/providers/cloud/test")
+    resp = client.post("/config/model-profiles/cloud/test")
     assert resp.json() == {"ok": True, "hint": "连接成功"}
 
 
-def test_draft_test_uses_form_key_and_not_persisted(client, monkeypatch):
-    """草稿测试：用表单 Key，不落盘、不写钥匙串（保存前强制测试）。"""
-    from mochi_server.agent import LangChainAdapter
-
-    captured: dict = {}
-
-    async def fake_ping(self):
-        captured["cfg"] = self._cfg
-        return True, "连接成功"
-
-    monkeypatch.setattr(LangChainAdapter, "ping", fake_ping)
+def test_configure_invalid_preset_rejected(client):
     resp = client.post(
-        "/config/providers/test-draft",
-        json={
-            "kind": "openai_compatible",
-            "baseUrl": "https://x.example.com/v1",
-            "model": "m",
-            "apiKey": "sk-draft",
-        },
-    )
-    assert resp.status_code == 200
-    assert resp.json() == {"ok": True, "hint": "连接成功"}
-    assert captured["cfg"].model == "m"
-    # 表单 Key 只在本次测试内存态使用：钥匙串无新条目、配置无新 provider
-    assert KeyStore().get_key("__draft__") is None
-    registry: ProviderRegistry = client.app.state.registry
-    assert list(registry.config.model.providers) == ["cloud"]
-
-
-def test_draft_test_falls_back_to_existing_key(client, monkeypatch):
-    """编辑模式留空 Key：草稿测试按 id 回退存量钥匙串 Key。"""
-    from mochi_server.agent import LangChainAdapter
-
-    captured: dict = {}
-
-    async def fake_ping(self):
-        captured["key"] = self._model.openai_api_key.get_secret_value()
-        return True, "连接成功"
-
-    monkeypatch.setattr(LangChainAdapter, "ping", fake_ping)
-    resp = client.post(
-        "/config/providers/test-draft",
-        json={"id": "cloud", "kind": "openai_compatible", "model": "new-model"},
-    )
-    assert resp.status_code == 200
-    assert resp.json() == {"ok": True, "hint": "连接成功"}
-    assert captured["key"] == _RAW_KEY
-
-
-def test_draft_test_invalid_kind_rejected(client):
-    resp = client.post(
-        "/config/providers/test-draft",
-        json={"kind": "nope", "model": "m"},
+        "/config/model-profiles/configure",
+        json=_configure_payload(presetId="nope"),
     )
     assert resp.status_code == 422
 
@@ -405,7 +472,7 @@ def test_ollama_status_endpoint(client, monkeypatch):
 
     monkeypatch.setattr(ollama_probe, "probe_ollama", fake_probe)
     monkeypatch.setattr("mochi_server.api.config_routes.probe_ollama", fake_probe)
-    resp = client.get("/config/providers/ollama-status")
+    resp = client.get("/config/models/ollama-status")
     assert resp.status_code == 200
     assert resp.json()["available"] is True
     assert resp.json()["models"] == ["qwen3:8b"]
@@ -427,7 +494,7 @@ def test_ollama_status_endpoint(client, monkeypatch):
 )
 def test_cors_preflight_allowed_for_known_origins(client, origin):
     resp = client.options(
-        "/config/providers",
+        "/config/model-profiles/configure",
         headers={
             "origin": origin,
             "access-control-request-method": "POST",
@@ -442,7 +509,7 @@ def test_cors_preflight_allowed_for_known_origins(client, origin):
 def test_cors_preflight_rejects_foreign_origin(client):
     # 恶意网页的源不得通过预检（安全红线：不用通配源）
     resp = client.options(
-        "/config/providers/trial/default",
+        "/config/model-profiles/trial/default",
         headers={
             "origin": "http://evil.example.com",
             "access-control-request-method": "PUT",
@@ -453,14 +520,14 @@ def test_cors_preflight_rejects_foreign_origin(client):
 
 
 def test_cors_headers_present_on_actual_get(client):
-    resp = client.get("/config/providers", headers={"origin": "http://localhost:1420"})
+    resp = client.get("/config/model-profiles", headers={"origin": "http://localhost:1420"})
     assert resp.status_code == 200
     assert resp.headers["access-control-allow-origin"] == "http://localhost:1420"
 
 
 def test_no_cors_headers_without_origin(client):
     # 非浏览器客户端（curl / 未来 Tauri IPC 直连）不带 Origin，行为不变
-    resp = client.get("/config/providers")
+    resp = client.get("/config/model-profiles")
     assert resp.status_code == 200
     assert "access-control-allow-origin" not in resp.headers
 

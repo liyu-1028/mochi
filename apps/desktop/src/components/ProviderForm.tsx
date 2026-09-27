@@ -1,218 +1,271 @@
 /**
- * ProviderForm —— 模型提供方的新增/编辑表单（纯受控组件，无表单库）。
- *
- * - 无 initial：新增模式，提交完整 ProviderCreateInput；
- * - 有 initial：编辑模式，回填现有值；id 与类型锁定
- *   （后端 PUT 不支持改 kind/id，换类型请删除后重建）；
- *   API Key 留空 = 保留原 Key 不变。
- * - 保存门禁（功能清单 7.2）：必须先点「测试」且通过，保存才可用；
- *   连接相关字段（类型/地址/模型/Key）任一变更即重置测试状态。
- *   测试走 test-draft 端点：不落盘、不写钥匙串。
+ * 引导式模型配置：用户只需选择厂商、填写模型名和 Key。
+ * 协议与端点来自服务端目录；高级用户仍可覆盖。提交由服务端一次性测试并保存。
  */
-import { useState, type FormEvent } from "react";
-import type { ProviderCreateInput, ProviderKind, ProviderSummary } from "../api/configClient";
-import { configApi } from "../api/configClient";
+import { useMemo, useState, type FormEvent } from "react";
+import {
+  configApi,
+  type ModelConfigureInput,
+  type ModelProfileSummary,
+  type ProviderPreset,
+  type WireProtocol,
+} from "../api/configClient";
 import { useI18n } from "../i18n";
 
 interface ProviderFormProps {
-  /** 传入已有 provider 时进入编辑模式。 */
-  initial?: ProviderSummary;
-  onSubmit: (input: ProviderCreateInput) => Promise<void>;
+  presets: ProviderPreset[];
+  profiles: ModelProfileSummary[];
+  initial?: ModelProfileSummary;
+  onSaved: (profile: ModelProfileSummary) => Promise<void> | void;
   onCancel: () => void;
 }
 
-const ID_PATTERN = /^[a-z0-9][a-z0-9_-]*$/;
+const NEW_CONNECTION = "__new__";
 
-type TestState = "idle" | "running" | "passed" | "failed";
+export function safeId(value: string, fallback: string): string {
+  const normalized = value
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+  return normalized || fallback;
+}
 
-export function ProviderForm({ initial, onSubmit, onCancel }: ProviderFormProps) {
+export function uniqueId(seed: string, used: Set<string>, current?: string): string {
+  const base = safeId(seed, "model");
+  if (base === current || !used.has(base)) return base;
+  for (let index = 2; ; index += 1) {
+    const candidate = `${base}-${index}`;
+    if (candidate === current || !used.has(candidate)) return candidate;
+  }
+}
+
+export function ProviderForm({ presets, profiles, initial, onSaved, onCancel }: ProviderFormProps) {
   const { t } = useI18n();
   const isEdit = initial !== undefined;
-  const [kind, setKind] = useState<ProviderKind>(initial?.kind ?? "openai_compatible");
-  const [id, setId] = useState(initial?.id ?? "");
-  const [displayName, setDisplayName] = useState(initial?.displayName ?? "");
-  const [baseUrl, setBaseUrl] = useState(initial?.baseUrl ?? "");
+  const initialPreset = presets.find((preset) => preset.id === initial?.presetId) ?? presets[0];
+  const [connectionChoice, setConnectionChoice] = useState(initial?.connectionId ?? NEW_CONNECTION);
+  const [presetId, setPresetId] = useState(initialPreset?.id ?? "custom");
+  const [protocol, setProtocol] = useState<WireProtocol>(
+    initial?.protocol ?? initialPreset?.recommendedProtocol ?? "openai_chat",
+  );
+  const [profileName, setProfileName] = useState(initial?.displayName ?? "");
   const [model, setModel] = useState(initial?.model ?? "");
   const [apiKey, setApiKey] = useState("");
+  const [baseUrl, setBaseUrl] = useState(initial?.baseUrl ?? "");
+  const [contextWindow, setContextWindow] = useState(
+    initial?.contextWindow ? String(initial.contextWindow) : "",
+  );
+  const [advanced, setAdvanced] = useState(initial?.presetId === "custom");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [testState, setTestState] = useState<TestState>("idle");
-  const [testHint, setTestHint] = useState<string | null>(null);
 
-  const isOllama = kind === "ollama";
-  /** 连接相关字段变更 → 已通过的测试失效，须重测。 */
-  function invalidateTest() {
-    setTestState((prev) => (prev === "idle" || prev === "running" ? prev : "idle"));
-    setTestHint(null);
+  const connections = useMemo(() => {
+    const byId = new Map<string, ModelProfileSummary>();
+    for (const profile of profiles) byId.set(profile.connectionId, profile);
+    return [...byId.values()];
+  }, [profiles]);
+
+  const reusedConnection = connections.find((item) => item.connectionId === connectionChoice);
+  const selectedPreset =
+    presets.find((preset) => preset.id === (reusedConnection?.presetId ?? presetId)) ?? presets[0];
+  const needsKey = selectedPreset?.authKind === "api_key";
+  const endpoint = baseUrl || selectedPreset?.defaultEndpoints[protocol] || "";
+
+  function selectPreset(nextId: string) {
+    const next = presets.find((preset) => preset.id === nextId);
+    if (!next) return;
+    setPresetId(next.id);
+    setProtocol(next.recommendedProtocol);
+    setBaseUrl(next.defaultEndpoints[next.recommendedProtocol] ?? "");
+    setAdvanced(next.id === "custom");
   }
 
-  async function handleTest() {
-    if (!model.trim()) {
-      setTestState("failed");
-      setTestHint(t("providerForm.errModel"));
-      return;
-    }
-    setError(null);
-    setTestState("running");
-    setTestHint(null);
-    try {
-      const result = await configApi.testProviderDraft({
-        id: isEdit ? initial.id : undefined,
-        kind,
-        baseUrl: baseUrl.trim() || undefined,
-        model: model.trim(),
-        apiKey: isOllama || !apiKey.trim() ? undefined : apiKey.trim(),
-      });
-      if (result.ok) {
-        setTestState("passed");
-      } else {
-        setTestState("failed");
-        setTestHint(result.hint ?? t("settings.unknownReason"));
-      }
-    } catch (err) {
-      setTestState("failed");
-      setTestHint(err instanceof Error ? err.message : t("settings.testError"));
-    }
+  function selectConnection(nextId: string) {
+    setConnectionChoice(nextId);
+    const existing = connections.find((item) => item.connectionId === nextId);
+    if (!existing) return;
+    setPresetId(existing.presetId);
+    setProtocol(existing.protocol);
+    setBaseUrl(existing.baseUrl ?? "");
   }
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
     setError(null);
-
-    if (!isEdit && !ID_PATTERN.test(id)) {
-      setError(t("providerForm.errId"));
+    if (!selectedPreset) {
+      setError(t("providerForm.errPreset"));
       return;
     }
     if (!model.trim()) {
       setError(t("providerForm.errModel"));
       return;
     }
+    if (!reusedConnection && needsKey && !apiKey.trim() && !initial?.maskedKey) {
+      setError(t("providerForm.errApiKey"));
+      return;
+    }
+    if (selectedPreset.id === "custom" && !endpoint.trim()) {
+      setError(t("providerForm.errBaseUrl"));
+      return;
+    }
+
+    const usedProfiles = new Set(profiles.map((item) => item.id));
+    const usedConnections = new Set(profiles.map((item) => item.connectionId));
+    const finalProfileId = initial?.id ?? uniqueId(`${selectedPreset.id}-${model}`, usedProfiles);
+    const finalConnectionId =
+      initial?.connectionId ??
+      reusedConnection?.connectionId ??
+      uniqueId(selectedPreset.id, usedConnections);
+    const body: ModelConfigureInput = {
+      profileId: finalProfileId,
+      connectionId: finalConnectionId,
+      presetId: selectedPreset.id,
+      connectionName: reusedConnection?.connectionName ?? selectedPreset.displayName,
+      profileName: profileName.trim() || model.trim(),
+      protocol,
+      model: model.trim(),
+      baseUrl: endpoint.trim() || undefined,
+      apiKey: reusedConnection && !isEdit ? undefined : apiKey.trim() || undefined,
+      contextWindow: contextWindow ? Number(contextWindow) : undefined,
+    };
 
     setBusy(true);
     try {
-      await onSubmit({
-        id: id.trim(),
-        kind,
-        displayName: displayName.trim() || id.trim(),
-        baseUrl: baseUrl.trim() || undefined,
-        model: model.trim(),
-        apiKey: isOllama ? undefined : apiKey.trim() || undefined,
-      });
+      const result = await configApi.configureModel(body);
+      if (!result.ok || !result.profile) {
+        setError(result.hint ?? t("settings.unknownReason"));
+        return;
+      }
+      await onSaved(result.profile);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("providerForm.errSave"));
+    } finally {
       setBusy(false);
     }
   }
 
   return (
     <form className="settings__form" onSubmit={handleSubmit}>
-      <label className="settings__field">
-        <span>{t("providerForm.kind")}</span>
-        <select
-          value={kind}
-          onChange={(e) => {
-            setKind(e.target.value as ProviderKind);
-            invalidateTest();
-          }}
-          disabled={isEdit}
-        >
-          <option value="openai_compatible">{t("providerForm.kindOpenAi")}</option>
-          <option value="openai_responses">{t("providerForm.kindOpenAiResponses")}</option>
-          <option value="anthropic">{t("providerForm.kindAnthropic")}</option>
-          <option value="ollama">{t("providerForm.kindOllama")}</option>
-        </select>
-      </label>
-      <label className="settings__field">
-        <span>{t("providerForm.id")}</span>
-        <input
-          value={id}
-          onChange={(e) => setId(e.target.value)}
-          placeholder={t("providerForm.idPlaceholder")}
-          disabled={isEdit}
-        />
-      </label>
-      <label className="settings__field">
-        <span>{t("providerForm.displayName")}</span>
-        <input
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
-          placeholder={t("providerForm.displayNamePlaceholder")}
-        />
-      </label>
-      <label className="settings__field">
-        <span>{isOllama ? t("providerForm.ollamaBaseUrl") : t("providerForm.baseUrl")}</span>
-        <input
-          value={baseUrl}
-          onChange={(e) => {
-            setBaseUrl(e.target.value);
-            invalidateTest();
-          }}
-          placeholder={
-            isOllama
-              ? "http://127.0.0.1:11434"
-              : kind === "openai_responses"
-                ? "https://api.openai.com/v1"
-                : "https://api.example.com/v1"
-          }
-        />
-      </label>
-      {kind === "openai_responses" ? (
-        <p className="settings__hint">{t("providerForm.responsesBaseUrlHint")}</p>
+      {!isEdit && connections.length > 0 ? (
+        <label className="settings__field">
+          <span>{t("providerForm.connection")}</span>
+          <select
+            value={connectionChoice}
+            onChange={(event) => selectConnection(event.target.value)}
+          >
+            <option value={NEW_CONNECTION}>{t("providerForm.newConnection")}</option>
+            {connections.map((connection) => (
+              <option key={connection.connectionId} value={connection.connectionId}>
+                {t("providerForm.reuseConnection", { name: connection.connectionName })}
+              </option>
+            ))}
+          </select>
+        </label>
       ) : null}
+
+      {!reusedConnection || isEdit ? (
+        <label className="settings__field">
+          <span>{t("providerForm.provider")}</span>
+          <select
+            value={selectedPreset?.id}
+            onChange={(event) => selectPreset(event.target.value)}
+            disabled={isEdit}
+          >
+            {presets.map((preset) => (
+              <option key={preset.id} value={preset.id}>
+                {preset.displayName}
+              </option>
+            ))}
+          </select>
+          {selectedPreset ? <small>{selectedPreset.description}</small> : null}
+        </label>
+      ) : null}
+
       <label className="settings__field">
         <span>{t("providerForm.model")}</span>
         <input
           value={model}
-          onChange={(e) => {
-            setModel(e.target.value);
-            invalidateTest();
-          }}
-          placeholder={
-            isOllama
-              ? t("providerForm.modelPlaceholderOllama")
-              : t("providerForm.modelPlaceholderOpenAi")
-          }
+          onChange={(event) => setModel(event.target.value)}
+          placeholder={selectedPreset?.modelPlaceholder}
+          autoFocus
         />
       </label>
-      {!isOllama ? (
+
+      <label className="settings__field">
+        <span>{t("providerForm.profileName")}</span>
+        <input
+          value={profileName}
+          onChange={(event) => setProfileName(event.target.value)}
+          placeholder={model || t("providerForm.profileNamePlaceholder")}
+        />
+      </label>
+
+      {needsKey && (!reusedConnection || isEdit) ? (
         <label className="settings__field">
           <span>{t("providerForm.apiKey")}</span>
           <input
             type="password"
             value={apiKey}
-            onChange={(e) => {
-              setApiKey(e.target.value);
-              invalidateTest();
-            }}
+            onChange={(event) => setApiKey(event.target.value)}
             placeholder={isEdit ? t("providerForm.apiKeyEditPlaceholder") : "sk-..."}
+            autoComplete="off"
           />
         </label>
       ) : null}
-      {testHint ? <p className="settings__error">{testHint}</p> : null}
-      {testState === "passed" ? (
-        <p className="settings__feedback">{t("providerForm.testPassed")}</p>
+
+      <button
+        type="button"
+        className="btn btn--ghost"
+        onClick={() => setAdvanced((value) => !value)}
+      >
+        {advanced ? t("providerForm.hideAdvanced") : t("providerForm.showAdvanced")}
+      </button>
+
+      {advanced ? (
+        <>
+          <label className="settings__field">
+            <span>{t("providerForm.protocol")}</span>
+            <select
+              value={protocol}
+              onChange={(event) => {
+                const next = event.target.value as WireProtocol;
+                setProtocol(next);
+                setBaseUrl(selectedPreset?.defaultEndpoints[next] ?? "");
+              }}
+            >
+              {selectedPreset?.protocols.map((item) => (
+                <option key={item} value={item}>
+                  {t(`providerForm.protocol.${item}`)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="settings__field">
+            <span>{t("providerForm.baseUrl")}</span>
+            <input value={endpoint} onChange={(event) => setBaseUrl(event.target.value)} />
+          </label>
+          <label className="settings__field">
+            <span>{t("providerForm.contextWindow")}</span>
+            <input
+              type="number"
+              min="1"
+              value={contextWindow}
+              onChange={(event) => setContextWindow(event.target.value)}
+              placeholder={t("providerForm.contextWindowPlaceholder")}
+            />
+          </label>
+        </>
       ) : null}
+
       {error ? <p className="settings__error">{error}</p> : null}
+      <p className="settings__hint">{t("providerForm.testAndSaveHint")}</p>
       <div className="settings__actions">
-        <button type="button" className="btn btn--ghost" onClick={onCancel}>
+        <button type="button" className="btn btn--ghost" onClick={onCancel} disabled={busy}>
           {t("common.cancel")}
         </button>
-        {/* 保存门禁：测试通过前不可保存 */}
-        <button
-          type="button"
-          className="btn btn--ghost"
-          disabled={testState === "running" || busy}
-          onClick={() => void handleTest()}
-        >
-          {testState === "running" ? t("providerForm.testing") : t("providerForm.test")}
-        </button>
-        <button
-          type="submit"
-          className="btn"
-          disabled={busy || testState !== "passed"}
-          title={testState !== "passed" ? t("providerForm.saveNeedsTest") : undefined}
-        >
-          {busy ? t("providerForm.saving") : t("common.save")}
+        <button type="submit" className="btn" disabled={busy}>
+          {busy ? t("providerForm.testingAndSaving") : t("providerForm.testAndSave")}
         </button>
       </div>
     </form>

@@ -16,11 +16,11 @@
 ## 2. 文件结构
 
 ```toml
-config_version = 1            # schema 版本，迁移依据（§4）
+config_version = 2            # schema 版本，迁移依据（§4）
 
 [general]                     # 语言 / 自启 / 遥测 / 省电模式
 [character]                   # 当前皮肤等角色偏好
-[model]                       # default_provider + [model.providers.<id>] 表
+[model]                       # default_profile + connections + profiles
 [voice]                       # TTS 引擎 / 音色 / 音量 / 静音
 [privacy]                     # local_only 隐私模式
 [skills]                      # 已启用技能 id 列表
@@ -31,18 +31,25 @@ config_version = 1            # schema 版本，迁移依据（§4）
 
 完整示例与字段注释见 `server/config.example.toml`。
 
-provider 字段补充（v0.8.0+）：`context_window`（可选整数，token）——
-上下文预算裁剪的窗口依据（功能清单 4.4）；缺省 8192，超出预算的历史
-自动截断并注入省略标记，对用户无感。
+模型配置拆成三个层次：
+
+- `preset_id` 是内置厂商目录项，提供推荐协议、默认 Base URL 和认证方式；
+- `[model.connections.<id>]` 表示一个账号或本地服务，持有端点和 `key_ref`；
+- `[model.profiles.<id>]` 表示一个可选择的具体模型，引用 connection，并声明
+  `protocol`、`model` 与可选 `context_window`。
+
+同一 connection 可以挂多个 profile，共享 Key 和端点；厂商与协议分离，因此同一
+厂商可以同时配置 Chat Completions 与 Responses。`context_window` 缺省 8192，
+超出预算的历史自动截断并注入省略标记，对用户无感。
 
 ## 3. 敏感信息处理
 
-1. `[model.providers.<id>]` 中只允许 `key_ref = "mochi:provider:<id>"`。
+1. `[model.connections.<id>]` 中只允许 `key_ref = "mochi:provider:<id>"`。
 2. 真实 Key 存入 OS 钥匙串：macOS Keychain / Windows Credential Manager。
    M0 选型：**Python `keyring` 库（sidecar 侧直连 OS 钥匙串）**——配置事实源在
    sidecar，且 Rust 面保持最小化；候选过的 Rust `keyring` crate /
    tauri-plugin-stronghold 不采用。
-3. 日志、遥测、错误上报路径**禁止**序列化 provider 表原文（脱敏规则：只保留 `kind`/`model`/`key_ref`）。
+3. 日志、遥测、错误上报路径**禁止**序列化 connection 表原文（脱敏规则：只保留 `preset_id`/`protocol`/`model`/`key_ref`）。
 4. 「导出配置」（功能清单 7.6）时同样只导出 `key_ref`，导入端需重新授权 Key。
 
 ## 4. 版本与迁移
@@ -65,8 +72,11 @@ provider 字段补充（v0.8.0+）：`context_window`（可选整数，token）�
 首次启动且无配置文件时：
 
 1. 探测本地 Ollama（`127.0.0.1:11434/api/tags`）；
-2. 探测到 → 生成以 Ollama 为默认 provider 的配置（引导向导展示「已发现本地模型」）；
-3. 未探测到 → 生成空 provider 配置，引导向导进入「填 Key / 试用模式」分支（功能清单 1.5）。
+2. 探测到 → 生成 Ollama connection + profile 并设为默认（引导向导展示「已发现本地模型」）；
+3. 未探测到 → 生成空模型配置，引导向导进入「填 Key / 试用模式」分支（功能清单 1.5）。
+
+v1 的 `[model.providers.*]` 在读取时自动迁移为同名 connection + profile；原有
+`key_ref` 不变，所以升级无需重新输入 API Key。
 
 ## 7. 前端状态不进入 config.toml
 

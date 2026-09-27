@@ -125,7 +125,7 @@ def _drain_until_finished(ws, limit: int = 300) -> list[dict]:
 
 
 def test_ws_turns_persist_and_rest_reads_back() -> None:
-    config = AppConfig(model=ModelConfig(default_provider="trial", providers={}))
+    config = AppConfig(model=ModelConfig(default_profile="trial"))
     with TestClient(create_app(config=config)) as client:
         with client.websocket_connect("/ws") as ws:
             ws.send_json(_hello())

@@ -4,7 +4,7 @@ langchain-anthropic / langchain-openai 白拿 tool-call 跨家归一（任务 5 
 消费）；本层保持 ProviderAdapter 接口不变——LLMAgentService / MemoryManager /
 RunManager 零改动，任务 5 换内核时整体溶解本适配层。
 
-- ollama 沿用 ChatOpenAI + /v1 通道（v0.1.x 行为零变更，不用 ChatOllama；
+- Ollama 沿用 ChatOpenAI + /v1 通道（v0.1.x 行为零变更，不用 ChatOllama；
   langchain-ollama 留作后续评估）
 - openai_responses：同一 ChatOpenAI，use_responses_api=True 走 Responses API
 - thinking 增量：anthropic 流式以 content 块 ``type=thinking`` 暴露（spike 实证，
@@ -26,7 +26,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
-from ...config import OLLAMA_DEFAULT_BASE_URL, ModelProviderConfig
+from ...config import OLLAMA_DEFAULT_BASE_URL, ResolvedModelTarget
 from ...events import ErrorCode, ErrorPayload
 from ...secrets import KeyStore
 from ..errors import AgentError
@@ -45,51 +45,51 @@ def _ollama_v1_url(base_url: str | None) -> str:
     return url if url.endswith(_OLLAMA_V1_SUFFIX) else url + _OLLAMA_V1_SUFFIX
 
 
-def _require_key(provider_id: str, cfg: ModelProviderConfig, key_store: KeyStore) -> str:
+def _require_key(connection_id: str, target: ResolvedModelTarget, key_store: KeyStore) -> str:
     """云端提供方构造期取 Key；缺失即抛 AgentError（由 RunManager 转 run.error）。"""
-    api_key = key_store.get_key(provider_id)
+    api_key = key_store.get_key(connection_id)
     if not api_key:
         raise AgentError(
             ErrorPayload(
                 code=ErrorCode.MODEL_AUTH,
                 message="尚未配置 API Key",
                 retryable=False,
-                hint=f"请在设置中为「{cfg.display_name}」填入 API Key",
+                hint=f"请在设置中为「{target.display_name}」填入 API Key",
             )
         )
     return api_key
 
 
 def build_chat_model(
-    provider_id: str, cfg: ModelProviderConfig, key_store: KeyStore
+    connection_id: str, target: ResolvedModelTarget, key_store: KeyStore
 ) -> BaseChatModel:
-    """按 provider 配置构造 langchain 模型实例（ADR-0008 D2 工厂）。
+    """按已解析目标构造 LangChain 模型；协议差异在本 seam 内收敛。
 
     max_retries=0：错误即时翻译给用户（重试交由协议 retryable 语义），与旧
     适配器一致。
     """
-    if cfg.kind == "anthropic":
+    if target.protocol == "anthropic_messages":
         return ChatAnthropic(
-            model=cfg.model,
-            api_key=_require_key(provider_id, cfg, key_store),
-            base_url=cfg.base_url,  # None → SDK 默认官方端点
+            model=target.model,
+            api_key=_require_key(connection_id, target, key_store),
+            base_url=target.base_url,  # None → SDK 默认官方端点
             max_tokens=_DEFAULT_MAX_TOKENS,
             timeout=_REQUEST_TIMEOUT_SECONDS,
             max_retries=0,
         )
-    if cfg.kind == "ollama":
+    if target.preset_id == "ollama":
         api_key = OLLAMA_API_KEY_PLACEHOLDER  # ChatOpenAI 要求非空
-        base_url = _ollama_v1_url(cfg.base_url)
-    else:  # openai_compatible / openai_responses
-        api_key = _require_key(provider_id, cfg, key_store)
-        base_url = cfg.base_url  # None → SDK 默认 OpenAI 官方端点
+        base_url = _ollama_v1_url(target.base_url)
+    else:
+        api_key = _require_key(connection_id, target, key_store)
+        base_url = target.base_url  # None → SDK 默认 OpenAI 官方端点
     return ChatOpenAI(
-        model=cfg.model,
+        model=target.model,
         api_key=api_key,
         base_url=base_url,
         timeout=_REQUEST_TIMEOUT_SECONDS,
         max_retries=0,
-        use_responses_api=cfg.kind == "openai_responses",
+        use_responses_api=target.protocol == "openai_responses",
     )
 
 
@@ -98,16 +98,16 @@ class LangChainAdapter(ProviderAdapter):
 
     def __init__(
         self,
-        provider_id: str,
-        cfg: ModelProviderConfig,
+        connection_id: str,
+        target: ResolvedModelTarget,
         key_store: KeyStore,
         *,
         model: BaseChatModel | None = None,
     ) -> None:
-        self._provider_id = provider_id
-        self._cfg = cfg
+        self._connection_id = connection_id
+        self._target = target
         # model 注入缝：测试注入 fake/mock 模型，绕开 LC 无 client 注入缝的路径
-        self._model = model or build_chat_model(provider_id, cfg, key_store)
+        self._model = model or build_chat_model(connection_id, target, key_store)
 
     @property
     def chat_model(self) -> BaseChatModel:
@@ -117,11 +117,11 @@ class LangChainAdapter(ProviderAdapter):
     @property
     def needs_role_merge(self) -> bool:
         """anthropic 族要求角色交替：上层拼消息时据此合并连续同角色。"""
-        return self._cfg.kind == "anthropic"
+        return self._target.protocol == "anthropic_messages"
 
     def translate_error(self, exc: Exception) -> AgentError:
         """SDK/LC 异常 → AgentError（图内核直调模型的错误收敛入口）。"""
-        return _translate_sdk_error(exc, model=self._cfg.model)
+        return _translate_sdk_error(exc, model=self._target.model, preset_id=self._target.preset_id)
 
     # -- ProviderAdapter -----------------------------------------------------
 
@@ -130,7 +130,9 @@ class LangChainAdapter(ProviderAdapter):
     ) -> AsyncIterator[tuple[StreamKind, str]]:
         got_any = False
         try:
-            lc_messages = _to_lc_messages(messages, anthropic_style=self._cfg.kind == "anthropic")
+            lc_messages = _to_lc_messages(
+                messages, anthropic_style=self._target.protocol == "anthropic_messages"
+            )
             async for chunk in self._model.astream(lc_messages):
                 for kind, delta in _deltas_from_chunk(chunk):
                     got_any = True
@@ -138,7 +140,9 @@ class LangChainAdapter(ProviderAdapter):
         except AgentError:
             raise
         except Exception as exc:  # 适配层职责即收敛一切异常为 AgentError
-            raise _translate_sdk_error(exc, model=self._cfg.model) from exc
+            raise _translate_sdk_error(
+                exc, model=self._target.model, preset_id=self._target.preset_id
+            ) from exc
         if not got_any:
             # 空流守卫：补偿 Ollama 流内 error 字段经 LC 归一化丢失的退化
             raise AgentError(
@@ -158,7 +162,9 @@ class LangChainAdapter(ProviderAdapter):
             err = (
                 exc
                 if isinstance(exc, AgentError)
-                else _translate_sdk_error(exc, model=self._cfg.model)
+                else _translate_sdk_error(
+                    exc, model=self._target.model, preset_id=self._target.preset_id
+                )
             )
             return False, err.payload.hint or err.payload.message
         return True, "连接成功"
@@ -226,7 +232,9 @@ _BAD_REQUEST_ERRORS = (openai.BadRequestError, anthropic.BadRequestError)
 _STATUS_ERRORS = (openai.APIStatusError, anthropic.APIStatusError)
 
 
-def _translate_sdk_error(exc: Exception, *, model: str) -> AgentError:
+def _translate_sdk_error(exc: Exception, *, model: str, preset_id: str = "custom") -> AgentError:
+    provider_code, provider_type = _structured_error_facts(exc)
+    vendor_text = str(exc)
     # 注意顺序：特化子类在前，APIStatusError/APIConnectionError 基类兜底在后
     if isinstance(exc, _AUTH_ERRORS):  # 401
         return AgentError(
@@ -239,7 +247,7 @@ def _translate_sdk_error(exc: Exception, *, model: str) -> AgentError:
         )
     if isinstance(exc, _PERMISSION_ERRORS):  # 403
         # 百炼欠费以 403 + type=Arrearage 报出（官方错误码文档），语义是余额而非权限
-        if _looks_like_arrears(str(exc)):
+        if provider_type == "arrearage" or _looks_like_arrears(vendor_text):
             return _quota_error()
         return AgentError(
             ErrorPayload(
@@ -254,7 +262,7 @@ def _translate_sdk_error(exc: Exception, *, model: str) -> AgentError:
     if isinstance(exc, _RATE_LIMIT_ERRORS):  # 429
         # 智谱欠费也走 429（业务码 1113「您的账户已欠费，请充值后重试」，官方错误码文档）：
         # 若按限流提示「稍后再试」，用户永远等不到恢复——须甄别为余额问题
-        if _looks_like_arrears(str(exc)):
+        if provider_code == "1113" or _looks_like_arrears(vendor_text):
             return _quota_error()
         return AgentError(
             ErrorPayload(
@@ -283,10 +291,12 @@ def _translate_sdk_error(exc: Exception, *, model: str) -> AgentError:
             )
         )
     if isinstance(exc, _BAD_REQUEST_ERRORS):  # 400
-        if _looks_like_context_overflow(str(exc)):
+        if provider_code == "1261" or _looks_like_context_overflow(vendor_text):
             return _context_overflow_error()
         # 智谱等兼容端点对未知模型回 400 而非 404（业务码 1211，实测 2026-09-27）
-        if _looks_like_model_not_found(str(exc)):
+        if provider_code == "1211" or (
+            preset_id != "anthropic" and _looks_like_model_not_found(vendor_text)
+        ):
             return _model_not_found_error(model, openai_family=False)
         return AgentError(
             ErrorPayload(
@@ -310,7 +320,7 @@ def _translate_sdk_error(exc: Exception, *, model: str) -> AgentError:
                 )
             )
     # 兜底前的最后甄别：部分后端（如 Ollama）把 context overflow 以裸异常形式抛出
-    if _looks_like_context_overflow(str(exc)):
+    if _looks_like_context_overflow(vendor_text):
         return _context_overflow_error()
     logger.warning("未分类的模型调用异常：%s", exc)
     return AgentError(
@@ -354,7 +364,23 @@ def _quota_error() -> AgentError:
 def _looks_like_arrears(text: str) -> bool:
     """欠费/余额类错误文案（智谱「账户已欠费」；百炼 type=Arrearage / good standing）。"""
     lowered = text.lower()
-    return any(k in lowered for k in ("欠费", "arrearage", "good standing"))
+    return any(
+        k in lowered for k in ("欠费", "余额不足", "无可用资源包", "arrearage", "good standing")
+    )
+
+
+def _structured_error_facts(exc: Exception) -> tuple[str | None, str | None]:
+    """从 stainless SDK 异常体提取稳定业务字段，避免依赖展示文案。"""
+    body = getattr(exc, "body", None)
+    if not isinstance(body, dict):
+        return None, None
+    payload = body.get("error") if isinstance(body.get("error"), dict) else body
+    code = payload.get("code")
+    error_type = payload.get("type")
+    return (
+        str(code).lower() if code is not None else None,
+        str(error_type).lower() if error_type is not None else None,
+    )
 
 
 def _context_overflow_error() -> AgentError:

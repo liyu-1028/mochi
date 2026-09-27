@@ -22,7 +22,7 @@ from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResu
 from pydantic import Field
 
 from mochi_server.agent.adapters.langchain import LangChainAdapter
-from mochi_server.config import ModelProviderConfig
+from mochi_server.config import ResolvedModelTarget
 from mochi_server.secrets import KeyStore
 
 
@@ -73,13 +73,20 @@ class ScriptedChatModel(BaseChatModel):
 
 def make_test_adapter(model: BaseChatModel, *, kind: str = "openai_compatible") -> LangChainAdapter:
     """注入假模型的 LangChainAdapter（key 无关——model 已注入）。"""
-    cfg = ModelProviderConfig(
-        kind=kind,  # type: ignore[arg-type]
+    protocol = {
+        "openai_responses": "openai_responses",
+        "anthropic": "anthropic_messages",
+    }.get(kind, "openai_chat")
+    preset_id = kind if kind in {"ollama", "anthropic"} else "custom"
+    target = ResolvedModelTarget(
+        connection_id="test",
+        preset_id=preset_id,
         display_name="测试",
         base_url="https://api.example.com/v1",
+        protocol=protocol,  # type: ignore[arg-type]
         model="test-model",
     )
-    return LangChainAdapter("test", cfg, KeyStore(), model=model)
+    return LangChainAdapter("test", target, KeyStore(), model=model)
 
 
 def sdk_error(cls: type[Exception], status: int, message: str) -> Exception:

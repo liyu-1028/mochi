@@ -5,7 +5,7 @@ from .echo_agent import EchoAgentService
 from .errors import AgentError
 from .llm_agent import LLMAgentService
 from .ollama_probe import OllamaProbeResult, probe_ollama
-from .registry import ProviderRegistry
+from .registry import AgentFactory, ProviderRegistry
 from .run_manager import RunManager
 from .service import AgentContext, AgentEvent, AgentService
 from .tools import (
@@ -22,6 +22,7 @@ __all__ = [
     "AgentContext",
     "AgentError",
     "AgentEvent",
+    "AgentFactory",
     "AgentService",
     "ChatMessage",
     "DangerLevel",

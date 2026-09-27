@@ -156,7 +156,7 @@ def test_langchain_tools_declares_all() -> None:
 
 
 def test_provider_registry_assembles_builtins() -> None:
-    config = AppConfig(model=ModelConfig(default_provider="trial", providers={}))
+    config = AppConfig(model=ModelConfig(default_profile="trial"))
     registry = ProviderRegistry(config, KeyStore())
     assert registry.tool_registry.get("get_current_time") is not None
     assert registry.tool_registry.get("read_text_file") is not None

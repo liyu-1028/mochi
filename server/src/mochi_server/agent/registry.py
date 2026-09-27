@@ -1,14 +1,12 @@
-"""ProviderRegistry —— 模型热切换（ADR-0002 D4）。
+"""AgentFactory —— Agent 装配与默认模型热切换（ADR-0002 D4）。
 
-职责：按 ``config.model.default_provider`` 解析当前 AgentService；
+职责：按 ``config.model.default_profile`` 解析当前 AgentService；
 配置更新后无需重启即生效（版本号缓存失效）。
 
 解析规则：
 - ``trial`` → EchoAgentService（试用模式，功能清单 1.5）
-- ``anthropic`` / ``ollama`` / ``openai_compatible`` → LLMAgentService(
-  LangChainAdapter)（M1-S4，ADR-0008 D2：langchain 模型封装，白拿 tool-call
-  跨家归一）
-- default_provider 引用缺失 → 回退试用模式（可用性优先）
+- 其他 profile → ModelRuntime 解析连接、厂商目录与协议，再装配 LLMAgentService
+- default_profile 引用缺失 → 回退试用模式（可用性优先）
 """
 
 from __future__ import annotations
@@ -19,17 +17,18 @@ from pathlib import Path
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
 from ..config import (
-    TRIAL_PROVIDER_ID,
+    TRIAL_PROFILE_ID,
     AppConfig,
-    ModelProviderConfig,
+    ModelProfileConfig,
+    ResolvedModelTarget,
     load_config,
     save_config,
 )
 from ..memory import MemoryManager
+from ..model_runtime import ModelRuntime
 from ..persona import build_system_prompt
 from ..secrets import KeyStore
 from ..store import SessionStore
-from .adapters import LangChainAdapter
 from .echo_agent import EchoAgentService
 from .errors import AgentError
 from .llm_agent import LLMAgentService
@@ -39,7 +38,7 @@ from .tools import ToolPolicy, ToolRegistry, register_builtin_tools
 logger = logging.getLogger(__name__)
 
 
-class ProviderRegistry:
+class AgentFactory:
     """每个 sidecar 进程一个实例；配置变更经 update_config 注入。"""
 
     def __init__(
@@ -53,6 +52,7 @@ class ProviderRegistry:
     ) -> None:
         self._config = config
         self._key_store = key_store or KeyStore()
+        self._model_runtime = ModelRuntime(config, self._key_store)
         self._store = store  # 会话持久化（M1-S1）；None 时 Agent 保持单轮行为
         self._memory = (
             MemoryManager(store, auto_extract=config.memory.auto_extract)
@@ -111,6 +111,7 @@ class ProviderRegistry:
     def update_config(self, config: AppConfig) -> None:
         """整包替换配置并使适配器缓存失效（下一回合即用新配置）。"""
         self._config = config
+        self._model_runtime.update_config(config)
         self._version += 1
         self._agent_cache = None
 
@@ -118,26 +119,26 @@ class ProviderRegistry:
 
     def current_agent(self) -> AgentService:
         """解析当前回合使用的 AgentService；可能抛 AgentError（由 RunManager 捕获）。"""
-        provider_id = self._config.model.default_provider
-        if provider_id == TRIAL_PROVIDER_ID:
+        profile_id = self._config.model.default_profile
+        if profile_id == TRIAL_PROFILE_ID:
             return self._trial
 
-        cfg = self._config.model.providers.get(provider_id)
+        cfg = self._config.model.profiles.get(profile_id)
         if cfg is None:
-            logger.warning("default_provider=%s 未定义，回退试用模式", provider_id)
+            logger.warning("default_profile=%s 未定义，回退试用模式", profile_id)
             return self._trial
 
         cache = self._agent_cache
-        if cache is not None and cache[0] == self._version and cache[1] == provider_id:
+        if cache is not None and cache[0] == self._version and cache[1] == profile_id:
             return cache[2]
 
-        agent = self._build_agent(provider_id, cfg)
-        self._agent_cache = (self._version, provider_id, agent)
+        agent = self._build_agent(profile_id, cfg)
+        self._agent_cache = (self._version, profile_id, agent)
         return agent
 
-    def _build_agent(self, provider_id: str, cfg: ModelProviderConfig) -> AgentService:
+    def _build_agent(self, profile_id: str, cfg: ModelProfileConfig) -> AgentService:
         # 缺 Key 等构造期问题在工厂内抛 AgentError，由 RunManager 转为 run.error
-        adapter = LangChainAdapter(provider_id, cfg, self._key_store)
+        adapter = self._model_runtime.adapter_for(profile_id)
         # 人格注入（6.13，ADR-0005）：system prompt 由 [character.persona] 拼装。
         # 全空回退 DEFAULT_SYSTEM_PROMPT；配置更新经 update_config 缓存失效后重建生效。
         system_prompt = build_system_prompt(self._config.character.persona)
@@ -155,52 +156,24 @@ class ProviderRegistry:
 
     # -- 连通性测试（功能清单 7.2） ------------------------------------------
 
-    async def test_provider(self, provider_id: str) -> tuple[bool, str]:
-        if provider_id == TRIAL_PROVIDER_ID:
+    async def test_profile(self, profile_id: str) -> tuple[bool, str]:
+        if profile_id == TRIAL_PROFILE_ID:
             return True, "试用模式始终可用"
-        cfg = self._config.model.providers.get(provider_id)
-        if cfg is None:
-            return False, f"提供方 {provider_id} 不存在"
+        if profile_id not in self._config.model.profiles:
+            return False, f"模型配置 {profile_id} 不存在"
         try:
-            adapter = LangChainAdapter(provider_id, cfg, self._key_store)
-        except AgentError as exc:
+            adapter = self._model_runtime.adapter_for(profile_id)
+        except (AgentError, ValueError) as exc:
+            if isinstance(exc, ValueError):
+                return False, str(exc)
             return False, exc.payload.hint or exc.payload.message
         return await adapter.ping()
 
     async def test_draft(
-        self,
-        cfg: ModelProviderConfig,
-        *,
-        api_key: str | None = None,
-        existing_id: str | None = None,
+        self, target: ResolvedModelTarget, *, api_key: str | None = None
     ) -> tuple[bool, str]:
-        """未落盘的表单草稿连通性测试（保存前强制测试）。
-
-        api_key 非空时优先使用表单填入的 Key（仅本次测试内存态使用，
-        不写钥匙串）；为空且 existing_id 指向已有 provider 时回退其存量
-        Key（编辑模式「留空 = 保留原 Key」语义）；都无 → 报缺 Key。
-        """
-        effective_key = api_key
-        if effective_key is None and existing_id is not None:
-            existing = self._config.model.providers.get(existing_id)
-            if existing is not None and existing.key_ref:
-                effective_key = self._key_store.get_key(existing_id)
-        key_store = (
-            _OverrideKeyStore(self._key_store, effective_key) if effective_key else self._key_store
-        )
-        try:
-            adapter = LangChainAdapter("__draft__", cfg, key_store)
-        except AgentError as exc:
-            return False, exc.payload.hint or exc.payload.message
-        return await adapter.ping()
+        return await self._model_runtime.probe(target, api_key=api_key)
 
 
-class _OverrideKeyStore:
-    """get_key 优先返回覆盖 Key 的薄壳（draft 测试专用，不落钥匙串）。"""
-
-    def __init__(self, base: KeyStore, override: str) -> None:
-        self._base = base
-        self._override = override
-
-    def get_key(self, provider_id: str) -> str | None:
-        return self._override
+# 兼容内部旧导入；新代码应使用 AgentFactory，避免把厂商目录与 Agent 装配混为一层。
+ProviderRegistry = AgentFactory

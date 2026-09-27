@@ -14,6 +14,7 @@ import threading
 import time
 import tomllib
 from collections.abc import Callable
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Literal
 
@@ -22,17 +23,17 @@ from pydantic import BaseModel, Field, ValidationError
 
 logger = logging.getLogger(__name__)
 
-CONFIG_VERSION = 1
+CONFIG_VERSION = 2
 
-# openai_responses：OpenAI Responses API（langchain-openai use_responses_api，与
-# chat_completions 同族 SDK/错误翻译；前端表单三选一：Chat Completions / Responses / Anthropic）
-ProviderKind = Literal["ollama", "openai_compatible", "openai_responses", "anthropic"]
+# 厂商和通信协议是两个独立概念：同一厂商可同时提供 Chat Completions 与
+# Responses；一个连接（账号/Key）可挂多个模型配置。
+WireProtocol = Literal["openai_chat", "openai_responses", "anthropic_messages"]
 
 # 界面语言（功能清单 7.8 的 M1 前置：设置项先行，文案双语化在桌面端）。
 Language = Literal["zh-CN", "en"]
 
-# 试用模式：内置 echo 桩（功能清单 1.5），不在 providers 表中持久化。
-TRIAL_PROVIDER_ID = "trial"
+# 试用模式：内置 echo 桩（功能清单 1.5），不在 profiles 表中持久化。
+TRIAL_PROFILE_ID = "trial"
 
 OLLAMA_DEFAULT_BASE_URL = "http://127.0.0.1:11434"
 
@@ -74,18 +75,41 @@ class CharacterConfig(BaseModel):
     persona: PersonaConfig = Field(default_factory=PersonaConfig)
 
 
-class ModelProviderConfig(BaseModel):
-    kind: ProviderKind
+class ModelConnectionConfig(BaseModel):
+    """一个厂商账号或本地实例；Key 与端点在多个模型间共享。"""
+
+    preset_id: str
     display_name: str
-    base_url: str | None = None
+    endpoints: dict[WireProtocol, str] = Field(default_factory=dict)
+    key_ref: str | None = None
+
+
+class ModelProfileConfig(BaseModel):
+    """一个可被设为默认项的具体模型。"""
+
+    connection_id: str
+    display_name: str
+    protocol: WireProtocol
     model: str
-    key_ref: str | None = None  # 系统钥匙串条目名；ollama 通常无需
     context_window: int | None = None  # token 窗口（4.4 预算裁剪）；None → 缺省 8192
 
 
+class ResolvedModelTarget(BaseModel):
+    """运行时已解析的模型目标；调用方无需再理解目录默认值。"""
+
+    connection_id: str
+    preset_id: str
+    display_name: str
+    protocol: WireProtocol
+    base_url: str | None = None
+    model: str
+    context_window: int | None = None
+
+
 class ModelConfig(BaseModel):
-    default_provider: str = TRIAL_PROVIDER_ID
-    providers: dict[str, ModelProviderConfig] = Field(default_factory=dict)
+    default_profile: str = TRIAL_PROFILE_ID
+    connections: dict[str, ModelConnectionConfig] = Field(default_factory=dict)
+    profiles: dict[str, ModelProfileConfig] = Field(default_factory=dict)
 
 
 class VoiceConfig(BaseModel):
@@ -144,18 +168,23 @@ class AppConfig(BaseModel):
 def default_config(*, ollama_available: bool = False, ollama_model: str | None = None) -> AppConfig:
     """首次启动的默认配置。
 
-    探测到 Ollama 且有可用模型 → 预填 ollama provider 并设为默认；
-    否则空 provider 表，默认走试用模式（echo 桩）。
+    探测到 Ollama 且有可用模型 → 预填连接与模型配置并设为默认；
+    否则保持空配置，默认走试用模式（echo 桩）。
     """
     config = AppConfig()
     if ollama_available and ollama_model:
-        config.model.providers["ollama"] = ModelProviderConfig(
-            kind="ollama",
+        config.model.connections["ollama"] = ModelConnectionConfig(
+            preset_id="ollama",
             display_name="Ollama（本地）",
-            base_url=OLLAMA_DEFAULT_BASE_URL,
+            endpoints={"openai_chat": OLLAMA_DEFAULT_BASE_URL},
+        )
+        config.model.profiles["ollama"] = ModelProfileConfig(
+            connection_id="ollama",
+            display_name=ollama_model,
+            protocol="openai_chat",
             model=ollama_model,
         )
-        config.model.default_provider = "ollama"
+        config.model.default_profile = "ollama"
     return config
 
 
@@ -163,13 +192,76 @@ def default_config(*, ollama_available: bool = False, ollama_model: str | None =
 # 版本迁移（规范 §4）
 # ---------------------------------------------------------------------------
 
+
+def _infer_preset_id(kind: str, base_url: str | None) -> str:
+    if kind == "ollama":
+        return "ollama"
+    if kind == "anthropic":
+        return "anthropic"
+    url = (base_url or "").lower()
+    if "dashscope" in url or "maas.aliyuncs.com" in url:
+        return "dashscope"
+    if "bigmodel.cn" in url:
+        return "zhipu"
+    if not url or "api.openai.com" in url:
+        return "openai"
+    return "custom"
+
+
+def _migrate_1_to_2(raw: dict[str, Any]) -> dict[str, Any]:
+    """旧 provider（一项混合账号/协议/模型）拆为 connection + profile。"""
+    migrated = deepcopy(raw)
+    old_model = migrated.get("model", {})
+    old_providers = old_model.get("providers", {})
+    connections: dict[str, Any] = {}
+    profiles: dict[str, Any] = {}
+    protocol_by_kind: dict[str, WireProtocol] = {
+        "ollama": "openai_chat",
+        "openai_compatible": "openai_chat",
+        "openai_responses": "openai_responses",
+        "anthropic": "anthropic_messages",
+    }
+    for provider_id, provider in old_providers.items():
+        kind = provider.get("kind", "openai_compatible")
+        protocol = protocol_by_kind.get(kind, "openai_chat")
+        base_url = provider.get("base_url")
+        endpoints: dict[str, str] = {}
+        if base_url:
+            endpoints[protocol] = base_url
+        elif kind == "ollama":
+            endpoints[protocol] = OLLAMA_DEFAULT_BASE_URL
+        connection: dict[str, Any] = {
+            "preset_id": _infer_preset_id(kind, base_url),
+            "display_name": provider.get("display_name", provider_id),
+            "endpoints": endpoints,
+        }
+        if provider.get("key_ref"):
+            connection["key_ref"] = provider["key_ref"]
+        profile: dict[str, Any] = {
+            "connection_id": provider_id,
+            "display_name": provider.get("display_name", provider_id),
+            "protocol": protocol,
+            "model": provider.get("model", ""),
+        }
+        if provider.get("context_window") is not None:
+            profile["context_window"] = provider["context_window"]
+        connections[provider_id] = connection
+        profiles[provider_id] = profile
+    migrated["model"] = {
+        "default_profile": old_model.get("default_provider", TRIAL_PROFILE_ID),
+        "connections": connections,
+        "profiles": profiles,
+    }
+    return migrated
+
+
 # config_version N → N+1 的迁移函数注册表；迁移必须幂等且只增不删。
-_MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {}
+_MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {1: _migrate_1_to_2}
 
 
 def migrate(raw: dict[str, Any]) -> dict[str, Any]:
     """按迁移链把 raw 升级到当前 CONFIG_VERSION。"""
-    version = raw.get("config_version", CONFIG_VERSION)
+    version = raw.get("config_version", 1)
     if not isinstance(version, int):
         raise ConfigError(f"config_version 非法：{version!r}")
     if version > CONFIG_VERSION:
@@ -184,11 +276,16 @@ def migrate(raw: dict[str, Any]) -> dict[str, Any]:
     return raw
 
 
-def _validate_provider_reference(config: AppConfig) -> None:
-    """default_provider 必须存在于 providers（trial 为隐式内置）。"""
-    default = config.model.default_provider
-    if default != TRIAL_PROVIDER_ID and default not in config.model.providers:
-        raise ConfigError(f"default_provider={default!r} 未在 providers 中定义")
+def _validate_model_references(config: AppConfig) -> None:
+    """默认模型与 profile → connection 引用必须完整。"""
+    default = config.model.default_profile
+    if default != TRIAL_PROFILE_ID and default not in config.model.profiles:
+        raise ConfigError(f"default_profile={default!r} 未在 profiles 中定义")
+    for profile_id, profile in config.model.profiles.items():
+        if profile.connection_id not in config.model.connections:
+            raise ConfigError(
+                f"profile={profile_id!r} 引用了不存在的 connection={profile.connection_id!r}"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -215,9 +312,17 @@ def load_config(
     try:
         with path.open("rb") as f:
             raw = tomllib.load(f)
+        source_version = raw.get("config_version", 1)
         raw = migrate(raw)
         config = AppConfig.model_validate(raw)
-        _validate_provider_reference(config)
+        _validate_model_references(config)
+        if isinstance(source_version, int) and source_version < CONFIG_VERSION:
+            try:
+                save_config(path, config)
+            except OSError as exc:
+                # 内存中的已迁移配置仍可正常运行；避免仅因升级落盘失败就把原文件
+                # 当作损坏配置备份并覆盖为默认值。
+                logger.warning("配置已迁移但暂时无法落盘，将在下次启动重试：%s", exc)
         return config
     except (OSError, tomllib.TOMLDecodeError, ValidationError, ConfigError) as exc:
         logger.warning("配置加载失败（%s），备份后使用默认配置：%s", exc, path)

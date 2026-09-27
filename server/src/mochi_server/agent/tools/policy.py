@@ -1,7 +1,7 @@
 """ToolPolicy —— dangerous 工具的「总是允许」白名单（M1-S4，功能清单 6.5）。
 
 读写经回调注入（``load``/``save``），不绑死 config 层：生产路径由
-ProviderRegistry 提供（读内存 config、写盘走 save_config + update_config 热生效，
+AgentFactory 提供（读内存 config、写盘走 save_config + update_config 热生效，
 沿 config_routes._apply 惯例）；测试注入闭包容器。load 每次实调——同一 policy
 实例在配置热切换后读到最新值（闭包捕获 registry 自身）。
 

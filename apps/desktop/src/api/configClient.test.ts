@@ -26,71 +26,62 @@ describe("resolveHttpBaseUrl", () => {
 });
 
 describe("configApi", () => {
-  it("listProviders GET /config/providers", async () => {
+  it("listModelProfiles GET /config/model-profiles", async () => {
     const fetchMock = mockFetch([{ id: "cloud", isDefault: true }]);
-    const list = await configApi.listProviders();
+    const list = await configApi.listModelProfiles();
     expect(list).toHaveLength(1);
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://127.0.0.1:8199/config/providers",
+      "http://127.0.0.1:8199/config/model-profiles",
       expect.objectContaining({ headers: { "Content-Type": "application/json" } }),
     );
   });
 
-  it("createProvider POST 携带 JSON body", async () => {
-    const fetchMock = mockFetch({ id: "deepseek" }, 201);
-    await configApi.createProvider({
-      id: "deepseek",
-      kind: "openai_compatible",
-      displayName: "DeepSeek",
+  it("configureModel POST 携带完整测试保存草稿", async () => {
+    const fetchMock = mockFetch({ ok: true, profile: { id: "deepseek-chat" } });
+    await configApi.configureModel({
+      profileId: "deepseek-chat",
+      connectionId: "deepseek",
+      presetId: "custom",
+      connectionName: "DeepSeek",
+      profileName: "DeepSeek Chat",
+      protocol: "openai_chat",
+      baseUrl: "https://api.deepseek.com/v1",
       model: "deepseek-chat",
       apiKey: "sk-x",
     });
     const [, init] = fetchMock.mock.calls[0];
     expect(init.method).toBe("POST");
-    expect(JSON.parse(init.body)).toMatchObject({ id: "deepseek", apiKey: "sk-x" });
-  });
-
-  it("updateProvider PUT /config/providers/{id} 携带部分字段", async () => {
-    const fetchMock = mockFetch({ id: "deepseek", model: "deepseek-chat" });
-    const resp = await configApi.updateProvider("deepseek", {
-      model: "deepseek-chat",
-      apiKey: "sk-new",
+    expect(JSON.parse(init.body)).toMatchObject({
+      profileId: "deepseek-chat",
+      connectionId: "deepseek",
+      apiKey: "sk-x",
     });
-    expect(resp.model).toBe("deepseek-chat");
-    const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe("http://127.0.0.1:8199/config/providers/deepseek");
-    expect(init.method).toBe("PUT");
-    expect(JSON.parse(init.body)).toMatchObject({ model: "deepseek-chat", apiKey: "sk-new" });
   });
 
-  it("updateProvider 未传字段不出现在请求体（部分更新语义）", async () => {
-    const fetchMock = mockFetch({ id: "cloud" });
-    await configApi.updateProvider("cloud", { displayName: "云端" });
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(body).toEqual({ displayName: "云端" });
-  });
-
-  it("setDefault PUT /config/providers/{id}/default", async () => {
-    const fetchMock = mockFetch({ defaultProvider: "ollama" });
-    const resp = await configApi.setDefault("ollama");
-    expect(resp.defaultProvider).toBe("ollama");
+  it("setDefaultModel PUT /config/model-profiles/{id}/default", async () => {
+    const fetchMock = mockFetch({ defaultProfile: "ollama" });
+    const resp = await configApi.setDefaultModel("ollama");
+    expect(resp.defaultProfile).toBe("ollama");
     expect(fetchMock.mock.calls[0][0]).toBe(
-      "http://127.0.0.1:8199/config/providers/ollama/default",
+      "http://127.0.0.1:8199/config/model-profiles/ollama/default",
     );
   });
 
-  it("deleteProvider 204 → undefined", async () => {
+  it("deleteModelConnection 204 → undefined", async () => {
     mockFetch(undefined, 204);
-    await expect(configApi.deleteProvider("cloud")).resolves.toBeUndefined();
+    await expect(configApi.deleteModelConnection("cloud")).resolves.toBeUndefined();
   });
 
   it("错误响应抛出服务端 detail 文案", async () => {
     mockFetch({ detail: "提供方 cloud 已存在" }, 409);
     await expect(
-      configApi.createProvider({
-        id: "cloud",
-        kind: "ollama",
-        displayName: "x",
+      configApi.configureModel({
+        profileId: "cloud",
+        connectionId: "cloud",
+        presetId: "ollama",
+        connectionName: "x",
+        profileName: "x",
+        protocol: "openai_chat",
         model: "m",
       }),
     ).rejects.toThrow("提供方 cloud 已存在");

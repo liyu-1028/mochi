@@ -53,7 +53,7 @@ class RunManager:
 
     agent 参数支持两种形态：
     - AgentService 实例（S1 兼容路径：注入即用）
-    - 零参可调用（如 ProviderRegistry.current_agent）：每回合解析，支持模型热切换
+    - 零参可调用（如 AgentFactory.current_agent）：每回合解析，支持模型热切换
     """
 
     def __init__(

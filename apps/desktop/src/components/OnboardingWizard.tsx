@@ -1,7 +1,7 @@
 /**
  * OnboardingWizard —— 首次运行的模型来源选择（功能清单 1.5 的模型选择步预留）。
  *
- * 无 provider 时展示三分支：
+ * 无模型配置时展示三分支：
  * 1. 探测到 Ollama → 一键启用本地模型（Zero Config 核心路径）
  * 2. 填入 Key → 打开设置面板
  * 3. 试用模式 → 直接开始（echo 桩）
@@ -24,10 +24,10 @@ export function OnboardingWizard({ onDone, onOpenSettings }: OnboardingWizardPro
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      // 已有 provider → 不需要引导
+      // 已有模型配置 → 不需要引导
       try {
-        const providers = await configApi.listProviders();
-        if (!cancelled && providers.length > 0) {
+        const profiles = await configApi.listModelProfiles();
+        if (!cancelled && profiles.length > 0) {
           onDone();
           return;
         }
@@ -48,14 +48,18 @@ export function OnboardingWizard({ onDone, onOpenSettings }: OnboardingWizardPro
     if (!ollama || ollama.models.length === 0) return;
     setEnabling(true);
     try {
-      await configApi.createProvider({
-        id: "ollama",
-        kind: "ollama",
-        displayName: "Ollama（本地）",
+      const result = await configApi.configureModel({
+        profileId: "ollama",
+        connectionId: "ollama",
+        presetId: "ollama",
+        connectionName: "Ollama（本地）",
+        profileName: ollama.models[0],
+        protocol: "openai_chat",
         baseUrl: "http://127.0.0.1:11434",
         model: ollama.models[0],
       });
-      await configApi.setDefault("ollama");
+      if (!result.ok) throw new Error(result.hint ?? "Ollama unavailable");
+      await configApi.setDefaultModel("ollama");
       onDone();
     } catch {
       setEnabling(false);

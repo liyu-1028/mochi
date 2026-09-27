@@ -36,7 +36,7 @@ from mochi_server.agent.adapters.langchain import (
     _translate_sdk_error,
     build_chat_model,
 )
-from mochi_server.config import ModelProviderConfig
+from mochi_server.config import ResolvedModelTarget
 from mochi_server.events import ErrorCode
 from mochi_server.secrets import InMemoryKeyring, KeyStore
 
@@ -44,10 +44,17 @@ _BASE_URL = "https://api.example.com/v1"
 
 
 def _cfg(kind: str, *, model: str = "test-model", base_url: str | None = _BASE_URL):
-    return ModelProviderConfig(
-        kind=kind,  # type: ignore[arg-type]
+    protocol = {
+        "openai_responses": "openai_responses",
+        "anthropic": "anthropic_messages",
+    }.get(kind, "openai_chat")
+    preset_id = kind if kind in {"ollama", "anthropic"} else "custom"
+    return ResolvedModelTarget(
+        connection_id="test",
+        preset_id=preset_id,
         display_name="测试",
         base_url=base_url,
+        protocol=protocol,  # type: ignore[arg-type]
         model=model,
     )
 
@@ -260,6 +267,11 @@ def _openai_error(cls, status: int, message: str) -> Exception:
     return cls(message, response=httpx.Response(status, json=body, request=_OPENAI_REQ), body=body)
 
 
+def _openai_error_with_code(cls, status: int, message: str, code: int) -> Exception:
+    body = {"error": {"message": message, "type": "invalid_request_error", "code": code}}
+    return cls(message, response=httpx.Response(status, json=body, request=_OPENAI_REQ), body=body)
+
+
 def _anthropic_error(cls, status: int, message: str) -> Exception:
     body = {"type": "error", "error": {"type": "invalid_request_error", "message": message}}
     return cls(
@@ -365,6 +377,20 @@ def test_429_arrears_maps_to_quota(family, cls) -> None:
     err = _translate_sdk_error(make(cls, 429, "您的账户已欠费，请充值后重试"), model="m")
     assert err.payload.code == ErrorCode.MODEL_QUOTA
     assert err.payload.retryable is False
+
+
+def test_zhipu_1113_business_code_maps_to_quota() -> None:
+    """真实智谱响应可只靠业务码稳定识别，不能依赖可能变化的展示文案。"""
+    exc = _openai_error_with_code(openai_sdk.RateLimitError, 429, "service unavailable", 1113)
+    err = _translate_sdk_error(exc, model="glm-5.3-flash", preset_id="zhipu")
+    assert err.payload.code == ErrorCode.MODEL_QUOTA
+    assert err.payload.retryable is False
+
+
+def test_zhipu_no_resource_package_wording_maps_to_quota() -> None:
+    exc = _openai_error(openai_sdk.RateLimitError, 429, "账户无可用资源包，请购买后重试")
+    err = _translate_sdk_error(exc, model="glm-5.3-flash", preset_id="zhipu")
+    assert err.payload.code == ErrorCode.MODEL_QUOTA
 
 
 @pytest.mark.parametrize(

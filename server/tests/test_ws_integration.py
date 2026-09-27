@@ -5,7 +5,12 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from mochi_server.agent import EchoAgentService
-from mochi_server.config import AppConfig, ModelConfig, ModelProviderConfig
+from mochi_server.config import (
+    AppConfig,
+    ModelConfig,
+    ModelConnectionConfig,
+    ModelProfileConfig,
+)
 from mochi_server.events import PROTOCOL_VERSION
 from mochi_server.main import create_app
 
@@ -139,7 +144,7 @@ def test_interrupt_via_ws() -> None:
 
 def test_registry_driven_turn_via_config_injection() -> None:
     """S2 生产装配路径：config 注入 → registry 按回合解析 agent（此例为试用模式）。"""
-    app = create_app(config=AppConfig())  # 默认 default_provider=trial
+    app = create_app(config=AppConfig())  # 默认 default_profile=trial
     assert app.state.registry is not None
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
         ws.send_json(_hello())
@@ -155,12 +160,19 @@ def test_registry_missing_key_surfaces_run_error() -> None:
     """default provider 缺 Key：不崩溃，run.error 带引导文案 + error 状态。"""
     config = AppConfig(
         model=ModelConfig(
-            default_provider="cloud",
-            providers={
-                "cloud": ModelProviderConfig(
-                    kind="openai_compatible",
+            default_profile="cloud",
+            connections={
+                "cloud": ModelConnectionConfig(
+                    preset_id="custom",
                     display_name="云端",
-                    base_url="https://api.example.com/v1",
+                    endpoints={"openai_chat": "https://api.example.com/v1"},
+                )
+            },
+            profiles={
+                "cloud": ModelProfileConfig(
+                    connection_id="cloud",
+                    display_name="云端",
+                    protocol="openai_chat",
                     model="m",
                 )
             },

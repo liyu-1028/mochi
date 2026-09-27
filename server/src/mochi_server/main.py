@@ -3,7 +3,7 @@
 启动流程（Zero Config，config-format.md §6）：
 1. lifespan 探测本地 Ollama（1.5s 硬超时）
 2. load_config：首启生成默认配置（探测到 Ollama → 预填默认 provider；否则试用模式）
-3. ProviderRegistry 就绪，/ws 与 /config 端点可用
+3. AgentFactory 就绪，/ws 与 /config 端点可用
 4. 写 <userData>/runtime.json（端口/pid/协议版本）供桌面壳发现（M1-S0）
 """
 
@@ -25,7 +25,7 @@ from . import __version__
 from .agent import RunManager
 from .agent.llm_agent import LLMAgentService
 from .agent.ollama_probe import probe_ollama
-from .agent.registry import ProviderRegistry
+from .agent.registry import AgentFactory
 from .agent.service import AgentService
 from .api import config_router, memory_router, session_router, skin_router, tts_router
 from .api.security import ALLOWED_CORS_ORIGINS, SensitiveDataFilter
@@ -139,7 +139,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         # checkpoint（ADR-0008 D4）：独立连接独立文件，装配见 langgraph_checkpoints
         ckpt_conn, saver = await build_checkpointer()
         app.state.checkpoint_conn = ckpt_conn
-        app.state.registry = ProviderRegistry(
+        app.state.registry = AgentFactory(
             config,
             KeyStore(),
             store=app.state.store,
@@ -147,8 +147,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             config_path=get_config_path(),  # 工具白名单落盘目标（6.5）
         )
         logger.info(
-            "配置就绪：default_provider=%s（Ollama %s）",
-            config.model.default_provider,
+            "配置就绪：default_profile=%s（Ollama %s）",
+            config.model.default_profile,
             "已发现" if probe.available else "未发现",
         )
     # 端口发现（M1-S0）：uvicorn 的端口经 MOCHI_SIDECAR_PORT 约定，就绪即写。
@@ -195,9 +195,7 @@ def create_app(
     app.state.store = SessionStore()
     app.state.config_path = get_config_path()
     app.state.registry = (
-        ProviderRegistry(
-            config, key_store, store=app.state.store, config_path=app.state.config_path
-        )
+        AgentFactory(config, key_store, store=app.state.store, config_path=app.state.config_path)
         if config is not None
         else None
     )

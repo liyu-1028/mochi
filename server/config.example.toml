@@ -2,7 +2,7 @@
 # 实际文件位于用户数据目录：<userData>/config.toml
 # 注意：API Key 等敏感信息【永不】写入本文件，仅存 key_ref 指向系统钥匙串。
 
-config_version = 1
+config_version = 2
 
 [general]
 language = "zh-CN"           # zh-CN | en
@@ -14,20 +14,34 @@ power_save = false           # 省电模式（2.6）：角色钉 15fps + 暂停�
 active_skin = "default"      # 当前皮肤包 id
 
 [model]
-default_provider = "ollama"  # 必须是 [model.providers.*] 中已定义的 id
+default_profile = "ollama-qwen"  # 必须是 [model.profiles.*] 中已定义的 id，或 trial
 
-[model.providers.ollama]
-kind = "ollama"              # ollama | openai_compatible | anthropic
+[model.connections.ollama]
+preset_id = "ollama"         # dashscope | zhipu | openai | anthropic | ollama | custom
 display_name = "Ollama (本地)"
-base_url = "http://127.0.0.1:11434"
+
+[model.connections.ollama.endpoints]
+openai_chat = "http://127.0.0.1:11434"
+
+[model.profiles.ollama-qwen]
+connection_id = "ollama"
+display_name = "本地 Qwen"
+protocol = "openai_chat"     # openai_chat | openai_responses | anthropic_messages
 model = "qwen3:8b"
 
-[model.providers.my_cloud]
-kind = "openai_compatible"
-display_name = "我的云端模型"
-base_url = "https://api.example.com/v1"
-model = "example-chat"
+[model.connections.my_cloud]
+preset_id = "custom"
+display_name = "我的云端账号"
 key_ref = "mochi:provider:my_cloud"   # 系统钥匙串条目名，非明文 Key
+
+[model.connections.my_cloud.endpoints]
+openai_chat = "https://api.example.com/v1"
+
+[model.profiles.my_cloud_chat]
+connection_id = "my_cloud"
+display_name = "我的云端模型"
+protocol = "openai_chat"
+model = "example-chat"
 # context_window = 32768            # 可选：token 窗口（4.4 预算裁剪），缺省 8192
 
 [voice]

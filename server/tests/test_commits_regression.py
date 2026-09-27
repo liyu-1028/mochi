@@ -37,7 +37,7 @@ from mochi_server.agent.adapters.langchain import (
 from mochi_server.agent.errors import AgentError
 from mochi_server.agent.service import AgentContext
 from mochi_server.agent.tools.policy import ToolPolicy
-from mochi_server.config import ModelProviderConfig
+from mochi_server.config import ResolvedModelTarget
 from mochi_server.events import (
     ErrorCode,
     ToolCallStartData,
@@ -62,10 +62,12 @@ class TestCommit_c9f7e3c_LangChainAdapter:
 
     def test_missing_key_raises_model_auth(self) -> None:
         """验证缺失 API Key 时在构造期立即抛出 MODEL_AUTH 错误。"""
-        cfg = ModelProviderConfig(
-            kind="openai_compatible",
+        cfg = ResolvedModelTarget(
+            connection_id="openai",
+            preset_id="openai",
             display_name="OpenAI",
             base_url="https://api.openai.com/v1",
+            protocol="openai_chat",
             model="gpt-4o",
         )
         ks = KeyStore()
@@ -75,10 +77,12 @@ class TestCommit_c9f7e3c_LangChainAdapter:
 
     def test_sdk_error_translation_matrix(self) -> None:
         """验证 SDK 错误转译单表：401, 403, 404, 429, 402, 500, 超时, 连接断开。"""
-        cfg = ModelProviderConfig(
-            kind="openai_compatible",
+        cfg = ResolvedModelTarget(
+            connection_id="openai",
+            preset_id="openai",
             display_name="OpenAI",
             base_url="https://api.openai.com/v1",
+            protocol="openai_chat",
             model="gpt-4o",
         )
         ks = KeyStore()

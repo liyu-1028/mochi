@@ -6,11 +6,12 @@ import pytest
 
 from mochi_server.config import (
     CONFIG_VERSION,
-    TRIAL_PROVIDER_ID,
+    TRIAL_PROFILE_ID,
     AppConfig,
     ConfigError,
     ModelConfig,
-    ModelProviderConfig,
+    ModelConnectionConfig,
+    ModelProfileConfig,
     default_config,
     load_config,
     migrate,
@@ -21,20 +22,31 @@ from mochi_server.config import (
 def _sample_config() -> AppConfig:
     return AppConfig(
         model=ModelConfig(
-            default_provider="my_cloud",
-            providers={
-                "my_cloud": ModelProviderConfig(
-                    kind="openai_compatible",
-                    display_name="我的云端模型",
-                    base_url="https://api.example.com/v1",
-                    model="example-chat",
+            default_profile="my_cloud",
+            connections={
+                "my_cloud": ModelConnectionConfig(
+                    preset_id="custom",
+                    display_name="我的云端账号",
+                    endpoints={"openai_chat": "https://api.example.com/v1"},
                     key_ref="mochi:provider:my_cloud",
                 ),
-                "local": ModelProviderConfig(
-                    kind="ollama",
+                "local": ModelConnectionConfig(
+                    preset_id="ollama",
                     display_name="Ollama（本地）",
+                ),
+            },
+            profiles={
+                "my_cloud": ModelProfileConfig(
+                    connection_id="my_cloud",
+                    display_name="我的云端模型",
+                    protocol="openai_chat",
+                    model="example-chat",
+                ),
+                "local": ModelProfileConfig(
+                    connection_id="local",
+                    display_name="qwen3:8b",
+                    protocol="openai_chat",
                     model="qwen3:8b",
-                    # base_url 为 None：序列化应省略该字段
                 ),
             },
         )
@@ -45,17 +57,19 @@ def test_first_run_generates_default_with_ollama(tmp_path):
     path = tmp_path / "config.toml"
     config = load_config(path, ollama_available=True, ollama_model="qwen3:8b")
 
-    assert path.exists()  # 生成即落盘
-    assert config.model.default_provider == "ollama"
-    assert config.model.providers["ollama"].model == "qwen3:8b"
+    assert path.exists()
+    assert config.model.default_profile == "ollama"
+    assert config.model.connections["ollama"].preset_id == "ollama"
+    assert config.model.profiles["ollama"].model == "qwen3:8b"
 
 
 def test_first_run_without_ollama_falls_back_to_trial(tmp_path):
     path = tmp_path / "config.toml"
     config = load_config(path, ollama_available=False)
 
-    assert config.model.default_provider == TRIAL_PROVIDER_ID
-    assert config.model.providers == {}
+    assert config.model.default_profile == TRIAL_PROFILE_ID
+    assert config.model.connections == {}
+    assert config.model.profiles == {}
 
 
 def test_save_load_roundtrip_equivalent(tmp_path):
@@ -65,8 +79,7 @@ def test_save_load_roundtrip_equivalent(tmp_path):
     loaded = load_config(path)
 
     assert loaded == original
-    # None 字段读回后仍为 None（TOML 中省略，pydantic 默认值补齐）
-    assert loaded.model.providers["local"].base_url is None
+    assert loaded.model.connections["local"].endpoints == {}
 
 
 def test_saved_toml_contains_no_none_literals(tmp_path):
@@ -74,7 +87,45 @@ def test_saved_toml_contains_no_none_literals(tmp_path):
     save_config(path, _sample_config())
     text = path.read_text(encoding="utf-8")
     assert "None" not in text
-    assert "key_ref" in text  # key_ref 正常持久化
+    assert "key_ref" in text
+
+
+def test_v1_provider_config_migrates_to_connection_and_profile(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text(
+        """config_version = 1
+
+[model]
+default_provider = "cloud"
+
+[model.providers.cloud]
+kind = "openai_responses"
+display_name = "智谱 GLM"
+base_url = "https://open.bigmodel.cn/api/v1"
+model = "glm-5.3-flash"
+key_ref = "mochi:provider:cloud"
+context_window = 131072
+""",
+        encoding="utf-8",
+    )
+
+    loaded = load_config(path)
+
+    assert loaded.config_version == 2
+    assert loaded.model.default_profile == "cloud"
+    connection = loaded.model.connections["cloud"]
+    assert connection.preset_id == "zhipu"
+    assert connection.key_ref == "mochi:provider:cloud"
+    assert connection.endpoints == {"openai_responses": "https://open.bigmodel.cn/api/v1"}
+    profile = loaded.model.profiles["cloud"]
+    assert profile.connection_id == "cloud"
+    assert profile.protocol == "openai_responses"
+    assert profile.model == "glm-5.3-flash"
+    assert profile.context_window == 131072
+    persisted = path.read_text(encoding="utf-8")
+    assert "config_version = 2" in persisted
+    assert 'default_profile = "cloud"' in persisted
+    assert "providers" not in persisted
 
 
 def test_persona_roundtrip(tmp_path):
@@ -87,17 +138,17 @@ def test_persona_roundtrip(tmp_path):
     loaded = load_config(path)
     assert loaded.character.persona.soul_preset == "warm_sun"
     assert loaded.character.persona.style_custom == "说话像海盗"
-    assert loaded.character.persona.personality_preset == ""  # 未设置字段默认空
+    assert loaded.character.persona.personality_preset == ""
 
 
-def test_legacy_config_without_persona_gets_default(tmp_path):
-    """旧版 config.toml 无 [character.persona]：读取后 pydantic 默认值补齐，无需迁移。"""
+def test_current_config_without_persona_gets_default(tmp_path):
+    """旧字段缺失时由 pydantic 默认值补齐，无需新增迁移。"""
     import tomli_w
 
     from mochi_server.config import PersonaConfig
 
     raw = _sample_config().model_dump(mode="json", exclude_none=True)
-    del raw["character"]["persona"]  # 模拟旧版本落盘的文件
+    del raw["character"]["persona"]
     path = tmp_path / "config.toml"
     path.write_text(tomli_w.dumps(raw), encoding="utf-8")
 
@@ -111,7 +162,7 @@ def test_corrupt_toml_backed_up_and_default_used(tmp_path):
 
     config = load_config(path)
 
-    assert config.model.default_provider == TRIAL_PROVIDER_ID
+    assert config.model.default_profile == TRIAL_PROFILE_ID
     backups = list(tmp_path.glob("config.toml.bak-*"))
     assert len(backups) == 1
     assert "这不是合法的 TOML" in backups[0].read_text(encoding="utf-8")
@@ -119,12 +170,11 @@ def test_corrupt_toml_backed_up_and_default_used(tmp_path):
 
 def test_schema_violation_backed_up(tmp_path):
     path = tmp_path / "config.toml"
-    path.write_text('config_version = 1\n[model]\ndefault_provider = "ghost"\n', encoding="utf-8")
+    path.write_text('config_version = 2\n[model]\ndefault_profile = "ghost"\n', encoding="utf-8")
 
     config = load_config(path)
 
-    # default_provider 引用不存在的 provider → 校验失败 → 默认配置
-    assert config.model.default_provider == TRIAL_PROVIDER_ID
+    assert config.model.default_profile == TRIAL_PROFILE_ID
     assert len(list(tmp_path.glob("config.toml.bak-*"))) == 1
 
 
@@ -145,21 +195,20 @@ def test_future_version_rejected(tmp_path):
 
     config = load_config(path)
 
-    assert config.config_version == CONFIG_VERSION  # 回退默认配置
+    assert config.config_version == CONFIG_VERSION
     assert len(list(tmp_path.glob("config.toml.bak-*"))) == 1
 
 
 def test_migrate_noop_for_current_version():
-    raw = {"config_version": CONFIG_VERSION, "model": {"default_provider": "trial"}}
-    assert migrate(raw)["config_version"] == CONFIG_VERSION
+    raw = {"config_version": CONFIG_VERSION, "model": {"default_profile": "trial"}}
+    assert migrate(raw) == raw
 
 
 def test_migrate_missing_step_raises():
-    # 低于当前版本且无迁移函数 → ConfigError（构造旧版本配置的场景）
     with pytest.raises(ConfigError, match="缺少迁移函数"):
-        migrate({"config_version": CONFIG_VERSION - 1})
+        migrate({"config_version": 0})
 
 
 def test_default_config_trial_is_valid():
     config = default_config()
-    assert config.model.default_provider == TRIAL_PROVIDER_ID
+    assert config.model.default_profile == TRIAL_PROFILE_ID

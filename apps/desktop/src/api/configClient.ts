@@ -1,13 +1,13 @@
 /**
  * configClient —— sidecar REST 管理端点的 fetch 封装（ADR-0002 D3）。
  *
- * Key 只在 create/update 时单向提交，服务端落钥匙串；
+ * Key 只在 configure 时单向提交，服务端测试成功后落钥匙串；
  * 响应中永无明文 Key，只有 keyRef + maskedKey。
  */
 import type { Language } from "../i18n/strings";
 import { DEFAULT_SIDECAR_PORT, getRuntimePort } from "./sidecarRuntime";
 
-export type ProviderKind = "ollama" | "openai_compatible" | "openai_responses" | "anthropic";
+export type WireProtocol = "openai_chat" | "openai_responses" | "anthropic_messages";
 
 /** [general] 设置视图（config-format.md）；界面语言为 M1-CTX 设置项。 */
 export interface GeneralSettings {
@@ -17,12 +17,28 @@ export interface GeneralSettings {
   powerSave: boolean;
 }
 
-export interface ProviderSummary {
+export interface ProviderPreset {
   id: string;
-  kind: ProviderKind;
   displayName: string;
+  description: string;
+  authKind: "api_key" | "none";
+  protocols: WireProtocol[];
+  recommendedProtocol: WireProtocol;
+  defaultEndpoints: Partial<Record<WireProtocol, string>>;
+  modelPlaceholder: string;
+  allowsCustomEndpoint: boolean;
+}
+
+export interface ModelProfileSummary {
+  id: string;
+  connectionId: string;
+  presetId: string;
+  connectionName: string;
+  displayName: string;
+  protocol: WireProtocol;
   baseUrl?: string;
   model: string;
+  contextWindow?: number;
   keyRef?: string;
   maskedKey?: string;
   isDefault: boolean;
@@ -34,18 +50,27 @@ export interface OllamaStatus {
   errorHint?: string;
 }
 
-export interface ProviderTestResult {
+export interface ModelTestResult {
   ok: boolean;
   hint?: string;
 }
 
-/** 未保存表单的连通性测试输入（保存前强制测试）；apiKey 缺省回退 id 指向的存量 Key。 */
-export interface ProviderDraftTestInput {
-  id?: string;
-  kind: ProviderKind;
+/** 服务端用同一份草稿先测试、成功后原子保存，避免测试态与保存态漂移。 */
+export interface ModelConfigureInput {
+  profileId: string;
+  connectionId: string;
+  presetId: string;
+  connectionName: string;
+  profileName: string;
+  protocol: WireProtocol;
   baseUrl?: string;
   model: string;
   apiKey?: string;
+  contextWindow?: number;
+}
+
+export interface ModelConfigureResult extends ModelTestResult {
+  profile?: ModelProfileSummary;
 }
 
 /** [voice] 视图（M1-S0 托盘静音；S2 TTS 设置复用）。 */
@@ -90,27 +115,7 @@ export interface PersonaFullView {
   presets: Record<PersonaDimension, PersonaPreset[]>;
 }
 
-export interface ProviderCreateInput {
-  id: string;
-  kind: ProviderKind;
-  displayName: string;
-  baseUrl?: string;
-  model: string;
-  apiKey?: string;
-}
-
-/**
- * provider 部分更新输入：仅传需变更字段；
- * apiKey 留空（不传）= 保留原 Key；kind/id 不可改（换类型请删除后重建）。
- */
-export interface ProviderUpdateInput {
-  displayName?: string;
-  baseUrl?: string;
-  model?: string;
-  apiKey?: string;
-}
-
-export const TRIAL_PROVIDER_ID = "trial";
+export const TRIAL_PROFILE_ID = "trial";
 
 /**
  * sidecar REST 地址：VITE_API_URL 覆盖 > runtime.json 发现端口 > 默认 8199。
@@ -153,32 +158,29 @@ export const configApi = {
   updateGeneral: (body: { language?: Language; powerSave?: boolean }): Promise<GeneralSettings> =>
     request("/config/general", { method: "PUT", body: JSON.stringify(body) }),
 
-  listProviders: (): Promise<ProviderSummary[]> => request("/config/providers"),
+  listModelPresets: (): Promise<ProviderPreset[]> => request("/config/model-presets"),
 
-  createProvider: (body: ProviderCreateInput): Promise<ProviderSummary> =>
-    request("/config/providers", { method: "POST", body: JSON.stringify(body) }),
+  listModelProfiles: (): Promise<ModelProfileSummary[]> => request("/config/model-profiles"),
 
-  /** 部分更新 provider（改模型信息/Key），返回更新后的摘要。 */
-  updateProvider: (id: string, body: ProviderUpdateInput): Promise<ProviderSummary> =>
-    request(`/config/providers/${encodeURIComponent(id)}`, {
-      method: "PUT",
+  configureModel: (body: ModelConfigureInput): Promise<ModelConfigureResult> =>
+    request("/config/model-profiles/configure", {
+      method: "POST",
       body: JSON.stringify(body),
     }),
 
-  deleteProvider: (id: string): Promise<void> =>
-    request(`/config/providers/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  deleteModelProfile: (id: string): Promise<void> =>
+    request(`/config/model-profiles/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
-  setDefault: (id: string): Promise<{ defaultProvider: string }> =>
-    request(`/config/providers/${encodeURIComponent(id)}/default`, { method: "PUT" }),
+  deleteModelConnection: (id: string): Promise<void> =>
+    request(`/config/model-connections/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
-  testProvider: (id: string): Promise<ProviderTestResult> =>
-    request(`/config/providers/${encodeURIComponent(id)}/test`, { method: "POST" }),
+  setDefaultModel: (id: string): Promise<{ defaultProfile: string }> =>
+    request(`/config/model-profiles/${encodeURIComponent(id)}/default`, { method: "PUT" }),
 
-  /** 测试未保存的表单配置（不落盘、不写钥匙串；保存前强制测试用）。 */
-  testProviderDraft: (body: ProviderDraftTestInput): Promise<ProviderTestResult> =>
-    request("/config/providers/test-draft", { method: "POST", body: JSON.stringify(body) }),
+  testModel: (id: string): Promise<ModelTestResult> =>
+    request(`/config/model-profiles/${encodeURIComponent(id)}/test`, { method: "POST" }),
 
-  ollamaStatus: (): Promise<OllamaStatus> => request("/config/providers/ollama-status"),
+  ollamaStatus: (): Promise<OllamaStatus> => request("/config/models/ollama-status"),
 
   getVoice: (): Promise<VoiceSettings> => request("/config/voice"),
 
