@@ -166,3 +166,41 @@ class ProviderRegistry:
         except AgentError as exc:
             return False, exc.payload.hint or exc.payload.message
         return await adapter.ping()
+
+    async def test_draft(
+        self,
+        cfg: ModelProviderConfig,
+        *,
+        api_key: str | None = None,
+        existing_id: str | None = None,
+    ) -> tuple[bool, str]:
+        """未落盘的表单草稿连通性测试（保存前强制测试）。
+
+        api_key 非空时优先使用表单填入的 Key（仅本次测试内存态使用，
+        不写钥匙串）；为空且 existing_id 指向已有 provider 时回退其存量
+        Key（编辑模式「留空 = 保留原 Key」语义）；都无 → 报缺 Key。
+        """
+        effective_key = api_key
+        if effective_key is None and existing_id is not None:
+            existing = self._config.model.providers.get(existing_id)
+            if existing is not None and existing.key_ref:
+                effective_key = self._key_store.get_key(existing_id)
+        key_store = (
+            _OverrideKeyStore(self._key_store, effective_key) if effective_key else self._key_store
+        )
+        try:
+            adapter = LangChainAdapter("__draft__", cfg, key_store)
+        except AgentError as exc:
+            return False, exc.payload.hint or exc.payload.message
+        return await adapter.ping()
+
+
+class _OverrideKeyStore:
+    """get_key 优先返回覆盖 Key 的薄壳（draft 测试专用，不落钥匙串）。"""
+
+    def __init__(self, base: KeyStore, override: str) -> None:
+        self._base = base
+        self._override = override
+
+    def get_key(self, provider_id: str) -> str | None:
+        return self._override

@@ -24,7 +24,9 @@ logger = logging.getLogger(__name__)
 
 CONFIG_VERSION = 1
 
-ProviderKind = Literal["ollama", "openai_compatible", "anthropic"]
+# openai_responses：OpenAI Responses API（langchain-openai use_responses_api，与
+# chat_completions 同族 SDK/错误翻译；前端表单三选一：Chat Completions / Responses / Anthropic）
+ProviderKind = Literal["ollama", "openai_compatible", "openai_responses", "anthropic"]
 
 # 界面语言（功能清单 7.8 的 M1 前置：设置项先行，文案双语化在桌面端）。
 Language = Literal["zh-CN", "en"]

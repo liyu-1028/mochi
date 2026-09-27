@@ -75,6 +75,19 @@ class ProviderTestResult(CamelModel):
     hint: str | None = None
 
 
+class ProviderDraftTest(CamelModel):
+    """未保存表单的连通性测试输入（保存前强制测试）。
+
+    api_key 缺省时回退 id 指向的存量 Key（编辑模式「留空 = 保留原 Key」）。
+    """
+
+    id: str | None = None  # 编辑模式：原 provider id（存量 Key 回退用）
+    kind: ProviderKind
+    base_url: str | None = None
+    model: str
+    api_key: str | None = None  # 仅本次测试内存态使用，不写钥匙串
+
+
 class DefaultProviderUpdate(CamelModel):
     default_provider: str
 
@@ -480,6 +493,20 @@ async def update_character(body: CharacterUpdate, request: Request) -> dict:
     new_config = _apply(registry, _config_path(request), mutate)
     logger.info("更新角色设置：active_skin=%s", new_config.character.active_skin)
     return _character_view(new_config)
+
+
+@router.post("/providers/test-draft")
+async def test_provider_draft(body: ProviderDraftTest, request: Request) -> dict:
+    """测试未保存的表单配置：不落盘、不写钥匙串。"""
+    registry = _registry(request)
+    cfg = ModelProviderConfig(
+        kind=body.kind,
+        display_name="草稿",
+        base_url=body.base_url,
+        model=body.model,
+    )
+    ok, hint = await registry.test_draft(cfg, api_key=body.api_key, existing_id=body.id)
+    return ProviderTestResult(ok=ok, hint=hint).model_dump(by_alias=True, exclude_none=True)
 
 
 @router.post("/providers/{provider_id}/test")

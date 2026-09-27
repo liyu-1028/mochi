@@ -6,6 +6,7 @@ RunManager 零改动，任务 5 换内核时整体溶解本适配层。
 
 - ollama 沿用 ChatOpenAI + /v1 通道（v0.1.x 行为零变更，不用 ChatOllama；
   langchain-ollama 留作后续评估）
+- openai_responses：同一 ChatOpenAI，use_responses_api=True 走 Responses API
 - thinking 增量：anthropic 流式以 content 块 ``type=thinking`` 暴露（spike 实证，
   ADR-0008 附注）；OpenAI 兼容路径恒 text（与旧适配器一致）
 - 空流守卫：Ollama 流内 error 字段经 LC 归一化后丢失（旧 _chunk_error_text
@@ -79,7 +80,7 @@ def build_chat_model(
     if cfg.kind == "ollama":
         api_key = OLLAMA_API_KEY_PLACEHOLDER  # ChatOpenAI 要求非空
         base_url = _ollama_v1_url(cfg.base_url)
-    else:  # openai_compatible
+    else:  # openai_compatible / openai_responses
         api_key = _require_key(provider_id, cfg, key_store)
         base_url = cfg.base_url  # None → SDK 默认 OpenAI 官方端点
     return ChatOpenAI(
@@ -88,6 +89,7 @@ def build_chat_model(
         base_url=base_url,
         timeout=_REQUEST_TIMEOUT_SECONDS,
         max_retries=0,
+        use_responses_api=cfg.kind == "openai_responses",
     )
 
 
@@ -236,6 +238,9 @@ def _translate_sdk_error(exc: Exception, *, model: str) -> AgentError:
             )
         )
     if isinstance(exc, _PERMISSION_ERRORS):  # 403
+        # 百炼欠费以 403 + type=Arrearage 报出（官方错误码文档），语义是余额而非权限
+        if _looks_like_arrears(str(exc)):
+            return _quota_error()
         return AgentError(
             ErrorPayload(
                 code=ErrorCode.MODEL_AUTH,
@@ -245,22 +250,12 @@ def _translate_sdk_error(exc: Exception, *, model: str) -> AgentError:
             )
         )
     if isinstance(exc, _NOT_FOUND_ERRORS):  # 404
-        # OpenAI 系还承载 Ollama /v1，404 多为模型未拉取，hint 附引导
-        openai_family = isinstance(exc, openai.NotFoundError)
-        hint = (
-            "请检查模型名称；Ollama 用户可先执行 ollama pull 拉取模型"
-            if openai_family
-            else "请检查模型名称是否正确"
-        )
-        return AgentError(
-            ErrorPayload(
-                code=ErrorCode.MODEL_UNAVAILABLE,
-                message=f"模型 {model} 不存在",
-                retryable=False,
-                hint=hint,
-            )
-        )
+        return _model_not_found_error(model, openai_family=isinstance(exc, openai.NotFoundError))
     if isinstance(exc, _RATE_LIMIT_ERRORS):  # 429
+        # 智谱欠费也走 429（业务码 1113「您的账户已欠费，请充值后重试」，官方错误码文档）：
+        # 若按限流提示「稍后再试」，用户永远等不到恢复——须甄别为余额问题
+        if _looks_like_arrears(str(exc)):
+            return _quota_error()
         return AgentError(
             ErrorPayload(
                 code=ErrorCode.MODEL_RATE_LIMIT,
@@ -290,6 +285,9 @@ def _translate_sdk_error(exc: Exception, *, model: str) -> AgentError:
     if isinstance(exc, _BAD_REQUEST_ERRORS):  # 400
         if _looks_like_context_overflow(str(exc)):
             return _context_overflow_error()
+        # 智谱等兼容端点对未知模型回 400 而非 404（业务码 1211，实测 2026-09-27）
+        if _looks_like_model_not_found(str(exc)):
+            return _model_not_found_error(model, openai_family=False)
         return AgentError(
             ErrorPayload(
                 code=ErrorCode.INTERNAL,
@@ -301,14 +299,7 @@ def _translate_sdk_error(exc: Exception, *, model: str) -> AgentError:
     if isinstance(exc, _STATUS_ERRORS):
         if exc.status_code == 402:
             # MiniMax 等兼容端点以 402 表示余额/配额不足（实测 2026-08-05）
-            return AgentError(
-                ErrorPayload(
-                    code=ErrorCode.MODEL_QUOTA,
-                    message="模型服务账户余额不足",
-                    retryable=False,
-                    hint="请到服务商控制台充值或检查套餐状态后重试",
-                )
-            )
+            return _quota_error()
         if exc.status_code >= 500:
             return AgentError(
                 ErrorPayload(
@@ -331,6 +322,41 @@ def _translate_sdk_error(exc: Exception, *, model: str) -> AgentError:
     )
 
 
+def _model_not_found_error(model: str, *, openai_family: bool) -> AgentError:
+    # OpenAI 系还承载 Ollama /v1，404 多为模型未拉取，hint 附引导
+    hint = (
+        "请检查模型名称；Ollama 用户可先执行 ollama pull 拉取模型"
+        if openai_family
+        else "请检查模型名称是否正确"
+    )
+    return AgentError(
+        ErrorPayload(
+            code=ErrorCode.MODEL_UNAVAILABLE,
+            message=f"模型 {model} 不存在",
+            retryable=False,
+            hint=hint,
+        )
+    )
+
+
+def _quota_error() -> AgentError:
+    """余额/配额不足（402 直报；智谱 429+1113、百炼 403+Arrearage 甄别后收敛至此）。"""
+    return AgentError(
+        ErrorPayload(
+            code=ErrorCode.MODEL_QUOTA,
+            message="模型服务账户余额不足",
+            retryable=False,
+            hint="请到服务商控制台充值或检查套餐状态后重试",
+        )
+    )
+
+
+def _looks_like_arrears(text: str) -> bool:
+    """欠费/余额类错误文案（智谱「账户已欠费」；百炼 type=Arrearage / good standing）。"""
+    lowered = text.lower()
+    return any(k in lowered for k in ("欠费", "arrearage", "good standing"))
+
+
 def _context_overflow_error() -> AgentError:
     return AgentError(
         ErrorPayload(
@@ -342,9 +368,21 @@ def _context_overflow_error() -> AgentError:
     )
 
 
+def _looks_like_model_not_found(text: str) -> bool:
+    lowered = text.lower()
+    return any(k in lowered for k in ("model_not_found", "does not exist", "模型不存在"))
+
+
 def _looks_like_context_overflow(text: str) -> bool:
     lowered = text.lower()
     return any(
         k in lowered
-        for k in ("context_length", "context length", "maximum context", "prompt is too long")
+        for k in (
+            "context_length",
+            "context length",
+            "maximum context",
+            "prompt is too long",
+            "prompt 超长",  # 智谱 400 + 业务码 1261
+            "range of input length",  # 百炼：Range of input length should be [1, xxx]
+        )
     )

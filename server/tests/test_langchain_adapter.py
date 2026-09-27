@@ -34,6 +34,7 @@ from mochi_server.agent.adapters.langchain import (
     _ollama_v1_url,
     _to_lc_messages,
     _translate_sdk_error,
+    build_chat_model,
 )
 from mochi_server.config import ModelProviderConfig
 from mochi_server.events import ErrorCode
@@ -57,6 +58,18 @@ def _mem_key_store(provider_id: str = "test", key: str = "sk-test") -> KeyStore:
     store = KeyStore()
     store.set_key(provider_id, key)
     return store
+
+
+def test_build_chat_model_openai_responses_uses_responses_api() -> None:
+    """openai_responses kind：同一 ChatOpenAI，use_responses_api=True。"""
+    from langchain_openai import ChatOpenAI
+
+    model = build_chat_model("test", _cfg("openai_responses"), _mem_key_store())
+    assert isinstance(model, ChatOpenAI)
+    assert model.use_responses_api is True
+
+    plain = build_chat_model("test", _cfg("openai_compatible"), _mem_key_store())
+    assert plain.use_responses_api is not True
 
 
 # ---------------------------------------------------------------------------
@@ -344,15 +357,48 @@ def test_connection_error_maps_to_network(family, cls) -> None:
 
 @pytest.mark.parametrize(
     ("family", "cls"),
+    [("openai", openai_sdk.RateLimitError), ("anthropic", anthropic_sdk.RateLimitError)],
+)
+def test_429_arrears_maps_to_quota(family, cls) -> None:
+    """智谱欠费也走 429（业务码 1113，官方错误码文档）：应报余额不足而非限流。"""
+    make = _openai_error if family == "openai" else _anthropic_error
+    err = _translate_sdk_error(make(cls, 429, "您的账户已欠费，请充值后重试"), model="m")
+    assert err.payload.code == ErrorCode.MODEL_QUOTA
+    assert err.payload.retryable is False
+
+
+@pytest.mark.parametrize(
+    ("family", "cls"),
+    [
+        ("openai", openai_sdk.PermissionDeniedError),
+        ("anthropic", anthropic_sdk.PermissionDeniedError),
+    ],
+)
+def test_403_arrears_maps_to_quota(family, cls) -> None:
+    """百炼欠费为 403 + type=Arrearage（官方错误码文档）：应报余额不足而非无权限。"""
+    make = _openai_error if family == "openai" else _anthropic_error
+    err = _translate_sdk_error(
+        make(cls, 403, "Access denied, please make sure your account is in good standing."),
+        model="m",
+    )
+    assert err.payload.code == ErrorCode.MODEL_QUOTA
+    assert err.payload.retryable is False
+
+
+@pytest.mark.parametrize(
+    ("family", "cls"),
     [("openai", openai_sdk.BadRequestError), ("anthropic", anthropic_sdk.BadRequestError)],
 )
 def test_400_overflow_maps_to_context_overflow(family, cls) -> None:
     make = _openai_error if family == "openai" else _anthropic_error
-    err = _translate_sdk_error(
-        make(cls, 400, "prompt is too long: maximum context length is 4096"), model="m"
-    )
-    assert err.payload.code == ErrorCode.CONTEXT_OVERFLOW
-    assert err.payload.retryable is False
+    for message in (
+        "prompt is too long: maximum context length is 4096",  # OpenAI/Anthropic 风格
+        "Prompt 超长",  # 智谱 400 + 业务码 1261（官方错误码文档）
+        "Range of input length should be [1, 30720]",  # 百炼超限（官方错误码文档）
+    ):
+        err = _translate_sdk_error(make(cls, 400, message), model="m")
+        assert err.payload.code == ErrorCode.CONTEXT_OVERFLOW, message
+        assert err.payload.retryable is False
 
 
 @pytest.mark.parametrize(
@@ -363,6 +409,28 @@ def test_400_other_maps_to_internal(family, cls) -> None:
     make = _openai_error if family == "openai" else _anthropic_error
     err = _translate_sdk_error(make(cls, 400, "bad request"), model="m")
     assert err.payload.code == ErrorCode.INTERNAL
+
+
+@pytest.mark.parametrize(
+    ("family", "cls"),
+    [("openai", openai_sdk.BadRequestError), ("anthropic", anthropic_sdk.BadRequestError)],
+)
+@pytest.mark.parametrize(
+    "message",
+    [
+        "模型不存在，请检查模型代码。",  # 智谱：未知模型回 400 + 业务码 1211（实测 2026-09-27）
+        "The model `ghost` does not exist or you do not have access to it.",
+        "model_not_found: no such model",
+    ],
+)
+def test_400_model_not_found_maps_to_unavailable(family, cls, message) -> None:
+    """部分兼容端点（智谱等）以 400 表达未知模型，应与 404 同样翻译。"""
+    make = _openai_error if family == "openai" else _anthropic_error
+    err = _translate_sdk_error(make(cls, 400, message), model="ghost")
+    payload = err.payload
+    assert payload.code == ErrorCode.MODEL_UNAVAILABLE
+    assert "ghost" in payload.message
+    assert payload.retryable is False
 
 
 @pytest.mark.parametrize(

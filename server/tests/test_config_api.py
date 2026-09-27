@@ -339,6 +339,63 @@ def test_connectivity_uses_adapter_ping(client, monkeypatch):
     assert resp.json() == {"ok": True, "hint": "连接成功"}
 
 
+def test_draft_test_uses_form_key_and_not_persisted(client, monkeypatch):
+    """草稿测试：用表单 Key，不落盘、不写钥匙串（保存前强制测试）。"""
+    from mochi_server.agent import LangChainAdapter
+
+    captured: dict = {}
+
+    async def fake_ping(self):
+        captured["cfg"] = self._cfg
+        return True, "连接成功"
+
+    monkeypatch.setattr(LangChainAdapter, "ping", fake_ping)
+    resp = client.post(
+        "/config/providers/test-draft",
+        json={
+            "kind": "openai_compatible",
+            "baseUrl": "https://x.example.com/v1",
+            "model": "m",
+            "apiKey": "sk-draft",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True, "hint": "连接成功"}
+    assert captured["cfg"].model == "m"
+    # 表单 Key 只在本次测试内存态使用：钥匙串无新条目、配置无新 provider
+    assert KeyStore().get_key("__draft__") is None
+    registry: ProviderRegistry = client.app.state.registry
+    assert list(registry.config.model.providers) == ["cloud"]
+
+
+def test_draft_test_falls_back_to_existing_key(client, monkeypatch):
+    """编辑模式留空 Key：草稿测试按 id 回退存量钥匙串 Key。"""
+    from mochi_server.agent import LangChainAdapter
+
+    captured: dict = {}
+
+    async def fake_ping(self):
+        captured["key"] = self._model.openai_api_key.get_secret_value()
+        return True, "连接成功"
+
+    monkeypatch.setattr(LangChainAdapter, "ping", fake_ping)
+    resp = client.post(
+        "/config/providers/test-draft",
+        json={"id": "cloud", "kind": "openai_compatible", "model": "new-model"},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True, "hint": "连接成功"}
+    assert captured["key"] == _RAW_KEY
+
+
+def test_draft_test_invalid_kind_rejected(client):
+    resp = client.post(
+        "/config/providers/test-draft",
+        json={"kind": "nope", "model": "m"},
+    )
+    assert resp.status_code == 422
+
+
 def test_ollama_status_endpoint(client, monkeypatch):
     from mochi_server.agent import ollama_probe
     from mochi_server.agent.ollama_probe import OllamaProbeResult
