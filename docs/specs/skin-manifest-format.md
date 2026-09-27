@@ -1,8 +1,11 @@
-# skin.json 清单规范 v1（功能清单 3.1）
+# skin.json 清单规范 v2（功能清单 3.1）
 
-> 状态：v1（2026-08-06，M1-S1）
-> 关联：功能清单 3.1–3.5、docs/internal/adr/0006-skin-manifest.md（本地）
-> 服务端模型：`server/src/mochi_server/skin_manifest.py`；前端类型：`apps/desktop/src/api/skinsClient.ts`
+> 状态：v2（M-A：新增 `actions` 语义动作注册表）；v1（2026-08-06，M1-S1）
+> 关联：功能清单 3.1–3.5、docs/internal/adr/0006-skin-manifest.md（本地）、
+> docs/protocol/agent-events-v0.1.md §11（语义词表）、
+> docs/internal/companion-behavior-rollout-plan.md（M-A）
+> 服务端模型：`server/src/mochi_server/skin_manifest.py`；前端类型：`apps/desktop/src/api/skinsClient.ts`；
+> 前端解析：`apps/desktop/src/live2d/actionRegistry.ts`
 
 皮肤包 = 一个目录，内含 `skin.json` 清单 + 资源文件。内置皮肤随前端资产分发
 （`assets/skins/<id>/` → `dist/skins/<id>/`），用户皮肤位于 `<userData>/skins/<id>/`。
@@ -30,7 +33,40 @@ Creatures Inc. / GAME FREAK inc.）。
 | `capabilities`   | object                 | 默认空         | `{motionGroups: string[], expressions: string[]}`，前端状态机据此选动作/表情 |
 | `animation`      | object                 | 默认空         | static 逐状态动画开关，键为 6 状态（见下）                                   |
 | `emotionMapping` | object                 | 默认空         | static 情绪表达：`{<emotion>: {scale: 0.5–2.0, tint: "#RRGGBB"\|null}}`      |
+| `actions`        | SkinAction[]           | 默认空（v2）   | 语义动作注册表，见下节；缺字段 = v1 行为，完全向后兼容                       |
 | `credits`        | object                 | 默认空         | 致谢（`illustration` / `model` 等自由键）                                    |
+
+### `actions` 语义动作注册表（v2，M-A）
+
+皮肤声明自己支持的语义动作与实现绑定；前端 ActionRegistry 据此解析，未实现的沿
+`fallback` 链降级到 `idle_neutral`（全链路兜底终点，协议规范 §11）。动作 id 从
+语义词表 `SEMANTIC_ACTIONS`（12 项）取，或自定义 snake_case id（自定义 id 不可被
+LLM 选择，除非 `agentSelectable: true`——白名单铁律在服务端 cue 生成处强制）。
+
+| 字段              | 类型                     | 默认      | 说明                                                                                 |
+| ----------------- | ------------------------ | --------- | ------------------------------------------------------------------------------------ |
+| `id`              | string                   | ✅        | snake_case：`^[a-z][a-z0-9_]{0,47}$`；清单内唯一                                     |
+| `kind`            | `"oneshot" \| "loop"`    | `oneshot` | loop 动作持续到被打断                                                                |
+| `channels`        | string[]                 | `[]`      | ⊆ `face/body/locomotion/voice/effect`（协议 §11 `ACTION_CHANNELS`）；空 = 由绑定推断 |
+| `live2d`          | object                   | null      | `{motionGroups: string[], expression?: string}`；按偏好取首个模型实际拥有的组        |
+| `static`          | object                   | null      | `{animation: string}`；指向前端包络 id（现与语义动作 id 同名）                       |
+| `priority`        | int 0–100                | 50        | 越高越优先（调度语义 M-B 生效）                                                      |
+| `interruptPolicy` | `replace\|queue\|ignore` | `replace` | 冲突策略（M-B 生效）                                                                 |
+| `cooldownMs`      | int ≥0                   | 0         | 动作冷却                                                                             |
+| `agentSelectable` | bool                     | **false** | 白名单铁律：仅 true 可被 LLM 选择                                                    |
+| `fallback`        | string                   | null      | 降级目标：同清单其他动作 id 或语义词表内动作；`idle_neutral` 自身不得声明 fallback   |
+
+约束（服务端校验，422 可读文案）：
+
+- 每个动作至少有 `live2d`/`static` 一个实现绑定；
+- `channels` 不得含未知通道；
+- `fallback` 引用必须可解析（同清单 id 或 `SEMANTIC_ACTIONS` 成员），且不得成环；
+- `live2d.motionGroups` 是否真实存在于模型由**前端加载时判**（服务端不解析 model3.json）；
+  全缺时该动作视为未命中，沿 fallback 继续；`expression` 不在模型档案时静默置空。
+
+静态皮肤基线：`default_static_actions()`（内置与 PNG 导入共用）登记 10 项——
+刻意不含 `think`/`listen`（头部姿态语义对精灵图无诚实实现），让真实清单中也存在
+「需降级」动作，fallback 链可被端到端验证。
 
 ### `animation` 逐状态开关（static）
 

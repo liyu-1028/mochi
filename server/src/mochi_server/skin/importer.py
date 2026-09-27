@@ -22,7 +22,12 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from ..paths import get_skins_dir
-from ..skin_manifest import SkinManifest, default_static_animation, default_static_emotion_mapping
+from ..skin_manifest import (
+    SkinManifest,
+    default_static_actions,
+    default_static_animation,
+    default_static_emotion_mapping,
+)
 
 MAX_PNG_SIZE = 10 * 1024 * 1024  # 10MB
 MAX_ZIP_SIZE = 50 * 1024 * 1024  # 50MB（Live2D 包含 2048 贴图）
@@ -94,6 +99,7 @@ def import_png_skin(
         imageFile="avatar.png",
         animation=default_static_animation(),
         emotionMapping=default_static_emotion_mapping(),
+        actions=default_static_actions(),
     )
     (skin_dir / "skin.json").write_text(
         json.dumps(

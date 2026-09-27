@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from ..skin_manifest import (
     SkinManifest,
+    default_static_actions,
     default_static_animation,
     default_static_emotion_mapping,
 )
@@ -28,6 +29,7 @@ BUILTIN_SKINS: dict[str, SkinManifest] = {
         imageFile="avatar.png",
         animation=default_static_animation(),
         emotionMapping=default_static_emotion_mapping(),
+        actions=default_static_actions(),
         credits={
             "sprite": "pokesprite (msikma)",
             "character": "© Nintendo / Creatures Inc. / GAME FREAK inc.",
@@ -42,6 +44,7 @@ BUILTIN_SKINS: dict[str, SkinManifest] = {
         imageFile="avatar.png",
         animation=default_static_animation(),
         emotionMapping=default_static_emotion_mapping(),
+        actions=default_static_actions(),
         credits={
             "sprite": "pokesprite (msikma)",
             "character": "© Nintendo / Creatures Inc. / GAME FREAK inc.",
@@ -56,6 +59,7 @@ BUILTIN_SKINS: dict[str, SkinManifest] = {
         imageFile="avatar.png",
         animation=default_static_animation(),
         emotionMapping=default_static_emotion_mapping(),
+        actions=default_static_actions(),
         credits={
             "sprite": "pokesprite (msikma)",
             "character": "© Nintendo / Creatures Inc. / GAME FREAK inc.",
