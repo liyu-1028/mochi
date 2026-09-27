@@ -136,6 +136,9 @@ class SkinManifest(BaseModel):
         local_ids = set(ids)
         # fallback 引用必须可解析：同清单其他动作或语义词表内置安全动作
         for action in self.actions:
+            # 全链路兑底约束：idle_neutral 是终点，不得再指向任何动作
+            if action.id == "idle_neutral" and action.fallback is not None:
+                raise ValueError("动作 idle_neutral 是全链路兑底终点，不得声明 fallback")
             if (
                 action.fallback is not None
                 and action.fallback not in local_ids

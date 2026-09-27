@@ -124,6 +124,13 @@ def test_self_fallback_rejected() -> None:
     assert "循环" in str(exc.value)
 
 
+def test_terminal_action_fallback_rejected() -> None:
+    """全链路兑底约束：idle_neutral 不得声明 fallback（用户清单亦不例外）。"""
+    with pytest.raises(ValidationError) as exc:
+        _manifest(actions=[_action("idle_neutral", fallback="nod"), _action("nod")])
+    assert "兑底终点" in str(exc.value)
+
+
 # ---------------------------------------------------------------------------
 # 基线与内置登记
 # ---------------------------------------------------------------------------
@@ -162,3 +169,27 @@ def test_live2d_action_binding() -> None:
     assert action.live2d is not None
     assert action.live2d.motion_groups == ["Tap", "Idle"]
     assert action.live2d.expression == "happy"
+
+
+def test_baseline_matches_shared_defaults_fixture() -> None:
+    """默认优先级/冷却与共享夹具一致（消除前后端漂移，验收工程问题 1）。
+
+    夹具：packages/protocol/testdata/action-defaults.json；
+    前端对应校验：apps/desktop/src/live2d/reflexRules.test.ts。
+    """
+    import json
+    from pathlib import Path
+
+    fixture_path = (
+        Path(__file__).resolve().parents[2]
+        / "packages"
+        / "protocol"
+        / "testdata"
+        / "action-defaults.json"
+    )
+    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))["defaults"]
+    actions = {a.id: a for a in default_static_actions()}
+    assert set(actions) == set(fixture)
+    for action_id, spec in fixture.items():
+        assert actions[action_id].priority == spec["priority"], action_id
+        assert actions[action_id].cooldown_ms == spec["cooldownMs"], action_id
