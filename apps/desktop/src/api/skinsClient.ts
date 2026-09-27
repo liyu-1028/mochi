@@ -23,6 +23,37 @@ export interface EmotionEffect {
   tint: string | null;
 }
 
+/** 语义动作实现绑定（skin.json v2，M-A；服务端只验结构，motionGroups 真实性加载时判）。 */
+export interface Live2dActionBinding {
+  motionGroups: readonly string[];
+  expression?: string;
+}
+
+/** 静态绑定：animation 指向前端包络 id（现与语义动作 id 同名）。 */
+export interface StaticActionBinding {
+  animation: string;
+}
+
+export type ActionKind = "oneshot" | "loop";
+export type InterruptPolicy = "replace" | "queue" | "ignore";
+
+/** 语义动作注册表条目（skin.json v2，M-A）。 */
+export interface SkinAction {
+  id: string;
+  kind?: ActionKind;
+  channels?: readonly string[];
+  live2d?: Live2dActionBinding;
+  static?: StaticActionBinding;
+  /** 0~100，越高越优先（调度语义 M-B 生效） */
+  priority?: number;
+  interruptPolicy?: InterruptPolicy;
+  cooldownMs?: number;
+  /** 白名单铁律：仅 true 的动作可被 LLM 选择（协议规范 §11） */
+  agentSelectable?: boolean;
+  /** 降级链：同清单其他动作 id 或语义词表内动作 */
+  fallback?: string;
+}
+
 /** skin.json v1 完整清单（渲染层按需取用，缺字段给默认）。 */
 export interface SkinManifest {
   id: string;
@@ -36,6 +67,7 @@ export interface SkinManifest {
   capabilities?: { motionGroups: readonly string[]; expressions: readonly string[] };
   animation?: Partial<Record<string, Partial<AnimationParams>>>;
   emotionMapping?: Record<string, EmotionEffect>;
+  actions?: readonly SkinAction[];
   credits?: Record<string, string>;
 }
 
