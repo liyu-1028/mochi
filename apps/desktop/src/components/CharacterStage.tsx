@@ -359,7 +359,7 @@ export function CharacterStage({
         : (proto.channels.body?.actionId ?? "idle_neutral");
     const base = buildCue(actionId, {
       channel,
-      source: "reply",
+      source: proto.source, // reply=播报节拍（豁免守卫）；proactive=主动表演（M-D）
       resourceType: skinNow?.resourceType ?? "static",
       now,
       actions: skinNow?.actions,

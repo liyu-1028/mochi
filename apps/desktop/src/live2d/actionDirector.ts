@@ -29,7 +29,7 @@ export const DIRECTOR_CHANNELS: readonly DirectorChannel[] = ACTION_CHANNELS.fil
 /** 系统级优先级线：>= 此值的 cue 可打断说话/拖拽（低优先级不得打扰用户交互） */
 export const BUSY_GUARD_PRIORITY = 80;
 
-export type CueSource = "reflex" | "tool" | "state" | "proactive" | "reply";
+export type CueSource = "reflex" | "tool" | "state" | "proactive" | "reply" | "system";
 
 export interface DirectorCue {
   cueId: string;
@@ -126,8 +126,15 @@ function decide(
   }
   // 打断守卫：说话/拖拽期间，低优先级不得打扰（直接拒绝，不排队）。
   // reply 节拍豁免：它就发生在播报期内、由服务端按句对齐（M-C C3），
-  // 是「说话时的表演」而非打断；其余来源仍受守卫约束
-  if (isBusy(ctx) && cue.priority < BUSY_GUARD_PRIORITY && cue.source !== "reply") {
+  // 是「说话时的表演」而非打断；proactive 同理豁免（M-D）：系统选定的
+  // 主动表演（如长任务庆祝）常发生在回合尾段，属表演本体非打断；
+  // 反射来源仍受守卫约束
+  if (
+    isBusy(ctx) &&
+    cue.priority < BUSY_GUARD_PRIORITY &&
+    cue.source !== "reply" &&
+    cue.source !== "proactive"
+  ) {
     return { accepted: false, reason: "busy_guard" };
   }
   return { accepted: true, channel: cue.channel, startImmediately: false };

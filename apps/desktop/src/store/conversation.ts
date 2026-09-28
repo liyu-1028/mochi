@@ -46,6 +46,19 @@ export const MAX_CUE_RUN_IDS = 20;
 /** 排队中的 cue 上限（单回合服务的节拍数；超出丢弃防膨胀）。 */
 export const MAX_PENDING_CUES = 32;
 
+/** 主动提问的 UI 视图（M-D）：companion.intent 事件 → 快速操作条数据源。 */
+export interface PendingIntentView {
+  intentId: string;
+  action: "speak" | "ask";
+  kind: string;
+  quickReplies: Array<"later" | "dismiss">;
+  /** 无声过期时刻（epoch ms）：到期自动移除，不残留 UI（验收项） */
+  expiresAt: number | null;
+}
+
+/** pendingIntent 的过期计时器（模块级单槽：新意图到达先清旧计时） */
+let intentExpiryTimer: ReturnType<typeof setTimeout> | null = null;
+
 /** 纯函数：追加一条消息并裁剪到最近 max 条（保持时间正序）。 */
 export function appendCapped(
   messages: ChatMessage[],
@@ -117,6 +130,10 @@ export interface ConversationState {
   consumePendingCues: (n: number) => void;
   /** 发过 reply cue 的 run（迟到 emotion 互斥；新回合不清空，容量截断） */
   cueRunIds: string[];
+  /** 当前展示中的主动意图（M-D）：null = 无快速操作条 */
+  pendingIntent: PendingIntentView | null;
+  /** 清除主动意图（快速操作回传/过期/用户发消息时调用） */
+  clearPendingIntent: () => void;
 
   setStatus: (status: ConnectionStatus) => void;
   addUserMessage: (text: string) => void;
@@ -146,8 +163,17 @@ export const useConversation = create<ConversationState>()((set, get) => ({
   lastFinishReason: null,
   pendingCues: [],
   cueRunIds: [],
+  pendingIntent: null,
 
   consumePendingCues: (n) => set((s) => (n > 0 ? { pendingCues: s.pendingCues.slice(n) } : {})),
+
+  clearPendingIntent: () => {
+    if (intentExpiryTimer) {
+      clearTimeout(intentExpiryTimer);
+      intentExpiryTimer = null;
+    }
+    set({ pendingIntent: null });
+  },
 
   setStatus: (status) => set({ status }),
 
@@ -158,6 +184,9 @@ export const useConversation = create<ConversationState>()((set, get) => ({
         { id: `u-${crypto.randomUUID()}`, role: "user", text, streaming: false },
         MAX_IN_MEMORY_MESSAGES,
       ),
+      // 用户开口 → 未回应的主动提问条让位（§8.6：用户发新消息取消未展示的
+      // 低优先级意图；服务端引擎同步取消挂起——此处是本地 UI 半边）
+      pendingIntent: null,
     })),
 
   clearNotice: () => set({ notice: null }),
@@ -275,17 +304,43 @@ export const useConversation = create<ConversationState>()((set, get) => ({
 
       case EVENT_TYPES.CharacterCue: {
         // 迟到丢弃（协议 §5.6）：run.finished 后到达（activeRunId 已清）→ 不补演；
-        // ttl 到期丢弃在 cueScheduler.submitCue 到达时校验
+        // 例外（M-D）：source=proactive 的动作 cue（如长任务庆祝）不经 run，
+        // 无 activeRunId 也要放行；ttl 到期丢弃在 cueScheduler.submitCue 校验
         const s = get();
-        if (!s.activeRunId) break;
         const cue = data as unknown as CharacterCueData;
-        const cueRunId = typeof cue.runId === "string" ? cue.runId : s.activeRunId;
+        if (!s.activeRunId && cue.source !== "proactive") break;
+        const cueRunId = typeof cue.runId === "string" ? cue.runId : (s.activeRunId ?? null);
         set({
           pendingCues: [...s.pendingCues.slice(-(MAX_PENDING_CUES - 1)), { cue, ts: event.ts }],
-          cueRunIds: s.cueRunIds.includes(cueRunId)
-            ? s.cueRunIds
-            : [...s.cueRunIds.slice(-(MAX_CUE_RUN_IDS - 1)), cueRunId],
+          cueRunIds:
+            cueRunId !== null && !s.cueRunIds.includes(cueRunId)
+              ? [...s.cueRunIds.slice(-(MAX_CUE_RUN_IDS - 1)), cueRunId]
+              : s.cueRunIds,
         });
+        break;
+      }
+
+      case EVENT_TYPES.CompanionIntent: {
+        // 主动意图展示（M-D）：快速操作条数据源；无声过期自动移除（验收项）
+        const intent: PendingIntentView = {
+          intentId: data.intentId as string,
+          action: (data.action as "speak" | "ask") ?? "speak",
+          kind: (data.kind as string) ?? "",
+          quickReplies: (data.quickReplies as Array<"later" | "dismiss">) ?? [],
+          expiresAt: typeof data.expiresAt === "number" ? data.expiresAt : null,
+        };
+        if (intentExpiryTimer) {
+          clearTimeout(intentExpiryTimer);
+          intentExpiryTimer = null;
+        }
+        if (intent.expiresAt !== null) {
+          const delay = Math.max(0, intent.expiresAt - Date.now());
+          intentExpiryTimer = setTimeout(() => {
+            intentExpiryTimer = null;
+            useConversation.setState({ pendingIntent: null });
+          }, delay);
+        }
+        set({ pendingIntent: intent });
         break;
       }
 

@@ -2,7 +2,7 @@
  * conversation store 归约测试：协议事件 → UI 状态。
  */
 import type { ServerEvent } from "@mochi/protocol";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   MAX_IN_MEMORY_MESSAGES,
   appendCapped,
@@ -516,5 +516,142 @@ describe("reply cue 与 emotion 互斥（M-C）", () => {
     const { applyEvent } = useConversation.getState();
     applyEvent(ev("emotion", { runId: "r-other", emotion: "sad", intensity: 0.75 }));
     expect(useConversation.getState().emotion).toBe("sad");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// M-D：主动意图（companion.intent）与 proactive cue
+// ---------------------------------------------------------------------------
+describe("M-D 主动意图与 proactive cue", () => {
+  beforeEach(() => {
+    useConversation.setState({
+      pendingCues: [],
+      cueRunIds: [],
+      pendingIntent: null,
+      activeRunId: null,
+      messages: [],
+    });
+  });
+
+  function intentEvent(overrides: Record<string, unknown> = {}): ServerEvent {
+    return {
+      v: "0.1",
+      type: "companion.intent",
+      id: "e1",
+      ts: Date.now(),
+      data: {
+        intentId: "i-1",
+        action: "ask",
+        kind: "tool_failed",
+        quickReplies: ["later", "dismiss"],
+        expiresAt: Date.now() + 1000,
+        ...overrides,
+      },
+    } as unknown as ServerEvent;
+  }
+
+  it("companion.intent → pendingIntent 展示（快速操作条数据源）", () => {
+    useConversation.getState().applyEvent(intentEvent());
+    expect(useConversation.getState().pendingIntent).toMatchObject({
+      intentId: "i-1",
+      action: "ask",
+      quickReplies: ["later", "dismiss"],
+    });
+  });
+
+  it("expiresAt 到期 → 无声移除，不残留 UI（验收项）", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(100_000);
+    useConversation.getState().applyEvent(intentEvent({ expiresAt: 100_000 + 500 }));
+    expect(useConversation.getState().pendingIntent).not.toBeNull();
+    vi.advanceTimersByTime(501);
+    expect(useConversation.getState().pendingIntent).toBeNull();
+    vi.useRealTimers();
+  });
+
+  it("expiresAt 缺省 → 不设过期计时（服务端未给期限则常驻至回应）", () => {
+    useConversation.getState().applyEvent(intentEvent({ expiresAt: undefined }));
+    expect(useConversation.getState().pendingIntent?.intentId).toBe("i-1");
+  });
+
+  it("用户发消息 → pendingIntent 立即收起（§8.6 用户开口让位）", () => {
+    useConversation.getState().applyEvent(intentEvent({ expiresAt: undefined }));
+    useConversation.getState().addUserMessage("我来处理");
+    expect(useConversation.getState().pendingIntent).toBeNull();
+  });
+
+  it("clearPendingIntent 可显式清除（快速操作回传路径）", () => {
+    useConversation.getState().applyEvent(intentEvent({ expiresAt: undefined }));
+    useConversation.getState().clearPendingIntent();
+    expect(useConversation.getState().pendingIntent).toBeNull();
+  });
+
+  it("source=proactive 的 cue 无 activeRunId 也放行（celebrate 直发路径）", () => {
+    useConversation.getState().applyEvent({
+      v: "0.1",
+      type: "character.cue",
+      id: "e2",
+      ts: Date.now(),
+      data: {
+        cueId: "c-1",
+        source: "proactive",
+        channels: { body: { actionId: "celebrate" } },
+        sync: "immediate",
+        priority: 30,
+        interruptPolicy: "replace",
+        ttlMs: 10000,
+      },
+    } as unknown as ServerEvent);
+    const s = useConversation.getState();
+    expect(s.pendingCues).toHaveLength(1);
+    expect(s.pendingCues[0].cue.channels.body?.actionId).toBe("celebrate");
+    // 无 runId 的 cue 不记入 cueRunIds（emotion 互斥只对 run 内节拍有意义）
+    expect(s.cueRunIds).toHaveLength(0);
+  });
+
+  it("source=reply 的 cue 无 activeRunId 仍丢弃（迟到不补演，零回归锚点）", () => {
+    useConversation.getState().applyEvent({
+      v: "0.1",
+      type: "character.cue",
+      id: "e3",
+      ts: Date.now(),
+      data: {
+        cueId: "c-2",
+        source: "reply",
+        channels: { body: { actionId: "wave" } },
+        sync: "immediate",
+        priority: 45,
+        interruptPolicy: "replace",
+        ttlMs: 15000,
+      },
+    } as unknown as ServerEvent);
+    expect(useConversation.getState().pendingCues).toHaveLength(0);
+  });
+
+  it("proactive 回合的 text 流正常进气泡（无 user 消息，source 不影响归约）", () => {
+    useConversation.getState().applyEvent({
+      v: "0.1",
+      type: "run.started",
+      id: "e4",
+      ts: Date.now(),
+      data: { runId: "r-p", sessionId: "default", source: "proactive", intentId: "i-1" },
+    } as unknown as ServerEvent);
+    useConversation.getState().applyEvent({
+      v: "0.1",
+      type: "text.start",
+      id: "e5",
+      ts: Date.now(),
+      data: { runId: "r-p", messageId: "m-p", role: "assistant", source: "proactive" },
+    } as unknown as ServerEvent);
+    useConversation.getState().applyEvent({
+      v: "0.1",
+      type: "text.end",
+      id: "e6",
+      ts: Date.now(),
+      data: { runId: "r-p", messageId: "m-p", fullText: "要我换个方向吗？", source: "proactive" },
+    } as unknown as ServerEvent);
+    const s = useConversation.getState();
+    expect(s.messages).toHaveLength(1);
+    expect(s.messages[0]).toMatchObject({ role: "assistant", text: "要我换个方向吗？" });
   });
 });
