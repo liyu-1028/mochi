@@ -264,3 +264,135 @@ class TestAttentionOff:
             ws.send_json({"v": "0.1", "type": "ping", "id": "3", "ts": 0, "data": {"token": "x"}})
             pong = ws.receive_json()
             assert pong["type"] == "pong"  # 中间没有插入任何 companion 事件
+
+
+# ---------------------------------------------------------------------------
+# D3：服务端工具信号源（RunManager 嗅探 tool.call.* → coordinator → 信号）
+# ---------------------------------------------------------------------------
+class TestToolSignalSource:
+    async def _run_with_tools(self, manager: RunManager, sender: FakeSender) -> None:  # type: ignore[no-untyped-def]
+        """伪 agent：产出 tool.call.start → end(success, 长/短) → 正文。"""
+        from mochi_server.events import (
+            TextDeltaData,
+            TextEndData,
+            TextStartData,
+            ThinkingEndData,
+            ToolCallEndData,
+            ToolCallStartData,
+        )
+
+        async def fake_run(ctx):  # type: ignore[no-untyped-def]
+            yield "thinking.end", ThinkingEndData(run_id=ctx.run_id, message_id="m1")
+            yield (
+                "tool.call.start",
+                ToolCallStartData(
+                    run_id=ctx.run_id, tool_call_id="tc1", name="bash", args={"cmd": "ls"}
+                ),
+            )
+            yield (
+                "tool.call.end",
+                ToolCallEndData(
+                    run_id=ctx.run_id, tool_call_id="tc1", status="success", result="ok"
+                ),
+            )
+            yield "text.start", TextStartData(run_id=ctx.run_id, message_id="m1")
+            yield "text.delta", TextDeltaData(run_id=ctx.run_id, message_id="m1", delta="完成")
+            yield "text.end", TextEndData(run_id=ctx.run_id, message_id="m1", full_text="完成")
+
+        class FakeAgent:
+            def run(self, ctx):  # type: ignore[no-untyped-def]
+                return fake_run(ctx)
+
+            async def post_run_events(self, ctx):  # type: ignore[no-untyped-def]
+                return []
+
+        manager._agent_source = lambda: FakeAgent()  # type: ignore[method-assign]
+        from mochi_server.events import ChatSendData
+
+        await manager.start_run(ChatSendData(run_id="r1", session_id="s", text="跑"))
+        await _drain(manager)
+
+    @pytest.mark.asyncio
+    async def test_short_tool_success_no_signal(self) -> None:
+        """短工具成功：无 celebrate（时长 < 阈值），无任何 companion 事件。"""
+        sender = FakeSender()
+        manager = RunManager(None, sender)  # type: ignore[arg-type]
+        engine = AttentionEngine(AttentionSettings(long_tool_ms=10_000), clock=lambda: 1_000)
+        coordinator = CompanionCoordinator(engine, manager, sender, ask_expiry_checker=False)
+        manager.attach_coordinator(coordinator)
+        await self._run_with_tools(manager, sender)
+        assert not any(f["type"] == "companion.intent" for f in sender.frames)
+        assert not any(f["type"] == "character.cue" for f in sender.frames)
+
+    @pytest.mark.asyncio
+    async def test_long_tool_success_emits_celebrate_cue(self) -> None:
+        """长任务成功 → action_intent(celebrate) → character.cue(source=proactive)。"""
+        sender = FakeSender()
+        manager = RunManager(None, sender)  # type: ignore[arg-type]
+        # 嗅探时长按真实墙钟差（≈0ms）→ 阈值设 0 使任何工具都算长任务
+        engine = AttentionEngine(AttentionSettings(long_tool_ms=0), clock=lambda: 1_000)
+        coordinator = CompanionCoordinator(engine, manager, sender, ask_expiry_checker=False)
+        manager.attach_coordinator(coordinator)
+        await self._run_with_tools(manager, sender)
+        for _ in range(50):  # handle_tool_end 是后台任务：让出事件循环
+            await asyncio.sleep(0)
+        cues = [f for f in sender.frames if f["type"] == "character.cue"]
+        assert len(cues) == 1
+        data = cues[0]["data"]
+        assert data["source"] == "proactive"
+        assert data["channels"]["body"]["actionId"] == "celebrate"
+        assert data["sync"] == "immediate"
+        # 无 run、无 LLM：不产生 proactive 回合
+        assert not any(
+            f["type"] == "run.started" and f["data"].get("source") == "proactive"
+            for f in sender.frames
+        )
+
+    @pytest.mark.asyncio
+    async def test_tool_failures_merge_to_ask_after_run(self, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+        """连续失败 ×2（两个回合）→ run 结束（自然停顿）后 ask 交付。
+
+        豁免静默窗（run 内来源）+ 挂起重试间隔归零（测试时钟冻结）。
+        """
+        import mochi_server.attention.engine as engine_mod
+        from mochi_server.events import ChatSendData, ToolCallEndData, ToolCallStartData
+
+        monkeypatch.setattr(engine_mod, "_PARK_RETRY_MS", 0)
+        sender = FakeSender()
+        manager = RunManager(_agent(), sender)
+        engine = AttentionEngine(AttentionSettings(), clock=lambda: 1_000)
+        coordinator = CompanionCoordinator(engine, manager, sender, ask_expiry_checker=False)
+        manager.attach_coordinator(coordinator)
+
+        async def failing_run(ctx):  # type: ignore[no-untyped-def]
+            from mochi_server.events import TextEndData, TextStartData
+
+            yield (
+                "tool.call.start",
+                ToolCallStartData(run_id=ctx.run_id, tool_call_id="tc", name="bash", args={}),
+            )
+            yield (
+                "tool.call.end",
+                ToolCallEndData(run_id=ctx.run_id, tool_call_id="tc", status="error", error=None),
+            )
+            yield "text.start", TextStartData(run_id=ctx.run_id, message_id="m")
+            yield "text.end", TextEndData(run_id=ctx.run_id, message_id="m", full_text="失败")
+
+        class FailingAgent:
+            def run(self, ctx):  # type: ignore[no-untyped-def]
+                return failing_run(ctx)
+
+            async def post_run_events(self, ctx):  # type: ignore[no-untyped-def]
+                return []
+
+        manager._agent_source = lambda: FailingAgent()  # type: ignore[method-assign]
+        for i in range(2):
+            await manager.start_run(ChatSendData(run_id=f"r{i}", session_id="s", text="跑"))
+            await _drain(manager)
+            # run 结束触发 notify_run_active(False) → pump（调度为后台任务）
+            for _ in range(50):
+                await asyncio.sleep(0)
+
+        intents = [f for f in sender.frames if f["type"] == "companion.intent"]
+        assert len(intents) == 1  # 两次失败合并为一次 ask
+        assert intents[0]["data"]["kind"] == "tool_failed"

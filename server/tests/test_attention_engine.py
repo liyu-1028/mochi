@@ -57,13 +57,18 @@ class TestClassify:
         out = engine.submit(sig("tool_finished", payload={"tool": "bash", "durationMs": 100}))
         assert out == []
 
-    def test_long_tool_finished_becomes_speak_intent(self) -> None:
+    def test_long_tool_finished_becomes_celebrate_action(self) -> None:
+        """§8.6 表「默认行为」列：立即短庆祝＝本地动作（action_intent）。
+
+        D3 决策：speak 类「要不要我帮你检查结果」属可选话语，v1 不做——
+        庆祝经 character.cue(source=proactive) 直发，不进 LLM。
+        """
         engine, _ = make_engine()
         out = engine.submit(sig("tool_finished", payload={"tool": "bash", "durationMs": 40_000}))
         assert len(out) == 1
-        assert out[0].kind == "speak_intent"
-        assert out[0].action == "speak"
-        assert "不要使用任何工具" in out[0].trigger_prompt
+        assert out[0].kind == "action_intent"
+        assert out[0].action_id == "celebrate"
+        assert out[0].dedupe_key == "tool-finished:bash"
 
     def test_single_tool_failure_is_silent(self) -> None:
         engine, _ = make_engine()
@@ -354,3 +359,61 @@ class TestQuietHoursPersistence:
         assert settings.quiet_hours == ("23:00", "07:00")
         assert settings.hourly_budget == 1
         assert settings.topic_cooldown_ms == src.topic_cooldown_ms
+
+
+# ---------------------------------------------------------------------------
+# D3：可重试抑制 → 挂起到自然停顿点（不丢信号）
+# ---------------------------------------------------------------------------
+class TestRetryableParking:
+    def test_run_active_parks_until_idle(self) -> None:
+        """run 进行中的信号不丢弃：挂起，run 结束后（pump）再门控交付。"""
+        engine, clock = make_engine()
+        engine.notify_run_active(True)
+        assert engine.submit(sig("commitment_due", dedupe_key="k", payload={})) == []
+        engine.notify_run_active(False)
+        clock.advance(31_000)  # 过挂起重试间隔
+        ready = engine.ready_intents()
+        # 静默窗（无用户消息）不拦 → 交付
+        assert len(ready) == 1 and ready[0].kind == "ask_intent"
+
+    def test_park_respects_user_silence_window(self) -> None:
+        """挂起到点时仍在静默窗 → 继续等（不投递也不丢弃）。"""
+        engine, clock = make_engine()
+        engine.notify_run_active(True)
+        engine.notify_user_message()  # 静默窗起点
+        assert engine.submit(sig("commitment_due", dedupe_key="k", payload={})) == []
+        engine.notify_run_active(False)
+        clock.advance(31_000)  # run 空闲但静默窗（5min）未过
+        assert engine.ready_intents() == []  # 继续等
+        clock.advance(5 * 60_000)
+        assert len(engine.ready_intents()) == 1
+
+    def test_park_expires_silently(self) -> None:
+        """挂起期限（30min 上限）到期无声丢弃——勿扰整夜不积压旧意图。"""
+        engine, clock = make_engine(quiet_hours=("22:00", "08:00"))
+        clock.now = int(__import__("datetime").datetime(2026, 9, 28, 23, 0).timestamp() * 1000)
+        assert engine.submit(sig("commitment_due", dedupe_key="k", payload={})) == []
+        clock.advance(31 * 60_000)  # 过重试间隔 + 挂起上限
+        assert engine.ready_intents() == []  # 已过期丢弃
+        clock.advance(6 * HOUR)
+        assert engine.ready_intents() == []  # 没有陈年旧账
+
+    def test_non_retryable_still_drops(self) -> None:
+        """主题冷却/预算类抑制不挂起（语义短期不变，挂起无意义）。"""
+        engine, _ = make_engine()
+        assert len(engine.submit(sig("commitment_due", dedupe_key="t", payload={}))) == 1
+        out = engine.submit(sig("commitment_due", dedupe_key="t", payload={}))
+        assert out == []  # 主题冷却：直接丢弃
+        assert engine.ready_intents() == []  # 未挂起
+
+    def test_quiet_hours_blocks_action_intent(self) -> None:
+        """action_intent 只受勿扰约束（动作＝本地表演，不占预算）。"""
+        engine, clock = make_engine(quiet_hours=("22:00", "08:00"))
+        clock.now = int(__import__("datetime").datetime(2026, 9, 28, 23, 0).timestamp() * 1000)
+        assert (
+            engine.submit(sig("tool_finished", payload={"tool": "bash", "durationMs": 40_000}))
+            == []
+        )
+        clock.now = int(__import__("datetime").datetime(2026, 9, 29, 12, 0).timestamp() * 1000)
+        out = engine.submit(sig("tool_finished", payload={"tool": "bash", "durationMs": 40_000}))
+        assert len(out) == 1 and out[0].action_id == "celebrate"

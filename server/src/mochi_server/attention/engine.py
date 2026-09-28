@@ -33,6 +33,14 @@ DEFAULT_ASK_EXPIRES_MS = 10 * 60 * 1000  # ask_intent 无声过期
 DEFAULT_LONG_TOOL_MS = 30_000  # 工具完成超过该时长才算「长任务」值得庆祝
 DEFAULT_FOCUS_ACTIVE_MS = 50 * 60 * 1000  # 连续活跃超过该时长才建议休息
 
+#: 可重试的抑制原因（信号到得太早）：挂起到自然停顿点再投，不丢弃。
+#: 不可重试（topic_cooldown/topic_dismissed/budget*/unresponded_decay）
+#: 语义上短期不会变化 → 直接丢弃（无声）。
+_RETRYABLE_REASONS = frozenset({"quiet_hours", "run_active", "user_typing", "user_silence_window"})
+#: 挂起重试间隔与最长挂起时长（防止勿扰时段把意图挂到天荒地老）
+_PARK_RETRY_MS = 30_000
+_PARK_MAX_MS = 30 * 60_000
+
 #: 未回应衰减阈值（验收「连续未回应衰减」）：连续 N 次 ask 未回应 →
 #: N≥2 同主题后续 ask 抑制；N≥3 视同 dismiss（24h 冷却）
 UNRESPONDED_SUPPRESS_AT = 2
@@ -64,6 +72,8 @@ class PendingIntent:
     #: 「稍后」snooze 的重挂：到期豁免主题冷却——用户显式要求 N 分钟后再问，
     #: 优先于防骚扰冷却（否则 snooze 必被 30min 冷却吞掉，功能形同虚设）
     exempt_topic_cooldown: bool = False
+    #: 挂起期限（epoch ms）：超过即无声丢弃（防勿扰把意图挂成陈年旧账）
+    expires_at: int | None = None
 
 
 @dataclass(slots=True)
@@ -155,8 +165,19 @@ class AttentionEngine:
         intent = self._classify(signal)
         if intent.kind == "silent":
             return []
-        decision = self.gate(intent)
+        if intent.kind == "action_intent":
+            # 动作意图＝本地表演（等价反射），只受勿扰约束，不走开口门控
+            if self._settings.quiet_hours is not None and _quiet_hours_match(
+                now, self._settings.quiet_hours
+            ):
+                return []  # 勿扰时段动作也停（验收：勿扰重启仍生效）
+            return self._deliver(intent)
+        decision = self.gate(intent, exempt_silence_window=self._is_run_scoped(intent))
         if not decision.allowed:
+            if decision.reason in _RETRYABLE_REASONS:
+                # 到得太早（run 进行中/静默窗/勿扰/输入中）：挂起等自然停顿点
+                self._park(intent, now, retry=True)
+                return []
             logger.info(
                 "意图被抑制：%s kind=%s 原因=%s", intent.intent_id, intent.kind, decision.reason
             )
@@ -168,18 +189,34 @@ class AttentionEngine:
             return []
         return self._deliver(intent)
 
+    def _park(self, intent: Intent, now: int, *, retry: bool) -> None:
+        """挂起意图到自然停顿点（可重试抑制）；带上挂起期限防陈旧。"""
+        deadline = now + _PARK_MAX_MS
+        if intent.expires_at is not None:
+            deadline = min(deadline, intent.expires_at)
+        self._pending.append(
+            PendingIntent(
+                intent,
+                not_before=now + _PARK_RETRY_MS if retry else now,
+                expires_at=deadline,
+            )
+        )
+
     def ready_intents(self) -> list[Intent]:
         """巡检挂起队列：notBefore 已到的意图重新门控，通过则交付。"""
         now = self._clock()
         ready: list[Intent] = []
         keep: list[PendingIntent] = []
         for pending in self._pending:
+            if pending.expires_at is not None and now >= pending.expires_at:
+                continue  # 挂起过期：无声丢弃（勿扰没结束/一直没等到停顿）
             if pending.not_before > now:
                 keep.append(pending)
                 continue
             decision = self.gate(
                 pending.intent,
                 exempt_topic_cooldown=pending.exempt_topic_cooldown,
+                exempt_silence_window=self._is_run_scoped(pending.intent),
             )
             if decision.allowed:
                 ready.extend(self._deliver(pending.intent))
@@ -280,17 +317,13 @@ class AttentionEngine:
         if kind == "tool_finished":
             duration = _as_int(payload.get("durationMs"))
             if duration >= self._settings.long_tool_ms:
+                # §8.6 表「默认行为」列：立即短庆祝＝本地动作（非 LLM 说话）
                 return Intent(
                     intent_id=intent_id,
-                    kind="speak_intent",
-                    action="speak",
+                    kind="action_intent",
+                    action_id="celebrate",
                     signal=signal,
-                    dedupe_key=key,
-                    trigger_prompt=(
-                        f"（系统提示：工具 {payload.get('tool', '任务')} 刚刚完成，"
-                        f"用时约 {duration // 1000} 秒。请用一句话简短庆祝，"
-                        f"不要提问，不要使用任何工具。）"
-                    ),
+                    dedupe_key=key or f"tool-finished:{payload.get('tool', 'unknown')}",
                 )
             return Intent(intent_id=intent_id, kind="silent", signal=signal)
         if kind == "tool_failed":
@@ -351,7 +384,19 @@ class AttentionEngine:
     # ------------------------------------------------------------------
     # 第二阶段：门控规则表（调研报告 §8.6 抑制清单全表，按序短路）
     # ------------------------------------------------------------------
-    def gate(self, intent: Intent, *, exempt_topic_cooldown: bool = False) -> GateDecision:
+    #: run 内来源的信号（工具生命周期）：run 结束即自然停顿点，
+    #: 豁免用户静默窗——否则启动 run 的那条用户消息会把「卡住了」提问
+    #: 拖到 5 分钟后（§8.6 合并提问的时机语义被静默窗吞掉）。
+    #: 环境信号（focus_session 等）仍受静默窗约束。
+    _RUN_SCOPED_KINDS = frozenset({"tool_finished", "tool_failed"})
+
+    def gate(
+        self,
+        intent: Intent,
+        *,
+        exempt_topic_cooldown: bool = False,
+        exempt_silence_window: bool = False,
+    ) -> GateDecision:
         now = self._clock()
         s = self._settings
         # 1. 勿扰/安静时段（持久化 config；speak/ask/action 全部抑制）
@@ -363,9 +408,9 @@ class AttentionEngine:
         # 3. 用户正在输入（低优先级意图取消，普通意图抑制）
         if self._state.user_typing and intent.priority == 0:
             return GateDecision.suppress("user_typing")
-        # 4. 用户刚发消息的静默窗
+        # 4. 用户刚发消息的静默窗（run 内来源信号豁免：见 _RUN_SCOPED_KINDS）
         last = self._state.last_user_message_ms
-        if last is not None and now - last < s.silence_window_ms:
+        if not exempt_silence_window and last is not None and now - last < s.silence_window_ms:
             return GateDecision.suppress("user_silence_window")
         # 5. 同主题冷却（snooze 重挂豁免——用户显式要求优先）
         key = intent.dedupe_key
@@ -390,6 +435,9 @@ class AttentionEngine:
             if sum(t > day_start for t in self._state.fired_daily) >= s.daily_budget:
                 return GateDecision.suppress("budget_daily")
         return GateDecision.allow()
+
+    def _is_run_scoped(self, intent: Intent) -> bool:
+        return intent.signal.kind in self._RUN_SCOPED_KINDS
 
     def _record_fired(self, intent: Intent) -> None:
         now = self._clock()

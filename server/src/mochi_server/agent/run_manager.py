@@ -120,6 +120,36 @@ class RunManager:
         """挂载注意力协调器（M-D）：未挂载时行为与 M-C 结束点一致。"""
         self._coordinator = coordinator
 
+    def _sniff_tool_event(
+        self, event_type: str, payload: Any, timings: dict[str, tuple[str, int]]
+    ) -> None:
+        """从事件流嗅探工具生命周期 → 注意力协调器（M-D D3 服务端信号源）。
+
+        只读不改协议流：start 记 (name, ts)，end 报时长与成败；denied 是
+        用户主动拒绝（模型自行善后），不计失败。通知异步收敛、不阻断回合。
+        """
+        if self._coordinator is None:
+            return
+        try:
+            if event_type == "tool.call.start":
+                timings[payload.tool_call_id] = (payload.name, _now_ms())
+            elif event_type == "tool.call.end":
+                entry = timings.pop(payload.tool_call_id, None)
+                if entry is None:
+                    return
+                name, started = entry
+                status = getattr(payload, "status", "success")
+                if status == "denied":
+                    return
+                duration = _now_ms() - started
+                succeeded = status == "success"
+                self._notify_attention(
+                    lambda c, n=name, ok=succeeded, d=duration: c.handle_tool_end(n, ok, d)
+                )
+        except AttributeError:
+            # 负载形态异常（非工具事件模型）：不影响回合
+            return
+
     def _notify_attention(self, method: Callable[[object], Any]) -> None:
         """通知协调器；协程返回值调度为后台任务（fire-and-forget，异常收敛）。"""
         if self._coordinator is None:
@@ -211,10 +241,13 @@ class RunManager:
 
         reason = "complete"
         agent: AgentService | None = None
+        # 工具计时（M-D D3）：tool_call_id → (name, 开始时刻)，收口时报注意力
+        tool_timings: dict[str, tuple[str, int]] = {}
         try:
             # 解析在 try 内：构造期错误（缺 Key、未实现的 provider）也走 run.error
             agent = self._agent_source()
             async for event_type, payload in agent.run(ctx):
+                self._sniff_tool_event(event_type, payload, tool_timings)
                 await self._send(make_frame(event_type, payload, _now_ms()))
         except asyncio.CancelledError:
             # 用户主动停止：不算错误，直接回待机（2.2：error 状态只留给真出错）

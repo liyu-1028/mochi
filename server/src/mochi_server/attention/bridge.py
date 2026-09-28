@@ -26,8 +26,11 @@ from typing import TYPE_CHECKING, Any
 
 from ..events import (
     EVENT_TYPES,
+    CharacterCueData,
     CompanionIntentData,
     CompanionSignalData,
+    CueBodyChannel,
+    CueChannels,
     make_frame,
 )
 from .engine import AttentionEngine
@@ -40,6 +43,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 SendFrame = Callable[[dict[str, Any]], Awaitable[None]]
+
+#: action_intent 直发的 cue 参数（本地表演：优先级低于反射 80，TTL 短）
+_PROACTIVE_ACTION_PRIORITY = 30
+_PROACTIVE_ACTION_TTL_MS = 10_000
 
 
 def _now_ms() -> int:
@@ -70,6 +77,8 @@ class CompanionCoordinator:
         self._ask_expiry_checker = ask_expiry_checker
         # 已下发 companion.intent 的 intentId → 到期时刻（无声过期巡检）
         self._asks: dict[str, tuple[str | None, int]] = {}
+        # 同类工具连续失败计数（D3：服务端 tool_failed 信号源）
+        self._tool_failures: dict[str, int] = {}
 
     # ------------------------------------------------------------------
     # 信号入口（ws 命令分发调用）
@@ -102,7 +111,50 @@ class CompanionCoordinator:
     # run 生命周期回调（RunManager 钩子）
     # ------------------------------------------------------------------
     def notify_run_active(self, active: bool) -> None:
+        """run 活跃通知；run 结束＝自然停顿点 → 立即泵送挂起意图。
+
+        返回协程时由 RunManager._notify_attention 调度为后台任务。
+        """
         self._engine.notify_run_active(active)
+        if not active:
+            return self.pump()  # type: ignore[return-value]
+
+    async def handle_tool_end(self, tool_name: str, success: bool, duration_ms: int) -> None:
+        """工具调用收口 → 陪伴信号（D3 服务端信号源）。
+
+        - 成功：清零该工具失败计数；长任务（≥ long_tool_ms）→ tool_finished
+          （引擎映射 celebrate 动作，同类 30min 冷却防重复庆祝）；
+        - 失败：计数 +1 → tool_failed（引擎同类连续 ≥2 合并为一次 ask；
+          单次失败由前端 worried 反射兜底，M-B 既有路径）。
+        信号在 run 内到达 → 引擎挂起到 run 结束（自然停顿点）再投。
+        """
+        now = _now_ms()
+        if success:
+            self._tool_failures.pop(tool_name, None)
+            if duration_ms >= self._engine.settings.long_tool_ms:
+                await self.handle_signal(
+                    CompanionSignalData(
+                        signal_id=f"sig-{uuid.uuid4().hex[:12]}",
+                        kind="tool_finished",
+                        occurred_at=now,
+                        salience=2,
+                        dedupe_key=f"tool-finished:{tool_name}",
+                        payload={"tool": tool_name, "durationMs": duration_ms},
+                    )
+                )
+            return
+        count = self._tool_failures.get(tool_name, 0) + 1
+        self._tool_failures[tool_name] = count
+        await self.handle_signal(
+            CompanionSignalData(
+                signal_id=f"sig-{uuid.uuid4().hex[:12]}",
+                kind="tool_failed",
+                occurred_at=now,
+                salience=2,
+                dedupe_key=f"tool:{tool_name}",
+                payload={"tool": tool_name, "consecutiveFailures": count},
+            )
+        )
 
     def notify_user_message(self) -> None:
         self._engine.notify_user_message()
@@ -119,9 +171,16 @@ class CompanionCoordinator:
     # 内部
     # ------------------------------------------------------------------
     async def _execute(self, intent: Intent) -> None:
-        """执行通过门控的意图：发 companion.intent + trigger 落盘 + proactive run。"""
+        """执行通过门控的意图。
+
+        - action_intent：本地表演——character.cue(source=proactive) 直发，
+          不进 LLM、不起 run（§8.6「默认行为」列）；
+        - speak/ask：发 companion.intent + trigger 落盘 + proactive run。
+        """
+        if intent.kind == "action_intent":
+            await self._emit_action_cue(intent)
+            return
         if intent.kind not in ("speak_intent", "ask_intent") or not intent.action:
-            # action_intent 首批无来源：词表预留（见 engine._classify）
             logger.info("跳过不可执行的意图类型：%s", intent.kind)
             return
         expires = intent.expires_at or (_now_ms() + self._engine.settings.ask_expires_ms)
@@ -151,6 +210,28 @@ class CompanionCoordinator:
                     dedupe_key=intent.dedupe_key,
                 )
         await self._start_proactive_run(intent)
+
+    async def _emit_action_cue(self, intent: Intent) -> None:
+        """action_intent 执行：body 通道语义动作经 character.cue 直发前端。"""
+        if not intent.action_id:
+            return
+        with contextlib.suppress(Exception):
+            await self._send(
+                make_frame(
+                    EVENT_TYPES["character.cue"],
+                    CharacterCueData(
+                        cue_id=f"c-{uuid.uuid4().hex[:12]}",
+                        run_id=None,
+                        source="proactive",
+                        channels=CueChannels(body=CueBodyChannel(action_id=intent.action_id)),
+                        sync="immediate",
+                        priority=_PROACTIVE_ACTION_PRIORITY,
+                        interrupt_policy="replace",
+                        ttl_ms=_PROACTIVE_ACTION_TTL_MS,
+                    ),
+                    _now_ms(),
+                )
+            )
 
     async def _start_proactive_run(self, intent: Intent) -> None:
         from ..agent.run_manager import ProactiveStart  # 局部导入防循环
