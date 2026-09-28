@@ -1,54 +1,28 @@
-"""SkinRegistry 测试（M1-S1）：内置常量表 + 用户目录扫描 + default 解析。"""
+"""SkinRegistry 测试（M1-S1）：用户目录扫描 + 增删查。
+
+内置静态皮肤常量表已随静态皮肤类型下线移除（2026-09-28）；
+历史占位值 active_skin="default" 不再解析到任何皮肤。
+"""
 
 from __future__ import annotations
 
 import json
 
 from mochi_server.paths import get_skins_dir
-from mochi_server.skin.builtin import BUILTIN_SKINS
-from mochi_server.skin.registry import SkinRegistry, resolve_skin_id
+from mochi_server.skin.registry import SkinRegistry
 
 
 def _write_user_skin(skin_id: str, **over) -> None:
     skin_dir = get_skins_dir() / skin_id
     skin_dir.mkdir(parents=True, exist_ok=True)
-    manifest = {"id": skin_id, "name": skin_id, "resourceType": "static", **over}
+    manifest = {
+        "id": skin_id,
+        "name": skin_id,
+        "resourceType": "live2d",
+        "modelFile": "m.model3.json",
+        **over,
+    }
     (skin_dir / "skin.json").write_text(json.dumps(manifest), encoding="utf-8")
-
-
-# ---------------------------------------------------------------------------
-# default 别名
-# ---------------------------------------------------------------------------
-
-
-def test_resolve_skin_id_default():
-    assert resolve_skin_id("default") == "pikachu"
-    assert resolve_skin_id("my-skin") == "my-skin"
-
-
-# ---------------------------------------------------------------------------
-# 内置目录
-# ---------------------------------------------------------------------------
-
-
-def test_builtin_catalog_shape():
-    # 3.2：≥3 个静态皮肤（pokesprite 精灵图）
-    assert set(BUILTIN_SKINS) == {"pikachu", "eevee", "snorlax"}
-    for skin_id in ("pikachu", "eevee", "snorlax"):
-        skin = BUILTIN_SKINS[skin_id]
-        assert skin.resource_type == "static"
-        assert skin.image_file
-        assert skin.license  # 内置皮肤版权说明必填
-        assert skin.animation and skin.emotion_mapping
-
-
-def test_list_all_includes_builtin_with_relative_base_url():
-    registry = SkinRegistry(http_base_url="http://127.0.0.1:8199")
-    summaries = registry.list_all()
-    assert len(summaries) >= 1
-    pikachu = next(s for s in summaries if s.id == "pikachu")
-    assert pikachu.source == "builtin"
-    assert pikachu.resource_base_url == "/skins/pikachu"
 
 
 # ---------------------------------------------------------------------------
@@ -57,7 +31,7 @@ def test_list_all_includes_builtin_with_relative_base_url():
 
 
 def test_scan_user_skin():
-    _write_user_skin("mycat", imageFile="avatar.png")
+    _write_user_skin("mycat")
     registry = SkinRegistry(http_base_url="http://127.0.0.1:8199")
 
     summaries = registry.list_all()
@@ -68,6 +42,12 @@ def test_scan_user_skin():
     assert registry.has("mycat")
 
 
+def test_list_all_empty_without_user_skins():
+    """无用户皮肤时列表为空（内置皮肤已下线，fresh install 无装扮）。"""
+    registry = SkinRegistry()
+    assert registry.list_all() == []
+
+
 def test_scan_skips_corrupt_manifest():
     broken = get_skins_dir() / "broken"
     broken.mkdir(parents=True, exist_ok=True)
@@ -75,7 +55,14 @@ def test_scan_skips_corrupt_manifest():
 
     registry = SkinRegistry()
     assert not registry.has("broken")
-    assert len(registry.list_all()) >= 1  # 内置仍在
+    assert registry.list_all() == []
+
+
+def test_get_unknown_skin_returns_none():
+    """历史占位 "default" 已无对应皮肤。"""
+    registry = SkinRegistry()
+    assert registry.get("default") is None
+    assert registry.has("default") is False
 
 
 # ---------------------------------------------------------------------------
@@ -83,14 +70,8 @@ def test_scan_skips_corrupt_manifest():
 # ---------------------------------------------------------------------------
 
 
-def test_delete_builtin_forbidden():
-    registry = SkinRegistry()
-    assert registry.delete("pikachu") is False
-    assert registry.is_builtin("pikachu")
-
-
 def test_delete_user_skin_removes_dir():
-    _write_user_skin("gone", imageFile="a.png")
+    _write_user_skin("gone")
     registry = SkinRegistry()
     assert registry.has("gone")
 

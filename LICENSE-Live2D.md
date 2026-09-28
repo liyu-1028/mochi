@@ -24,9 +24,9 @@ Live2D Cubism SDK 及其 Core 库为 Live2D Inc. 的**专有软件**，受
 
 | 资产目录 | 名称 | 作者 | 许可条款 | 备注 |
 | --- | --- | --- | --- | --- |
-| `assets/skins/pikachu/` | 皮卡丘 Pikachu | pokesprite（msikma） | © Nintendo / Creatures Inc. / GAME FREAK inc.（精灵图来源：<https://github.com/msikma/pokesprite>） | 内置默认静态皮肤（功能清单 3.2）；68×56 透明底 PNG |
-| `assets/skins/eevee/` | 伊布 Eevee | pokesprite（msikma） | © Nintendo / Creatures Inc. / GAME FREAK inc.（精灵图来源：<https://github.com/msikma/pokesprite>） | 内置静态皮肤（功能清单 3.2）；68×56 透明底 PNG |
-| `assets/skins/snorlax/` | 卡比兽 Snorlax | pokesprite（msikma） | © Nintendo / Creatures Inc. / GAME FREAK inc.（精灵图来源：<https://github.com/msikma/pokesprite>） | 内置静态皮肤（功能清单 3.2）；68×56 透明底 PNG |
+<!-- 2026-09-28：内置静态皮肤（pikachu/eevee/snorlax，pokesprite）已随静态皮肤类型下线移除。
+历史版本（≤ 2026-09-28 之前）曾包含上述三只精灵图皮肤，许可：© Nintendo / Creatures Inc. / GAME FREAK inc.
+（精灵图来源：<https://github.com/msikma/pokesprite>）。 -->
 
 ## 3. 第三方皮肤包（skin.json 许可字段）
 

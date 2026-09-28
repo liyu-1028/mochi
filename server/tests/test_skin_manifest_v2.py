@@ -1,8 +1,8 @@
 """skin manifest v2 `actions` 字段校验（M-A）。
 
 覆盖：合法清单、缺字段向后兼容、动作 id 重复、未知通道、缺实现绑定、
-fallback 指向未定义动作、fallback 链循环、default_static_actions 基线、
-内置皮肤登记、importer 生成清单带动作。
+fallback 指向未定义动作、fallback 链循环。
+静态动作基线（default_static_actions）已随静态皮肤类型下线移除。
 """
 
 from __future__ import annotations
@@ -10,12 +10,10 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from mochi_server.events import SEMANTIC_ACTIONS
-from mochi_server.skin.builtin import BUILTIN_SKINS
 from mochi_server.skin_manifest import (
+    Live2dActionBinding,
     SkinAction,
     SkinManifest,
-    default_static_actions,
 )
 
 
@@ -23,8 +21,8 @@ def _manifest(actions: list[SkinAction] | None = None, **kwargs) -> SkinManifest
     payload = {
         "id": "test-skin",
         "name": "测试皮肤",
-        "resourceType": "static",
-        "imageFile": "avatar.png",
+        "resourceType": "live2d",
+        "modelFile": "m.model3.json",
         **kwargs,
     }
     if actions is not None:
@@ -33,7 +31,7 @@ def _manifest(actions: list[SkinAction] | None = None, **kwargs) -> SkinManifest
 
 
 def _action(action_id: str, **kwargs) -> SkinAction:
-    kwargs.setdefault("static", {"animation": action_id})
+    kwargs.setdefault("live2d", {"motionGroups": ["Tap", "Idle"]})
     return SkinAction.model_validate({"id": action_id, **kwargs})
 
 
@@ -95,9 +93,17 @@ def test_unknown_channel_rejected() -> None:
 
 
 def test_missing_binding_rejected() -> None:
+    """live2d 实现绑定必填（static 绑定已随静态类型下线）。"""
     with pytest.raises(ValidationError) as exc:
         SkinAction.model_validate({"id": "wave", "channels": ["body"]})
-    assert "缺少 live2d/static 任一实现绑定" in str(exc.value)
+    assert "live2d" in str(exc.value)
+
+
+def test_static_binding_rejected() -> None:
+    with pytest.raises(ValidationError):
+        SkinAction.model_validate(
+            {"id": "wave", "channels": ["body"], "static": {"animation": "wave"}}
+        )
 
 
 def test_fallback_to_undefined_action_rejected() -> None:
@@ -132,29 +138,8 @@ def test_terminal_action_fallback_rejected() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 基线与内置登记
+# live2d 绑定
 # ---------------------------------------------------------------------------
-
-
-def test_default_static_actions_baseline() -> None:
-    """基线 10 项（刻意不含 think/listen）；除 idle_neutral 外均可被模型选择。"""
-    actions = default_static_actions()
-    ids = {a.id for a in actions}
-    assert len(actions) == 10
-    assert "think" not in ids and "listen" not in ids
-    assert ids <= set(SEMANTIC_ACTIONS)
-    for action in actions:
-        if action.id == "idle_neutral":
-            assert action.fallback is None and action.agent_selectable is False
-        else:
-            assert action.fallback == "idle_neutral"
-            assert action.agent_selectable is True
-
-
-def test_builtin_skins_carry_actions() -> None:
-    for manifest in BUILTIN_SKINS.values():
-        ids = [a.id for a in manifest.actions]
-        assert "idle_neutral" in ids, manifest.id
 
 
 def test_live2d_action_binding() -> None:
@@ -166,30 +151,6 @@ def test_live2d_action_binding() -> None:
             "live2d": {"motionGroups": ["Tap", "Idle"], "expression": "happy"},
         }
     )
-    assert action.live2d is not None
+    assert isinstance(action.live2d, Live2dActionBinding)
     assert action.live2d.motion_groups == ["Tap", "Idle"]
     assert action.live2d.expression == "happy"
-
-
-def test_baseline_matches_shared_defaults_fixture() -> None:
-    """默认优先级/冷却与共享夹具一致（消除前后端漂移，验收工程问题 1）。
-
-    夹具：packages/protocol/testdata/action-defaults.json；
-    前端对应校验：apps/desktop/src/live2d/reflexRules.test.ts。
-    """
-    import json
-    from pathlib import Path
-
-    fixture_path = (
-        Path(__file__).resolve().parents[2]
-        / "packages"
-        / "protocol"
-        / "testdata"
-        / "action-defaults.json"
-    )
-    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))["defaults"]
-    actions = {a.id: a for a in default_static_actions()}
-    assert set(actions) == set(fixture)
-    for action_id, spec in fixture.items():
-        assert actions[action_id].priority == spec["priority"], action_id
-        assert actions[action_id].cooldown_ms == spec["cooldownMs"], action_id

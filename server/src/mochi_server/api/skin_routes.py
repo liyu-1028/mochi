@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse
 
 from ..config import AppConfig
 from ..paths import get_skins_dir
-from ..skin.importer import PNG_MAGIC, ZIP_MAGIC, import_png_skin, import_zip_skin
+from ..skin.importer import ZIP_MAGIC, import_zip_skin
 from ..skin.registry import SkinRegistry
 from ..skin_manifest import manifest_to_summary
 from .config_routes import _apply, _config_path, _registry
@@ -37,7 +37,7 @@ def _skin_registry(request: Request) -> SkinRegistry:
 
 @router.get("/skins")
 async def list_skins(request: Request) -> list[dict]:
-    """皮肤列表：内置（相对 base URL）+ 用户（绝对 base URL）。"""
+    """皮肤列表：用户导入的皮肤（内置静态皮肤已下线）。"""
     registry = _skin_registry(request)
     return [s.model_dump(by_alias=True, exclude_none=True) for s in registry.list_all()]
 
@@ -47,20 +47,17 @@ async def import_skin(
     request: Request,
     file: UploadFile,
     skin_id: str | None = Form(default=None),
-    skin_name: str | None = Form(default=None),
 ) -> dict:
-    """导入皮肤（3.4/3.5）：magic bytes 分流 PNG / zip，校验失败给可读原因。"""
+    """导入皮肤（3.5）：仅接受 zip 皮肤包，校验失败给可读原因。"""
     skin_registry = _skin_registry(request)
     content = await file.read()
 
-    if content[:8] == PNG_MAGIC:
-        manifest = import_png_skin(content, skin_id, skin_name, skin_registry)
-    elif content[:4] == ZIP_MAGIC:
-        manifest = import_zip_skin(content, skin_id, skin_registry)
-    else:
+    if content[:4] != ZIP_MAGIC:
         raise HTTPException(
-            status_code=422, detail="不支持的文件格式（仅接受 PNG 图片或 zip 皮肤包）"
+            status_code=422,
+            detail="不支持的文件格式（仅接受 zip 皮肤包；PNG 图片导入已随静态皮肤类型下线）",
         )
+    manifest = import_zip_skin(content, skin_id, skin_registry)
     logger.info("导入皮肤：%s（%s）", manifest.id, manifest.resource_type)
     return manifest_to_summary(
         manifest, source="user", base_url=skin_registry.user_base_url(manifest.id)
@@ -69,10 +66,8 @@ async def import_skin(
 
 @router.delete("/skins/{skin_id}", status_code=204)
 async def delete_skin(skin_id: str, request: Request) -> None:
-    """删除用户皮肤；内置 403。若正是 active_skin → 回退 default 并落盘。"""
+    """删除用户皮肤。若正是 active_skin → 清空选择（空 = 未设置）并落盘。"""
     skin_registry = _skin_registry(request)
-    if skin_registry.is_builtin(skin_id):
-        raise HTTPException(status_code=403, detail="内置皮肤不可删除")
     if not skin_registry.delete(skin_id):
         raise HTTPException(status_code=404, detail=f"皮肤 {skin_id} 不存在")
 
@@ -80,10 +75,10 @@ async def delete_skin(skin_id: str, request: Request) -> None:
     if provider_registry.config.character.active_skin == skin_id:
 
         def mutate(config: AppConfig) -> None:
-            config.character.active_skin = "default"
+            config.character.active_skin = ""
 
         _apply(provider_registry, _config_path(request), mutate)
-        logger.info("删除的 %s 正是当前皮肤，已回退 default", skin_id)
+        logger.info("删除的 %s 正是当前皮肤，已清空选择", skin_id)
     logger.info("删除皮肤：%s", skin_id)
 
 

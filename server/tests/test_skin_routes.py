@@ -1,4 +1,8 @@
-"""皮肤 REST 端点测试（M1-S1）：列表/删除/active 回退/用户资源分发。"""
+"""皮肤 REST 端点测试（M1-S1）：列表/删除/active 回退/用户资源分发。
+
+内置静态皮肤已下线：列表只含用户导入的皮肤；
+删除当前皮肤回退为清空选择（activeSkin=""）。
+"""
 
 from __future__ import annotations
 
@@ -18,11 +22,16 @@ def client() -> TestClient:
         yield c
 
 
-def _write_user_skin(skin_id: str, filename: str = "avatar.png") -> None:
+def _write_user_skin(skin_id: str, filename: str = "m.model3.json") -> None:
     skin_dir = get_skins_dir() / skin_id
     skin_dir.mkdir(parents=True, exist_ok=True)
-    (skin_dir / filename).write_bytes(b"png-bytes")
-    manifest = {"id": skin_id, "name": skin_id, "resourceType": "static", "imageFile": filename}
+    (skin_dir / filename).write_bytes(b'{"type":"Model"}')
+    manifest = {
+        "id": skin_id,
+        "name": skin_id,
+        "resourceType": "live2d",
+        "modelFile": filename,
+    }
     (skin_dir / "skin.json").write_text(json.dumps(manifest), encoding="utf-8")
 
 
@@ -31,37 +40,24 @@ def _write_user_skin(skin_id: str, filename: str = "avatar.png") -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_list_skins_includes_builtins(client):
-    resp = client.get("/skins")
-    assert resp.status_code == 200
-    skins = resp.json()
-    ids = {s["id"] for s in skins}
-    assert "pikachu" in ids
-    pikachu = next(s for s in skins if s["id"] == "pikachu")
-    assert pikachu["source"] == "builtin"
-    assert pikachu["resourceBaseUrl"] == "/skins/pikachu"
-    # 渲染必需字段随列表下发（前端拼 URL / 选动作档案）
-    assert pikachu["imageFile"] == "avatar.png"
-    assert pikachu["animation"]
+def test_list_skins_empty_by_default(client):
+    """fresh install 无装扮（内置皮肤已下线），导入后出现在列表。"""
+    assert client.get("/skins").json() == []
 
-
-def test_list_skins_includes_user_with_absolute_base_url(client):
     _write_user_skin("mycat")
-    resp = client.get("/skins")
-    mycat = next((s for s in resp.json() if s["id"] == "mycat"), None)
+    skins = client.get("/skins").json()
+    mycat = next((s for s in skins if s["id"] == "mycat"), None)
     assert mycat is not None
     assert mycat["source"] == "user"
     assert mycat["resourceBaseUrl"].startswith("http://127.0.0.1:")
     assert mycat["resourceBaseUrl"].endswith("/user-skins/mycat")
+    # 渲染必需字段随列表下发（前端拼 URL / 选动作档案）
+    assert mycat["modelFile"] == "m.model3.json"
 
 
 # ---------------------------------------------------------------------------
 # DELETE /skins/{id}
 # ---------------------------------------------------------------------------
-
-
-def test_delete_builtin_forbidden(client):
-    assert client.delete("/skins/pikachu").status_code == 403
 
 
 def test_delete_unknown_404(client):
@@ -74,12 +70,12 @@ def test_delete_user_skin(client):
     assert not any(s["id"] == "gone" for s in client.get("/skins").json())
 
 
-def test_delete_active_skin_falls_back_to_default(client):
+def test_delete_active_skin_falls_back_to_empty(client):
     _write_user_skin("doomed")
     assert client.put("/config/character", json={"activeSkin": "doomed"}).status_code == 200
 
     assert client.delete("/skins/doomed").status_code == 204
-    assert client.get("/config/character").json()["activeSkin"] == "default"
+    assert client.get("/config/character").json()["activeSkin"] == ""
 
 
 # ---------------------------------------------------------------------------
@@ -89,13 +85,13 @@ def test_delete_active_skin_falls_back_to_default(client):
 
 def test_user_skin_file_served(client):
     _write_user_skin("served")
-    resp = client.get("/user-skins/served/avatar.png")
+    resp = client.get("/user-skins/served/m.model3.json")
     assert resp.status_code == 200
-    assert resp.content == b"png-bytes"
+    assert resp.content == b'{"type":"Model"}'
 
 
 def test_user_skin_file_missing_404(client):
-    assert client.get("/user-skins/nobody/avatar.png").status_code == 404
+    assert client.get("/user-skins/nobody/m.model3.json").status_code == 404
 
 
 def test_user_skin_path_traversal_blocked(client):

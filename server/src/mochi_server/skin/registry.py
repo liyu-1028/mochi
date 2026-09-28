@@ -14,17 +14,11 @@ from pydantic import ValidationError
 
 from ..paths import get_skins_dir
 from ..skin_manifest import SkinManifest, SkinSummary, manifest_to_summary
-from .builtin import BUILTIN_SKINS
 
 logger = logging.getLogger(__name__)
 
-# 历史配置中 active_skin 的占位值；解析为默认内置皮肤（ADR-0006 D7）。
-DEFAULT_SKIN_ID = "pikachu"
-
-
-def resolve_skin_id(skin_id: str) -> str:
-    """``"default"`` → 默认内置皮肤；其余原样返回。集中一处便于后续换默认。"""
-    return DEFAULT_SKIN_ID if skin_id == "default" else skin_id
+# 历史兼容说明：配置里可能残留 active_skin="default"（旧内置静态皮肤占位）；
+# 静态类型已下线，该值解析不到任何皮肤（get 返回 None → 前端走未设置路径）。
 
 
 class SkinRegistry:
@@ -49,28 +43,17 @@ class SkinRegistry:
 
     def list_all(self) -> list[SkinSummary]:
         self.reload()  # 读时扫描：手动放置/外部变更即时可见，目录量小成本可忽略
-        summaries = [
-            manifest_to_summary(m, source="builtin", base_url=f"/skins/{m.id}")
-            for m in BUILTIN_SKINS.values()
-        ]
-        summaries += [
+        return [
             manifest_to_summary(m, source="user", base_url=self.user_base_url(m.id))
             for m in self._user_skins.values()
         ]
-        return summaries
 
     def get(self, skin_id: str) -> SkinManifest | None:
-        effective = resolve_skin_id(skin_id)
-        if effective in BUILTIN_SKINS:
-            return BUILTIN_SKINS[effective]
         self.reload()
-        return self._user_skins.get(effective)
+        return self._user_skins.get(skin_id)
 
     def has(self, skin_id: str) -> bool:
         return self.get(skin_id) is not None
-
-    def is_builtin(self, skin_id: str) -> bool:
-        return skin_id in BUILTIN_SKINS
 
     # ------------------------------------------------------------------
     # 变更
@@ -80,9 +63,7 @@ class SkinRegistry:
         self._user_skins[manifest.id] = manifest
 
     def delete(self, skin_id: str) -> bool:
-        """删除用户皮肤（内置禁删）；返回目录是否被移除。"""
-        if skin_id in BUILTIN_SKINS:
-            return False
+        """删除用户皮肤；返回目录是否被移除。"""
         self.reload()
         if self._user_skins.pop(skin_id, None) is None:
             return False

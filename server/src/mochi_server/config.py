@@ -71,7 +71,8 @@ class PersonaConfig(BaseModel):
 
 
 class CharacterConfig(BaseModel):
-    active_skin: str = "default"
+    # 旧值 "default"（内置静态皮肤占位）随静态类型下线；空串 = 未设置
+    active_skin: str = ""
     persona: PersonaConfig = Field(default_factory=PersonaConfig)
 
 

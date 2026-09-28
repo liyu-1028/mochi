@@ -523,7 +523,7 @@ async def get_character(request: Request) -> dict:
 async def update_character(body: CharacterUpdate, request: Request) -> dict:
     """更新 [character.active_skin]（3.3 一键换肤）：皮肤须存在于注册表，否则 422。"""
     registry = _registry(request)
-    if body.active_skin is not None:
+    if body.active_skin:
         skin_registry = request.app.state.skin_registry
         if skin_registry is None or not skin_registry.has(body.active_skin):
             raise HTTPException(status_code=422, detail=f"皮肤不存在：{body.active_skin}")
