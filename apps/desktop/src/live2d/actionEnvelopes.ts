@@ -5,8 +5,10 @@
  * 确定性包络（(elapsedMs) → 变换增量 | null），vitest 直测；调度（何时播放）
  * 属 M-B Action Director，本模块只定义「动作长什么样」。
  *
- * 幅度红线（2.8 同款）：位移 ≤8px、旋转 ≤0.12rad，不溢出窗口、不打断对话。
- * look_around / stretch / doze 直接复用 idleBehaviors 已有包络，不重复实现。
+ * 幅度分级预算（2026-09-28 用户实测反馈：原 8px 档反馈不明显）：
+ * - 闲置复用动作（look_around/stretch/doze，背景生命感）：保持 2.8 克制档 ≤8px/0.12rad；
+ * - 反馈动作（celebrate/nod/wave/shake_head/surprised/listen/think/comfort）：
+ *   放大到 ≤18px/0.2rad——用户可感知的应答，不再与背景闲置同档。
  */
 
 import { IDLE_ACTIONS, IDLE_ZERO, type IdleAction, type IdleDelta } from "./idleBehaviors";
@@ -50,8 +52,8 @@ function think(elapsedMs: number): IdleDelta | null {
   if (elapsedMs < 0 || elapsedMs >= T) return null;
   const p = elapsedMs / T;
   const hold = Math.min(1, p * 6) * Math.min(1, (1 - p) * 6); // 快进慢出平台形
-  const sway = Math.sin(elapsedMs / 400) * 0.03 * hold;
-  return { dx: 0, dy: -1 * hold, rotation: (0.05 + sway) * hold, sx: 1, sy: 1 };
+  const sway = Math.sin(elapsedMs / 400) * 0.05 * hold;
+  return { dx: 0, dy: -2 * hold, rotation: (0.1 + sway) * hold, sx: 1, sy: 1 };
 }
 
 /** listen（2.2s）：侧耳倾听——反向轻倾 + 两下小点头。 */
@@ -59,8 +61,8 @@ function listen(elapsedMs: number): IdleDelta | null {
   const T = 2200;
   if (elapsedMs < 0 || elapsedMs >= T) return null;
   const p = elapsedMs / T;
-  const lean = bell(p * 0.5 + 0.25) * 0.05;
-  const bob = Math.abs(Math.sin(2 * Math.PI * 2 * p)) * 2 * bell(p);
+  const lean = bell(p * 0.5 + 0.25) * 0.1;
+  const bob = Math.abs(Math.sin(2 * Math.PI * 2 * p)) * 4 * bell(p);
   return { dx: 0, dy: -bob, rotation: lean, sx: 1, sy: 1 };
 }
 
@@ -72,9 +74,9 @@ function wave(elapsedMs: number): IdleDelta | null {
   const decay = 1 - p * 0.6;
   const osc = Math.sin(2 * Math.PI * 2.5 * p);
   return {
-    dx: 5 * osc * decay,
-    dy: -1.5 * bell(p),
-    rotation: 0.08 * osc * decay,
+    dx: 11 * osc * decay,
+    dy: -3 * bell(p),
+    rotation: 0.16 * osc * decay,
     sx: 1,
     sy: 1,
   };
@@ -86,7 +88,7 @@ function nod(elapsedMs: number): IdleDelta | null {
   if (elapsedMs < 0 || elapsedMs >= T) return null;
   const p = elapsedMs / T;
   const dip = Math.abs(Math.sin(2 * Math.PI * 2 * p)) * (1 - p * 0.5);
-  return { dx: 0, dy: 4 * dip, rotation: 0.03 * dip, sx: 1 + 0.01 * dip, sy: 1 - 0.03 * dip };
+  return { dx: 0, dy: 9 * dip, rotation: 0.05 * dip, sx: 1 + 0.02 * dip, sy: 1 - 0.06 * dip };
 }
 
 /** shake_head（1.0s）：摇头——水平摆动两下半（幅度递减）。 */
@@ -96,7 +98,7 @@ function shakeHead(elapsedMs: number): IdleDelta | null {
   const p = elapsedMs / T;
   const decay = 1 - p * 0.5;
   const osc = Math.sin(2 * Math.PI * 2.5 * p);
-  return { dx: 6 * osc * decay, dy: 0, rotation: 0.02 * osc * decay, sx: 1, sy: 1 };
+  return { dx: 13 * osc * decay, dy: 0, rotation: 0.04 * osc * decay, sx: 1, sy: 1 };
 }
 
 /** celebrate（1.2s）：庆祝——两次小跳 + 微放大，落地回正。 */
@@ -108,10 +110,10 @@ function celebrate(elapsedMs: number): IdleDelta | null {
   const hop = Math.sin(Math.PI * hopPhase) * (p < 0.5 ? 1 : 0.7);
   return {
     dx: 0,
-    dy: -6 * hop,
-    rotation: 0.04 * Math.sin(2 * Math.PI * p),
-    sx: 1 + 0.04 * bell(p),
-    sy: 1 + 0.06 * bell(p),
+    dy: -14 * hop,
+    rotation: 0.08 * Math.sin(2 * Math.PI * p),
+    sx: 1 + 0.1 * bell(p),
+    sy: 1 + 0.14 * bell(p),
   };
 }
 
@@ -121,7 +123,7 @@ function comfort(elapsedMs: number): IdleDelta | null {
   if (elapsedMs < 0 || elapsedMs >= T) return null;
   const p = elapsedMs / T;
   const e = bell(p);
-  return { dx: 2 * e, dy: 2 * e, rotation: 0.04 * e, sx: 1 + 0.02 * e, sy: 1 - 0.02 * e };
+  return { dx: 4 * e, dy: 4 * e, rotation: 0.06 * e, sx: 1 + 0.04 * e, sy: 1 - 0.04 * e };
 }
 
 /** surprised（0.7s）：吃惊——快速弹起放大再回落（前快后缓）。 */
@@ -131,7 +133,7 @@ function surprised(elapsedMs: number): IdleDelta | null {
   const p = elapsedMs / T;
   const e = Math.pow(1 - p, 1.6); // 冲击后指数回落
   const kick = p < 0.15 ? (p / 0.15) * 1 : 1;
-  return { dx: 0, dy: -3 * e * kick, rotation: 0, sx: 1 + 0.08 * e * kick, sy: 1 + 0.1 * e * kick };
+  return { dx: 0, dy: -8 * e * kick, rotation: 0, sx: 1 + 0.16 * e * kick, sy: 1 + 0.2 * e * kick };
 }
 
 /** 语义词表全集（协议规范 §11）的静态包络注册表。 */

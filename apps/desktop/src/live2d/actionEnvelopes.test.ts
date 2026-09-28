@@ -1,16 +1,22 @@
 /**
- * actionEnvelopes 测试（M-A）：确定性、幅度红线、时序收敛。
+ * actionEnvelopes 测试（M-A）：确定性、幅度预算、时序收敛。
  *
- * 幅度红线与 idleBehaviors 同款（2.8）：位移 ≤8px、旋转 ≤0.12rad。
+ * 幅度分级预算（2026-09-28 用户实测反馈后调整）：
+ * - 闲置复用动作（背景生命感）：2.8 克制档 ≤8px/0.12rad；
+ * - 反馈动作（用户应答）：≤18px/0.2rad——可感知档。
  * 全部包络在其 durationMs 之后必须返回 null（one-shot 结束语义）。
  */
 import { describe, expect, it } from "vitest";
 import { ACTION_ENVELOPES } from "./actionEnvelopes";
 import { SEMANTIC_ACTIONS } from "@mochi/protocol";
 
-const MAX_ABS_DX = 8;
-const MAX_ABS_DY = 8;
-const MAX_ABS_ROT = 0.12;
+const IDLE_BUDGET = { dx: 8, dy: 8, rot: 0.12 };
+const FEEDBACK_BUDGET = { dx: 18, dy: 18, rot: 0.2 };
+const IDLE_REUSED = new Set(["look_around", "stretch", "doze"]);
+
+function budgetOf(id: string) {
+  return IDLE_REUSED.has(id) ? IDLE_BUDGET : FEEDBACK_BUDGET;
+}
 
 describe("ACTION_ENVELOPES 注册表", () => {
   it("覆盖语义词表全集（协议规范 §11，12 项）", () => {
@@ -39,14 +45,15 @@ describe("包络行为", () => {
     }
   });
 
-  it("幅度红线：全程 |dx|,|dy| ≤8px、|rotation| ≤0.12rad", () => {
+  it("幅度分级预算：闲置复用 ≤8px/0.12rad，反馈动作 ≤18px/0.2rad", () => {
     for (const [id, env] of Object.entries(ACTION_ENVELOPES)) {
+      const b = budgetOf(id);
       for (let t = 0; t < env.durationMs; t += 16) {
         const d = env.apply(t);
         if (!d) continue;
-        expect(Math.abs(d.dx), `${id}@${t}ms dx`).toBeLessThanOrEqual(MAX_ABS_DX);
-        expect(Math.abs(d.dy), `${id}@${t}ms dy`).toBeLessThanOrEqual(MAX_ABS_DY);
-        expect(Math.abs(d.rotation), `${id}@${t}ms rotation`).toBeLessThanOrEqual(MAX_ABS_ROT);
+        expect(Math.abs(d.dx), `${id}@${t}ms dx`).toBeLessThanOrEqual(b.dx);
+        expect(Math.abs(d.dy), `${id}@${t}ms dy`).toBeLessThanOrEqual(b.dy);
+        expect(Math.abs(d.rotation), `${id}@${t}ms rotation`).toBeLessThanOrEqual(b.rot);
       }
     }
   });
