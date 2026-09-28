@@ -103,7 +103,7 @@ export function useMochiConnection(url: string) {
       kind: SignalKind,
       salience: SignalSalience,
       payload: Record<string, unknown>,
-      opts?: { dedupeKey?: string; expiresAt?: number },
+      opts?: { dedupeKey?: string; notBefore?: number; expiresAt?: number },
     ): void => {
       const data: CompanionSignalData = {
         signalId: crypto.randomUUID(),
@@ -113,6 +113,12 @@ export function useMochiConnection(url: string) {
         payload,
         ...opts,
       };
+      // dev 反馈：控制台注入信号时可见确认（GUI 实测/手工验证用）
+      if (import.meta.env.DEV) {
+        console.info(
+          `[mochi] companion.signal 已发送 kind=${kind} signalId=${data.signalId.slice(0, 8)}`,
+        );
+      }
       clientRef.current?.send(createCommand(COMMAND_TYPES.CompanionSignal, data));
     },
     [],
