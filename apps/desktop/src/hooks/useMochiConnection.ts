@@ -10,6 +10,10 @@ import {
   type ChatCancelData,
   type ChatInterruptData,
   type ChatSendData,
+  type CompanionSignalData,
+  type IntentDecision,
+  type SignalKind,
+  type SignalSalience,
   type ToolConfirmData,
 } from "@mochi/protocol";
 import { useCallback, useEffect, useRef } from "react";
@@ -92,7 +96,38 @@ export function useMochiConnection(url: string) {
     [],
   );
 
-  return { sendText, cancelRun, interruptRun, confirmTool };
+  /** 陪伴信号上报（M-D）：idle/focus 等环境事实 → 服务端注意力引擎裁决 */
+  const sendSignal = useCallback(
+    (
+      kind: SignalKind,
+      salience: SignalSalience,
+      payload: Record<string, unknown>,
+      opts?: { dedupeKey?: string; expiresAt?: number },
+    ): void => {
+      const data: CompanionSignalData = {
+        signalId: crypto.randomUUID(),
+        kind,
+        occurredAt: Date.now(),
+        salience,
+        payload,
+        ...opts,
+      };
+      clientRef.current?.send(createCommand(COMMAND_TYPES.CompanionSignal, data));
+    },
+    [],
+  );
+
+  /** ask 快速操作回传（M-D）：later=稍后 / dismiss=不用提醒 / now=现在处理。
+      本地立即收起操作条；服务端引擎按决定记账（snooze/主题冷却/触发）。 */
+  const respondIntent = useCallback(
+    (intentId: string, decision: IntentDecision): void => {
+      useConversation.getState().clearPendingIntent();
+      sendSignal("intent_response", 0, { intentId, decision });
+    },
+    [sendSignal],
+  );
+
+  return { sendText, cancelRun, interruptRun, confirmTool, respondIntent, sendSignal };
 }
 
 /**

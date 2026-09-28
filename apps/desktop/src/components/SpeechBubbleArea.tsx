@@ -17,6 +17,7 @@
  * 左侧），尾三角水平指向头部，表示「Mochi 说的话」。容器放在 .app__stage
  * 之外，避免气泡点击误触发 Tauri 窗口拖动。
  */
+import { type IntentDecision } from "@mochi/protocol";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useBubbleSide } from "../hooks/useBubbleSide";
 import { useConversation } from "../store/conversation";
@@ -46,7 +47,12 @@ export function pickBubbleStack(messages: ChatMessage[]): BubbleStack {
   };
 }
 
-export function SpeechBubbleArea() {
+export function SpeechBubbleArea({
+  onRespondIntent,
+}: {
+  /** ask 快速操作回传（M-D）：由 useMochiConnection 注入（App 下传） */
+  onRespondIntent: (intentId: string, decision: IntentDecision) => void;
+}) {
   const messages = useConversation((s) => s.messages);
   const { prev, latest } = pickBubbleStack(messages);
   const side = useBubbleSide();
@@ -96,6 +102,45 @@ export function SpeechBubbleArea() {
         <PrevBubble message={prev} expanded={expanded} onToggle={() => setExpanded((v) => !v)} />
       ) : null}
       {latest !== undefined ? <CurrentBubble message={latest} /> : null}
+      <QuickAskBar onRespond={onRespondIntent} />
+    </div>
+  );
+}
+
+/** 快速操作按钮文案（纯函数便于单测） */
+export function quickReplyLabel(q: "later" | "dismiss"): string {
+  return q === "later" ? "稍后" : "不用提醒";
+}
+
+/** 纯函数：是否渲染快速操作条（ask 且带 quickReplies 才渲染） */
+export function shouldShowQuickBar(
+  pending: { action: string; quickReplies: string[] } | null,
+): boolean {
+  return pending !== null && pending.quickReplies.length > 0;
+}
+
+/** 主动提问的快速操作条（M-D，§8.6：一次只问一个问题，尽量给快速操作）。
+ *  数据源 store.pendingIntent：companion.intent 事件置入、
+ *  过期/回传/用户发消息时移除（无声消失，不残留 UI）。 */
+export function QuickAskBar({
+  onRespond,
+}: {
+  onRespond: (intentId: string, decision: IntentDecision) => void;
+}) {
+  const pending = useConversation((s) => s.pendingIntent);
+  if (pending === null || !shouldShowQuickBar(pending)) return null;
+  return (
+    <div className="bubble-quick" data-intent-id={pending.intentId}>
+      {pending.quickReplies.map((q) => (
+        <button
+          key={q}
+          type="button"
+          className="bubble-quick__btn"
+          onClick={() => onRespond(pending.intentId, q)}
+        >
+          {quickReplyLabel(q)}
+        </button>
+      ))}
     </div>
   );
 }

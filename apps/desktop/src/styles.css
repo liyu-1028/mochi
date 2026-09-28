@@ -731,3 +731,33 @@ body {
   height: 100%;
   max-height: none;
 }
+
+/* 主动提问快速操作条（M-D，§8.6）：跟在最新气泡下方；过期/回传/用户发
+   消息时由 store 直接不渲染（无声消失，不残留 UI） */
+.bubble-quick {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  align-self: flex-end;
+  animation: bubble-enter 0.25s ease-out;
+}
+
+.bubble-quick__btn {
+  padding: 3px 10px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  border-radius: 999px;
+  border: 1px solid rgba(243, 227, 231, 0.85);
+  background: rgba(255, 250, 247, 0.9);
+  color: var(--ink);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.bubble-quick__btn:hover {
+  background: rgba(247, 236, 240, 1);
+}
+
+.bubble-quick__btn:active {
+  transform: scale(0.97);
+}

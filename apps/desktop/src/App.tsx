@@ -64,7 +64,7 @@ export default function App() {
     initRuntimePortListener();
     return subscribeRuntimePort(() => setWsUrl(resolveWsUrl()));
   }, []);
-  const { sendText, cancelRun, confirmTool } = useMochiConnection(wsUrl);
+  const { sendText, cancelRun, confirmTool, respondIntent } = useMochiConnection(wsUrl);
   const status = useConversation((s) => s.status);
   // release 下 sidecar 异常/重启的可读提示（1.2）；dev/浏览器为 null
   const sidecarHint = useSidecarStatus();
@@ -279,7 +279,7 @@ export default function App() {
           onHitTestReady={handleHitTestReady}
         />
       </div>
-      <SpeechBubbleArea />
+      <SpeechBubbleArea onRespondIntent={respondIntent} />
       <ToolActivity confirmTool={confirmTool} onStop={cancelRun} />
 
       {/* 底部 dock 槽位：状态文案与输入条共享同一位置、互斥显示 */}
