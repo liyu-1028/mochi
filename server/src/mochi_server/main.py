@@ -10,13 +10,16 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import time
+import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -28,18 +31,22 @@ from .agent.ollama_probe import probe_ollama
 from .agent.registry import AgentFactory
 from .agent.service import AgentService
 from .api import config_router, memory_router, session_router, skin_router, tts_router
-from .api.security import ALLOWED_CORS_ORIGINS, SensitiveDataFilter
+from .api.security import ALLOWED_CORS_ORIGINS, SensitiveDataFilter, localhost_only
 from .attention.bridge import CompanionCoordinator, start_pump_loop
 from .attention.engine import AttentionEngine, settings_from_config
 from .config import AppConfig, load_config
 from .events import (
     EVENT_TYPES,
     PROTOCOL_VERSION,
+    SEMANTIC_ACTIONS,
     SERVER_NAME,
+    CharacterCueData,
     ChatCancelData,
     ChatInterruptData,
     ChatSendData,
     CompanionSignalData,
+    CueBodyChannel,
+    CueChannels,
     ErrorCode,
     ErrorPayload,
     HelloAckData,
@@ -67,6 +74,10 @@ _SLEEP_THRESHOLD_S = 300.0
 _BUSINESS_FRAME_TYPES = frozenset(
     {"hello", "chat.send", "chat.cancel", "chat.interrupt", "tool.confirm", "companion.signal"}
 )
+
+# 调试辅助（M-D 验证用）：活跃 ws 发送通道注册表——POST /dev/cue 广播 character.cue。
+# 不属于协议面，路由挂 localhost_only 仅本机可达；GUI 实测/手工验证驱动角色表演用。
+_DEV_WS_SENDERS: list[Any] = []
 
 
 def _install_log_filter() -> None:
@@ -244,6 +255,7 @@ def create_app(
             ws.send_json,
             error_recovery_delay_s=getattr(app.state, "error_recovery_delay_s", 3.0),
         )
+        _DEV_WS_SENDERS.append(ws.send_json)
         # 注意力引擎（M-D）：[agent].attention=auto 才创建协调器；off（默认）
         # 时 companion.signal 直接忽略——M-C 结束点行为零变更（验收项）
         coordinator: CompanionCoordinator | None = None
@@ -401,8 +413,46 @@ def create_app(
                 pump_task.cancel()
             return
         finally:
+            with contextlib.suppress(ValueError):
+                _DEV_WS_SENDERS.remove(ws.send_json)
             if pump_task is not None:
                 pump_task.cancel()
+
+    @app.post("/dev/cue", dependencies=[Depends(localhost_only)])
+    async def dev_trigger_cue(request: Request) -> dict[str, Any]:
+        """调试端点（非协议面）：向所有 ws 连接广播 character.cue，驱动角色表演。
+
+        与业务路径同形：source=proactive、动作白名单强校验（越权丢弃）、
+        immediate/replace/10s ttl。GUI 实测与手工验证用（curl POST {"actionId": "nod"}）。
+        """
+        try:
+            body = await request.json()
+        except Exception:
+            return {"ok": False, "error": "body 不是合法 JSON"}
+        action_id = str(body.get("actionId", "")).strip()
+        if action_id not in SEMANTIC_ACTIONS:
+            return {"ok": False, "error": f"未知动作（不在语义词表）：{action_id or '(空)'}"}
+        frame = make_frame(
+            EVENT_TYPES["character.cue"],
+            CharacterCueData(
+                cue_id=f"c-{uuid.uuid4().hex[:12]}",
+                run_id=None,
+                source="proactive",
+                channels=CueChannels(body=CueBodyChannel(action_id=action_id)),
+                sync="immediate",
+                priority=30,
+                interrupt_policy="replace",
+                ttl_ms=10_000,
+            ),
+            _now_ms(),
+        )
+        sent = 0
+        for send in list(_DEV_WS_SENDERS):
+            with contextlib.suppress(Exception):
+                await send(frame)
+                sent += 1
+        logger.info("dev/cue 广播：%s → %d 连接", action_id, sent)
+        return {"ok": True, "actionId": action_id, "sent": sent}
 
     return app
 
