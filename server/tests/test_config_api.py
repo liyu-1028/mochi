@@ -556,3 +556,37 @@ def test_log_filter_scrubs_records(caplog):
         logger.info("用户提交了 api_key=%s", _RAW_KEY)
     assert _RAW_KEY not in caplog.text
     assert "***" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# [agent] 认知行为设置（2026-09-28）：回复长度上限读写与校验
+# ---------------------------------------------------------------------------
+
+
+def test_get_agent_view(client):
+    resp = client.get("/config/agent")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["maxReplyChars"] == 200
+    assert body["emotion"] in ("auto", "off")
+    assert body["attention"] in ("auto", "off")
+
+
+def test_put_agent_max_reply_chars_persists(client):
+    resp = client.put("/config/agent", json={"maxReplyChars": 350})
+    assert resp.status_code == 200
+    assert resp.json()["maxReplyChars"] == 350
+    import tomllib
+
+    from mochi_server.paths import get_config_path
+
+    raw = tomllib.load(get_config_path().open("rb"))
+    assert raw["agent"]["max_reply_chars"] == 350
+
+
+def test_put_agent_out_of_range_422(client):
+    for bad in (49, 4001):
+        resp = client.put("/config/agent", json={"maxReplyChars": bad})
+        assert resp.status_code == 422
+    # 非整数同样拒绝
+    assert client.put("/config/agent", json={"maxReplyChars": 200.5}).status_code == 422

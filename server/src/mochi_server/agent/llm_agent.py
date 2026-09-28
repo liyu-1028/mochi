@@ -77,22 +77,32 @@ _TOOL_NUDGE = (
 #: 后置情绪强度（2.5）：非中性情绪统一 0.75（显著但不过火）
 _EMOTION_INTENSITY = 0.75
 
-#: 单回合回复文本上限（字符数，cue 清洗后正文，不含动作标记）：桌宠气泡与
-#: TTS 的阅读尺度决定了长回复没有价值（气泡内滚 + 朗读拖沓）；超限文本
-#: 丢弃、以「…」收尾。配套前端气泡正文最大高度（styles.css .bubble__body）。
+#: 单回合回复文本上限的缺省值（字符数，cue 清洗后正文，不含动作标记）：
+#: 实际值来自 [agent].max_reply_chars（用户可在设置中调整，50–4000）。
+#: 桌宠气泡与 TTS 的阅读尺度决定了长回复没有价值（气泡内滚 + 朗读拖沓）；
+#: 超限文本丢弃、以「…」收尾，并在 system prompt 中同步告知模型真实上限。
+#: 配套前端气泡正文最大高度（styles.css .bubble__body）。
 #: cue 标记不受影响——解析器照常喂入，尾部动作标记照常触发。
-MAX_REPLY_CHARS = 200
+DEFAULT_MAX_REPLY_CHARS = 200
 
 
-def _capped_slice(emitted: int, delta: str) -> str:
+def reply_length_requirement(cap: int) -> str:
+    """system prompt 中的回复长度硬性要求片段（run() 与测试共用事实源）。"""
+    return (
+        f"\n\n[回复长度硬性要求] 单次回复不超过 {cap} 个字符。"
+        "超出部分会被系统丢弃；请把内容精炼在限额内，宁可短小完整，不要长篇大论。"
+    )
+
+
+def _capped_slice(cap: int, emitted: int, delta: str) -> str:
     """回复长度封顶的纯函数：返回本次允许放行的文本（可能为切片或空串）。
 
-    ``emitted`` 为已放行字符数；返回值长度 ≤ ``MAX_REPLY_CHARS - emitted``。
-    调用方以「返回长度 < len(delta)」判定发生了截断。
+    ``cap`` 为本回合上限（用户可配）；``emitted`` 为已放行字符数；
+    返回值长度 ≤ ``cap - emitted``。调用方以「返回长度 < len(delta)」判定截断。
     """
-    if emitted >= MAX_REPLY_CHARS:
+    if emitted >= cap:
         return ""
-    return delta[: MAX_REPLY_CHARS - emitted]
+    return delta[: cap - emitted]
 
 
 @dataclass
@@ -120,6 +130,7 @@ class LLMAgentService(AgentService):
         context_window: int | None = None,
         emotion_enabled: bool = True,
         cue_enabled: bool = False,
+        max_reply_chars: int = DEFAULT_MAX_REPLY_CHARS,
     ):
         self._adapter = adapter
         self._system_prompt = system_prompt
@@ -132,6 +143,8 @@ class LLMAgentService(AgentService):
         self._emotion_enabled = emotion_enabled  # 2.5 情绪后置；False → 不分类
         # 表演节拍（M-C）：默认 False（黄金样例/既有测试零影响）；registry 按配置开启
         self._cue_enabled = cue_enabled
+        # 回复长度上限（2026-09-28 用户可配）：流式放行 + system prompt 双侧生效
+        self._max_reply_chars = max_reply_chars
         self._pending: dict[str, _PendingConfirm] = {}
         # 后台任务（6.4 记忆提取）持引用，防 fire-and-forget 被 GC 中途回收
         self._background: set[asyncio.Task[None]] = set()
@@ -198,6 +211,9 @@ class LLMAgentService(AgentService):
             effective_system += _TOOL_NUDGE
         if self._cue_enabled:
             effective_system += cue_prompt_section()
+        # 回复长度硬性要求（2026-09-28 用户可配）：同步告知模型真实上限，
+        # 否则模型会自行宣称/按其它长度标准作答（实测：被 200 截断却自称 300~500 字）
+        effective_system += reply_length_requirement(self._max_reply_chars)
         messages, budget, dropped = build_context_messages(
             effective_system, history, ctx.text, context_window=self._context_window
         )
@@ -211,7 +227,8 @@ class LLMAgentService(AgentService):
         thinking_closed = False
         text_started = False
         parts: list[str] = []
-        # 回复长度封顶（MAX_REPLY_CHARS）：emitted=已放行字符数，truncated=是否丢弃过文本
+        # 回复长度封顶（[agent].max_reply_chars）：emitted=已放行字符数，truncated=是否丢弃过文本
+        reply_cap = self._max_reply_chars
         emitted_chars = 0
         reply_truncated = False
         cue_source = "proactive" if proactive else "reply"
@@ -301,7 +318,7 @@ class LLMAgentService(AgentService):
                                     yield event_type, event_payload
                             if cue_parser is None:
                                 # cue 路径关闭：原始增量直发（M-B 行为，长度封顶）
-                                piece = _capped_slice(emitted_chars, delta)
+                                piece = _capped_slice(reply_cap, emitted_chars, delta)
                                 emitted_chars += len(piece)
                                 reply_truncated = reply_truncated or len(piece) < len(delta)
                                 if piece:
@@ -321,7 +338,7 @@ class LLMAgentService(AgentService):
                                 # 长度封顶只丢文本，cue 输出不受影响
                                 for out in cue_parser.feed(delta):
                                     if out.kind == "text":
-                                        piece = _capped_slice(emitted_chars, out.text)
+                                        piece = _capped_slice(reply_cap, emitted_chars, out.text)
                                         emitted_chars += len(piece)
                                         reply_truncated = reply_truncated or len(piece) < len(
                                             out.text
@@ -371,7 +388,7 @@ class LLMAgentService(AgentService):
         if cue_parser is not None:
             for out in cue_parser.flush():
                 if out.kind == "text":
-                    piece = _capped_slice(emitted_chars, out.text)
+                    piece = _capped_slice(reply_cap, emitted_chars, out.text)
                     emitted_chars += len(piece)
                     reply_truncated = reply_truncated or len(piece) < len(out.text)
                     if piece:

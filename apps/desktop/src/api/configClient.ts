@@ -83,6 +83,15 @@ export interface VoiceSettings {
   muted: boolean;
 }
 
+/** [agent] 视图（2026-09-28）：认知行为设置；当前 UI 仅暴露回复长度上限。 */
+export interface AgentSettings {
+  emotion: "auto" | "off";
+  cues: "auto" | "off";
+  attention: "auto" | "off";
+  /** 单回合回复文本上限（字符，50–4000）；超限服务端截断 +「…」 */
+  maxReplyChars: number;
+}
+
 /** [character] 视图（3.3 换肤持久化；persona 有专属端点）。 */
 export interface CharacterSettings {
   activeSkin: string;
@@ -196,6 +205,12 @@ export const configApi = {
     request("/config/character", { method: "PUT", body: JSON.stringify(body) }),
 
   /** 人格当前配置 + 内置预设目录（6.13），一次拉齐供角色 tab 渲染。 */
+  getAgent: (): Promise<AgentSettings> => request("/config/agent"),
+
+  /** 部分更新 [agent]；maxReplyChars 下一回合生效（agent 按版本号重建）。 */
+  putAgent: (body: Partial<AgentSettings>): Promise<AgentSettings> =>
+    request("/config/agent", { method: "PUT", body: JSON.stringify(body) }),
+
   getPersona: (): Promise<PersonaFullView> => request("/config/persona"),
 
   /** 更新 [character.persona]（全量当前编辑态），返回更新后的 persona。 */

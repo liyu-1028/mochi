@@ -9,7 +9,7 @@ from langchain_core.messages import AIMessageChunk
 
 from mochi_server.agent import LLMAgentService
 from mochi_server.agent.echo_agent import EchoAgentService
-from mochi_server.agent.llm_agent import DEFAULT_SYSTEM_PROMPT
+from mochi_server.agent.llm_agent import DEFAULT_SYSTEM_PROMPT, reply_length_requirement
 from mochi_server.agent.service import AgentContext
 from mochi_server.config import AppConfig, ModelConfig
 from mochi_server.events import PROTOCOL_VERSION
@@ -35,7 +35,7 @@ async def test_multi_turn_assembles_history_before_current_user(tmp_path) -> Non
             pass
         # 图内消息会由 langgraph 分配 id，按类型+内容断言
         assert [(type(m).__name__, m.content) for m in model.received[0]] == [
-            ("SystemMessage", DEFAULT_SYSTEM_PROMPT),
+            ("SystemMessage", DEFAULT_SYSTEM_PROMPT + reply_length_requirement(200)),
             ("HumanMessage", "我叫小明"),
             ("AIMessage", "你好小明！"),
             ("HumanMessage", "你还记得我叫什么吗"),

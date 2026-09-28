@@ -17,6 +17,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from pydantic import BaseModel
 
 from mochi_server.agent import DangerLevel, LLMAgentService, ToolPolicy, ToolRegistry, ToolSpec
+from mochi_server.agent.llm_agent import reply_length_requirement
 from mochi_server.agent.service import AgentContext
 from mochi_server.events import ErrorCode
 
@@ -176,7 +177,7 @@ async def test_system_prompt_and_user_text_forwarded() -> None:
     await _run(llm)
     first = model.received[0]
     assert [type(m).__name__ for m in first] == ["SystemMessage", "HumanMessage"]
-    assert first[0].content == "自定义人设"
+    assert first[0].content == "自定义人设" + reply_length_requirement(200)
     assert first[1].content == "你好呀"
 
 
@@ -496,32 +497,35 @@ async def test_stale_confirm_rejected() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 回复长度封顶（2026-09-28）：单回合正文超 MAX_REPLY_CHARS 截断，cue 不受影响
+# 回复长度封顶（2026-09-28）：单回合正文超 DEFAULT_MAX_REPLY_CHARS 截断，cue 不受影响
 # ---------------------------------------------------------------------------
 
 
 def test_capped_slice_pure_function() -> None:
     """纯函数：放行切片不超上限；到顶后恒空串。"""
-    from mochi_server.agent.llm_agent import MAX_REPLY_CHARS, _capped_slice
+    from mochi_server.agent.llm_agent import (
+        DEFAULT_MAX_REPLY_CHARS,
+        _capped_slice,
+    )
 
-    assert _capped_slice(0, "你好") == "你好"
-    assert _capped_slice(MAX_REPLY_CHARS - 2, "你好呀") == "你好"
-    assert _capped_slice(MAX_REPLY_CHARS, "任何文本") == ""
-    assert _capped_slice(MAX_REPLY_CHARS + 10, "x") == ""
+    assert _capped_slice(DEFAULT_MAX_REPLY_CHARS, 0, "你好") == "你好"
+    assert _capped_slice(DEFAULT_MAX_REPLY_CHARS, DEFAULT_MAX_REPLY_CHARS - 2, "你好呀") == "你好"
+    assert _capped_slice(DEFAULT_MAX_REPLY_CHARS, DEFAULT_MAX_REPLY_CHARS, "任何文本") == ""
+    assert _capped_slice(DEFAULT_MAX_REPLY_CHARS, DEFAULT_MAX_REPLY_CHARS + 10, "x") == ""
 
 
 @pytest.mark.asyncio
 async def test_long_reply_truncated_to_max_chars() -> None:
     """超限正文：text.delta 合计 = 上限 + 「…」= full_text（气泡/TTS/落盘一致）。"""
-    from mochi_server.agent.llm_agent import MAX_REPLY_CHARS
+    from mochi_server.agent.llm_agent import DEFAULT_MAX_REPLY_CHARS
 
-    long_text = "喵" * (MAX_REPLY_CHARS + 80)
+    long_text = "喵" * (DEFAULT_MAX_REPLY_CHARS + 80)
     agent, _ = _agent([[AIMessageChunk(content=long_text)]])
     events = await _run(agent)
 
     deltas = "".join(p.delta for t, p in events if t == "text.delta")
     end = next(p for t, p in events if t == "text.end")
-    assert len(deltas) == MAX_REPLY_CHARS + 1  # 截断正文 + 「…」
+    assert len(deltas) == DEFAULT_MAX_REPLY_CHARS + 1  # 截断正文 + 「…」
     assert deltas.endswith("…")
     assert deltas == end.full_text
     assert not end.full_text.startswith("…")  # 截断的是尾部而非头部
@@ -530,9 +534,9 @@ async def test_long_reply_truncated_to_max_chars() -> None:
 @pytest.mark.asyncio
 async def test_reply_cap_keeps_trailing_cue() -> None:
     """cue 路径：正文超限截断，但尾部动作标记照常解析出 character.cue。"""
-    from mochi_server.agent.llm_agent import MAX_REPLY_CHARS
+    from mochi_server.agent.llm_agent import DEFAULT_MAX_REPLY_CHARS
 
-    payload = "字" * (MAX_REPLY_CHARS + 50) + "[[cue:nod]]"
+    payload = "字" * (DEFAULT_MAX_REPLY_CHARS + 50) + "[[cue:nod]]"
     agent, _ = _agent([[AIMessageChunk(content=payload)]])
     # 测试默认 cue_enabled=False；这里显式开启走 cue 解析路径
     model = ScriptedChatModel(calls=[[AIMessageChunk(content=payload)]])
@@ -545,7 +549,7 @@ async def test_reply_cap_keeps_trailing_cue() -> None:
     end = next(p for t, p in events if t == "text.end")
     assert end.full_text.endswith("…")
     assert "[[cue" not in end.full_text  # 标记不进气泡/落盘
-    assert len(end.full_text) <= MAX_REPLY_CHARS + 1
+    assert len(end.full_text) <= DEFAULT_MAX_REPLY_CHARS + 1
 
 
 @pytest.mark.asyncio

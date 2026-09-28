@@ -7,7 +7,8 @@
  * 分组：
  * - 通用（SettingsGeneralSection）：界面语言；
  * - 模型（SettingsModelSection）：provider 管理（列表/新增/编辑/测试/默认/删除）；
- * - 角色（PersonaSection）：人格灵魂/性格/说话风格选择与自定义（6.13）；
+ * - 角色（PersonaSection + SettingsAgentSection）：人格选择与自定义（6.13）、
+ *   回复长度上限（2026-09-28）；
  * - 语音（SettingsVoiceSection）：TTS 启用/静音/音色/音量/语速/试听（M1-S2，5.1）；
  * - 隐私（SettingsPlaceholder）：敬请期待。
  *
@@ -16,6 +17,7 @@
 import { useState } from "react";
 import { useI18n } from "../i18n";
 import { PersonaSection } from "./PersonaSection";
+import { SettingsAgentSection } from "./SettingsAgentSection";
 import { SettingsGeneralSection } from "./SettingsGeneralSection";
 import { SettingsModelSection } from "./SettingsModelSection";
 import { SettingsPlaceholder } from "./SettingsPlaceholder";
@@ -74,7 +76,12 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
           <div className="settings__content">
             {tab === "general" ? <SettingsGeneralSection /> : null}
             {tab === "model" ? <SettingsModelSection /> : null}
-            {tab === "character" ? <PersonaSection /> : null}
+            {tab === "character" ? (
+              <>
+                <PersonaSection />
+                <SettingsAgentSection />
+              </>
+            ) : null}
             {tab === "voice" ? <SettingsVoiceSection /> : null}
             {tab === "privacy" ? <SettingsPlaceholder /> : null}
           </div>

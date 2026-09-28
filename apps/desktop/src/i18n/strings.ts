@@ -176,6 +176,11 @@ const zhCN: StringTable = {
   "history.messagesEmpty": "这段对话还没有消息",
   "history.deleteConfirm": "删除这段对话？",
 
+  // 认知行为（2026-09-28：回复长度上限）
+  "agent.maxReplyChars": "单次回复上限（字符）",
+  "agent.maxReplyCharsHint": "超限的回复会被截断并以「…」结尾，50–4000；下一回合生效。",
+  "agent.maxReplyCharsInvalid": "请输入 50–4000 之间的整数",
+
   // 衣橱（M1-S1：换肤/导入/删除）
   "skins.title": "Mochi 的衣橱",
   "skins.user": "用户",
@@ -406,6 +411,12 @@ const en: StringTable = {
   "history.empty": "No chats yet — go talk to Mochi!",
   "history.messagesEmpty": "No messages in this conversation",
   "history.deleteConfirm": "Delete this conversation?",
+
+  // Agent behavior (2026-09-28: reply length cap)
+  "agent.maxReplyChars": "Max reply length (chars)",
+  "agent.maxReplyCharsHint":
+    "Longer replies get truncated with an ellipsis, 50–4000; applies from the next turn.",
+  "agent.maxReplyCharsInvalid": "Enter an integer between 50 and 4000",
 
   // Wardrobe (M1-S1: switch/import/delete)
   "skins.title": "Mochi's Wardrobe",

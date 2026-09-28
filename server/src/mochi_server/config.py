@@ -146,6 +146,10 @@ class AgentConfig(BaseModel):
     # 注意力引擎（M-D）：auto → 接收 companion.signal 并按门控主动开口；
     # off（默认）→ 信号直接忽略，行为与 M-C 结束点一致（主动陪伴 opt-in，克制默认）
     attention: Literal["auto", "off"] = "off"
+    # 单回合回复文本上限（字符数，2026-09-28 用户可配）：桌宠气泡/TTS 的阅读
+    # 尺度决定长回复没有价值；超限截断 + system prompt 同步告知模型。
+    # 下限 50 防误填过小（回不出完整句子），上限 4000 防失控长回复
+    max_reply_chars: int = Field(default=200, ge=50, le=4000)
 
 
 class AttentionConfig(BaseModel):

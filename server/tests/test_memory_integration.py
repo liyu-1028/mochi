@@ -19,6 +19,7 @@ from fakes import ScriptedChatModel, make_test_adapter
 from langchain_core.messages import AIMessageChunk
 
 from mochi_server.agent import LLMAgentService
+from mochi_server.agent.llm_agent import reply_length_requirement
 from mochi_server.agent.service import AgentContext
 from mochi_server.memory import MemoryManager
 from mochi_server.store import SessionStore
@@ -126,7 +127,8 @@ async def test_no_memory_no_injection(store: SessionStore, mm: MemoryManager):
     await _collect_events(agent, _ctx(text="你好"))
 
     system_content = model.received[0][0].content
-    assert system_content == "你是助手"
+    # 回复长度硬性要求后缀恒在（reply_length_requirement），记忆段落则不注入
+    assert system_content == "你是助手" + reply_length_requirement(200)
 
 
 @pytest.mark.asyncio
@@ -181,7 +183,8 @@ async def test_no_memory_manager_no_injection(store: SessionStore):
     await _collect_events(agent, _ctx(text="你好"))
 
     system_content = model.received[0][0].content
-    assert system_content == "你是助手"
+    # 回复长度硬性要求后缀恒在（reply_length_requirement），记忆段落则不注入
+    assert system_content == "你是助手" + reply_length_requirement(200)
 
 
 # ---------------------------------------------------------------------------

@@ -327,10 +327,10 @@ async def test_mixed_success_and_failure_tools() -> None:
 async def test_massive_fragmented_streaming_chunks() -> None:
     """压力场景：1,000 个单字符 chunk 极速涌入，验证流式分拣吞吐与截断拼接一致性。
 
-    回复长度封顶（MAX_REPLY_CHARS=200，2026-09-28）：超限文本增量不再放行，
+    回复长度封顶（DEFAULT_MAX_REPLY_CHARS=200，2026-09-28）：超限文本增量不再放行，
     以「…」收尾——delta 合计与 text.end.full_text 仍严格一致。
     """
-    from mochi_server.agent.llm_agent import MAX_REPLY_CHARS
+    from mochi_server.agent.llm_agent import DEFAULT_MAX_REPLY_CHARS
 
     text_content = "中" * 1000
     chunks = [AIMessageChunk(content=ch) for ch in text_content]
@@ -341,10 +341,10 @@ async def test_massive_fragmented_streaming_chunks() -> None:
     events = [(t, p) async for t, p in agent.run(ctx)]
 
     delta_events = [p for t, p in events if t == "text.delta"]
-    assert len(delta_events) == MAX_REPLY_CHARS + 1  # 截断正文 + 「…」
+    assert len(delta_events) == DEFAULT_MAX_REPLY_CHARS + 1  # 截断正文 + 「…」
 
     text_end = next(p for t, p in events if t == "text.end")
-    assert text_end.full_text == "中" * MAX_REPLY_CHARS + "…"
+    assert text_end.full_text == "中" * DEFAULT_MAX_REPLY_CHARS + "…"
     # 拼接一致性：delta 合计 == full_text
     assert "".join(e.delta for e in delta_events) == text_end.full_text
 

@@ -118,6 +118,28 @@ def _voice_view(config: AppConfig) -> dict:
     return VoiceView.model_validate(config.voice.model_dump()).model_dump(by_alias=True)
 
 
+class AgentUpdate(CamelModel):
+    """[agent] 部分更新：仅传入需变更字段（当前开放 maxReplyChars；
+
+    emotion/cues/attention 为枚举开关，暂无 UI，仍可经 PUT 全量视图后续开放）。
+    """
+
+    max_reply_chars: int | None = Field(default=None, ge=50, le=4000)
+
+
+class AgentView(CamelModel):
+    """[agent] 当前值视图（camelCase 响应）。"""
+
+    emotion: str
+    cues: str
+    attention: str
+    max_reply_chars: int
+
+
+def _agent_view(config: AppConfig) -> dict:
+    return AgentView.model_validate(config.agent.model_dump()).model_dump(by_alias=True)
+
+
 class GeneralView(CamelModel):
     """[general] 当前值视图（camelCase 响应；2.6 省电模式增补）。"""
 
@@ -464,6 +486,30 @@ async def update_voice(body: VoiceUpdate, request: Request) -> dict:
         new_config.voice.tts_enabled,
     )
     return _voice_view(new_config)
+
+
+@router.get("/agent")
+async def get_agent(request: Request) -> dict:
+    """[agent] 当前值（认知行为：情绪/表演节拍/注意力/回复长度上限）。"""
+    registry = _registry(request)
+    return _agent_view(registry.config)
+
+
+@router.put("/agent")
+async def update_agent(body: AgentUpdate, request: Request) -> dict:
+    """更新 [agent]：pydantic 校验 → 原子落盘 → 返回最新视图。
+
+    max_reply_chars 下一回合生效（agent 按 registry 版本号重建，与模型切换同机制）。
+    """
+    registry = _registry(request)
+
+    def mutate(config: AppConfig) -> None:
+        if body.max_reply_chars is not None:
+            config.agent.max_reply_chars = body.max_reply_chars
+
+    new_config = _apply(registry, _config_path(request), mutate)
+    logger.info("更新认知行为设置：max_reply_chars=%s", new_config.agent.max_reply_chars)
+    return _agent_view(new_config)
 
 
 @router.get("/persona")
