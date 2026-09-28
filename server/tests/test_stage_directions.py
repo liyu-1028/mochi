@@ -37,12 +37,12 @@ def test_map_direction_longest_first() -> None:
 
 
 def test_map_direction_g1_envelope_actions() -> None:
-    """G1（L1 包络扩容）：嘟嘴/大笑/扸捏/警觉/犯困点头。"""
+    """G1（L1 包络扩容）：嘟嘴/大笑/扭捏/警觉/犯困点头。"""
     assert map_direction("嘟起嘴") == ("body", "pout")
     assert map_direction("不满地嘟嘴") == ("body", "pout")
     assert map_direction("哈哈大笑") == ("body", "laugh")
     assert map_direction("笑弯了腰") == ("body", "laugh")
-    assert map_direction("害羞地扸捏") == ("body", "shy_shake")
+    assert map_direction("害羞地扭捏") == ("body", "shy_shake")
     assert map_direction("突然警觉") == ("body", "alert")
     assert map_direction("打起精神") == ("body", "alert")
     assert map_direction("听得犯困点头") == ("body", "doze")
