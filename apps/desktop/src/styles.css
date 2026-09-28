@@ -38,6 +38,9 @@ body {
   padding: 8px;
   position: relative; /* 让 .chat-toggle 可以相对窗口绝对定位 */
   margin: auto; /* 浏览器降级时整个小部件页面居中 */
+  /* 桌宠小部件不存在「页面级滚动」：任何内容超窗（长回复/工具条）都在
+     各自容器内部滚动（气泡 .bubble__body / 代码块），窗口永不出现滚动条 */
+  overflow: hidden;
 }
 
 /* ---- 角色舞台（占满垂直空间；气泡在角色图层之上侧向贴头，见 .bubbles） ---- */
@@ -201,6 +204,24 @@ body {
   box-shadow: 0 2px 8px rgba(74, 63, 68, 0.12);
   color: var(--ink);
   animation: bubble-enter 0.25s ease-out;
+}
+
+/* 最新回复正文高度封顶（2026-09-28）：长回复在气泡内部滚动，绝不撑破
+   窗口（配套服务端单回合回复截断 MAX_REPLY_CHARS=200，超出部分不再产生）。
+   :not(.bubble--prev) 避开上一条的折叠/展开样式（各自已有封顶语义） */
+.bubble:not(.bubble--prev) .bubble__body {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+/* 气泡内滚的细滚动条（与浅色气泡底协调，不抢视觉） */
+.bubble__body::-webkit-scrollbar {
+  width: 4px;
+}
+
+.bubble__body::-webkit-scrollbar-thumb {
+  background: rgba(74, 63, 68, 0.2);
+  border-radius: 2px;
 }
 
 /* 阅读超时后整栈隐藏（区域级状态，见 SpeechBubbleArea）；新回复到来或

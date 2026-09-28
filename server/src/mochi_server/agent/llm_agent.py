@@ -77,6 +77,23 @@ _TOOL_NUDGE = (
 #: 后置情绪强度（2.5）：非中性情绪统一 0.75（显著但不过火）
 _EMOTION_INTENSITY = 0.75
 
+#: 单回合回复文本上限（字符数，cue 清洗后正文，不含动作标记）：桌宠气泡与
+#: TTS 的阅读尺度决定了长回复没有价值（气泡内滚 + 朗读拖沓）；超限文本
+#: 丢弃、以「…」收尾。配套前端气泡正文最大高度（styles.css .bubble__body）。
+#: cue 标记不受影响——解析器照常喂入，尾部动作标记照常触发。
+MAX_REPLY_CHARS = 200
+
+
+def _capped_slice(emitted: int, delta: str) -> str:
+    """回复长度封顶的纯函数：返回本次允许放行的文本（可能为切片或空串）。
+
+    ``emitted`` 为已放行字符数；返回值长度 ≤ ``MAX_REPLY_CHARS - emitted``。
+    调用方以「返回长度 < len(delta)」判定发生了截断。
+    """
+    if emitted >= MAX_REPLY_CHARS:
+        return ""
+    return delta[: MAX_REPLY_CHARS - emitted]
+
 
 @dataclass
 class _PendingConfirm:
@@ -194,6 +211,9 @@ class LLMAgentService(AgentService):
         thinking_closed = False
         text_started = False
         parts: list[str] = []
+        # 回复长度封顶（MAX_REPLY_CHARS）：emitted=已放行字符数，truncated=是否丢弃过文本
+        emitted_chars = 0
+        reply_truncated = False
         cue_source = "proactive" if proactive else "reply"
         cue_parser = (
             CueStreamParser(ctx.run_id, message_id, source=cue_source)
@@ -280,32 +300,43 @@ class LLMAgentService(AgentService):
                                         text_started = True
                                     yield event_type, event_payload
                             if cue_parser is None:
-                                # cue 路径关闭：原始增量直发（M-B 行为，零变更）
-                                parts.append(delta)
-                                yield (
-                                    "text.delta",
-                                    TextDeltaData(
-                                        run_id=ctx.run_id,
-                                        message_id=message_id,
-                                        delta=delta,
-                                        source=ctx.source,
-                                    ),
-                                )
+                                # cue 路径关闭：原始增量直发（M-B 行为，长度封顶）
+                                piece = _capped_slice(emitted_chars, delta)
+                                emitted_chars += len(piece)
+                                reply_truncated = reply_truncated or len(piece) < len(delta)
+                                if piece:
+                                    parts.append(piece)
+                                    yield (
+                                        "text.delta",
+                                        TextDeltaData(
+                                            run_id=ctx.run_id,
+                                            message_id=message_id,
+                                            delta=piece,
+                                            source=ctx.source,
+                                        ),
+                                    )
                             else:
                                 # cue 路径（M-C）：增量经标记解析器清洗——
-                                # 文本增量只含清洗后文本（标记不进气泡/TTS/落盘）
+                                # 文本增量只含清洗后文本（标记不进气泡/TTS/落盘）；
+                                # 长度封顶只丢文本，cue 输出不受影响
                                 for out in cue_parser.feed(delta):
                                     if out.kind == "text":
-                                        parts.append(out.text)
-                                        yield (
-                                            "text.delta",
-                                            TextDeltaData(
-                                                run_id=ctx.run_id,
-                                                message_id=message_id,
-                                                delta=out.text,
-                                                source=ctx.source,
-                                            ),
+                                        piece = _capped_slice(emitted_chars, out.text)
+                                        emitted_chars += len(piece)
+                                        reply_truncated = reply_truncated or len(piece) < len(
+                                            out.text
                                         )
+                                        if piece:
+                                            parts.append(piece)
+                                            yield (
+                                                "text.delta",
+                                                TextDeltaData(
+                                                    run_id=ctx.run_id,
+                                                    message_id=message_id,
+                                                    delta=piece,
+                                                    source=ctx.source,
+                                                ),
+                                            )
                                     else:
                                         cue_emitted = True
                                         yield "character.cue", out.cue
@@ -340,21 +371,38 @@ class LLMAgentService(AgentService):
         if cue_parser is not None:
             for out in cue_parser.flush():
                 if out.kind == "text":
-                    parts.append(out.text)
-                    yield (
-                        "text.delta",
-                        TextDeltaData(
-                            run_id=ctx.run_id,
-                            message_id=message_id,
-                            delta=out.text,
-                            source=ctx.source,
-                        ),
-                    )
+                    piece = _capped_slice(emitted_chars, out.text)
+                    emitted_chars += len(piece)
+                    reply_truncated = reply_truncated or len(piece) < len(out.text)
+                    if piece:
+                        parts.append(piece)
+                        yield (
+                            "text.delta",
+                            TextDeltaData(
+                                run_id=ctx.run_id,
+                                message_id=message_id,
+                                delta=piece,
+                                source=ctx.source,
+                            ),
+                        )
                 else:
                     cue_emitted = True
                     yield "character.cue", out.cue
             if cue_parser.dropped:
                 logger.info("character.cue 丢弃计数：run_id=%s %s", ctx.run_id, cue_parser.dropped)
+
+        # 长度封顶收尾：发生过截断 → 以「…」收尾（气泡/TTS/落盘一致）
+        if reply_truncated:
+            parts.append("…")
+            yield (
+                "text.delta",
+                TextDeltaData(
+                    run_id=ctx.run_id,
+                    message_id=message_id,
+                    delta="…",
+                    source=ctx.source,
+                ),
+            )
 
         full_text = "".join(parts)
         # 落盘本轮（4.3）：仅完整回合入库，取消/出错不落盘；

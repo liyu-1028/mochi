@@ -74,8 +74,10 @@ class EchoAgentService(AgentService):
         if proactive:
             reply = "我是 Mochi 的 echo 桩（主动模式）：链路已打通，稍后由真实模型来关心你。"
         else:
+            # 引用的用户输入截断（60 字）：回显超长输入同样会撑破气泡（2026-09-28）
+            quoted = ctx.text if len(ctx.text) <= 60 else ctx.text[:60] + "…"
             reply = (
-                f"收到你的消息：「{ctx.text}」。"
+                f"收到你的消息：「{quoted}」。"
                 "我是 Mochi 的 echo 桩模型，端到端链路已打通，真实模型将在 S2 接入。"
             )
         yield "text.start", TextStartData(run_id=ctx.run_id, message_id=message_id)

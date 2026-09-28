@@ -493,3 +493,65 @@ async def test_stale_confirm_rejected() -> None:
     """无匹配挂起（过期/伪造确认）：返回 False 不崩溃。"""
     agent, _ = _agent([[AIMessageChunk(content="好")]])
     assert await agent.confirm("r-1", "tc-x", "allow") is False
+
+
+# ---------------------------------------------------------------------------
+# 回复长度封顶（2026-09-28）：单回合正文超 MAX_REPLY_CHARS 截断，cue 不受影响
+# ---------------------------------------------------------------------------
+
+
+def test_capped_slice_pure_function() -> None:
+    """纯函数：放行切片不超上限；到顶后恒空串。"""
+    from mochi_server.agent.llm_agent import MAX_REPLY_CHARS, _capped_slice
+
+    assert _capped_slice(0, "你好") == "你好"
+    assert _capped_slice(MAX_REPLY_CHARS - 2, "你好呀") == "你好"
+    assert _capped_slice(MAX_REPLY_CHARS, "任何文本") == ""
+    assert _capped_slice(MAX_REPLY_CHARS + 10, "x") == ""
+
+
+@pytest.mark.asyncio
+async def test_long_reply_truncated_to_max_chars() -> None:
+    """超限正文：text.delta 合计 = 上限 + 「…」= full_text（气泡/TTS/落盘一致）。"""
+    from mochi_server.agent.llm_agent import MAX_REPLY_CHARS
+
+    long_text = "喵" * (MAX_REPLY_CHARS + 80)
+    agent, _ = _agent([[AIMessageChunk(content=long_text)]])
+    events = await _run(agent)
+
+    deltas = "".join(p.delta for t, p in events if t == "text.delta")
+    end = next(p for t, p in events if t == "text.end")
+    assert len(deltas) == MAX_REPLY_CHARS + 1  # 截断正文 + 「…」
+    assert deltas.endswith("…")
+    assert deltas == end.full_text
+    assert not end.full_text.startswith("…")  # 截断的是尾部而非头部
+
+
+@pytest.mark.asyncio
+async def test_reply_cap_keeps_trailing_cue() -> None:
+    """cue 路径：正文超限截断，但尾部动作标记照常解析出 character.cue。"""
+    from mochi_server.agent.llm_agent import MAX_REPLY_CHARS
+
+    payload = "字" * (MAX_REPLY_CHARS + 50) + "[[cue:nod]]"
+    agent, _ = _agent([[AIMessageChunk(content=payload)]])
+    # 测试默认 cue_enabled=False；这里显式开启走 cue 解析路径
+    model = ScriptedChatModel(calls=[[AIMessageChunk(content=payload)]])
+    agent = LLMAgentService(make_test_adapter(model), cue_enabled=True)
+    events = [(t, p) async for t, p in agent.run(_ctx())]
+
+    cues = [p for t, p in events if t == "character.cue"]
+    assert len(cues) == 1
+    assert cues[0].channels.body.action_id == "nod"
+    end = next(p for t, p in events if t == "text.end")
+    assert end.full_text.endswith("…")
+    assert "[[cue" not in end.full_text  # 标记不进气泡/落盘
+    assert len(end.full_text) <= MAX_REPLY_CHARS + 1
+
+
+@pytest.mark.asyncio
+async def test_reply_under_cap_untouched() -> None:
+    """未超限回复零影响：无「…」追加，全文原样。"""
+    agent, _ = _agent([[AIMessageChunk(content="你好，我是 Mochi")]])
+    events = await _run(agent)
+    end = next(p for t, p in events if t == "text.end")
+    assert end.full_text == "你好，我是 Mochi"
