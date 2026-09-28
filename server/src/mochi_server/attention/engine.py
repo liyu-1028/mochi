@@ -176,7 +176,7 @@ class AttentionEngine:
         if not decision.allowed:
             if decision.reason in _RETRYABLE_REASONS:
                 # 到得太早（run 进行中/静默窗/勿扰/输入中）：挂起等自然停顿点
-                self._park(intent, now, retry=True)
+                self._park(intent, now, retry=True, reason=decision.reason)
                 return []
             logger.info(
                 "意图被抑制：%s kind=%s 原因=%s", intent.intent_id, intent.kind, decision.reason
@@ -189,11 +189,19 @@ class AttentionEngine:
             return []
         return self._deliver(intent)
 
-    def _park(self, intent: Intent, now: int, *, retry: bool) -> None:
+    def _park(self, intent: Intent, now: int, *, retry: bool, reason: str = "") -> None:
         """挂起意图到自然停顿点（可重试抑制）；带上挂起期限防陈旧。"""
         deadline = now + _PARK_MAX_MS
         if intent.expires_at is not None:
             deadline = min(deadline, intent.expires_at)
+        logger.info(
+            "意图挂起等自然停顿点：%s kind=%s 原因=%s 重试=%sms 期限=%s",
+            intent.intent_id,
+            intent.kind,
+            reason or "-",
+            _PARK_RETRY_MS,
+            deadline,
+        )
         self._pending.append(
             PendingIntent(
                 intent,
