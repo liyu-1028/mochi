@@ -75,6 +75,11 @@ SEMANTIC_ACTIONS = (
     "surprised",
     "stretch",
     "doze",
+    "wink",  # 舞台指示解析（M-F）新增：参数包络实现，无需模型自带 motion
+    "pout",  # G1（L1 包络扩容）：嘟嘴——参数包络实现
+    "laugh",  # G1：大笑——参数包络实现
+    "shy_shake",  # G1：扭捏（左右小摇+脸红）——参数包络实现
+    "alert",  # G1：警觉（猛抬头+睁眼）——参数包络实现
 )
 
 # 动作通道（调研报告 §8.3）；M-A 仅 face/body/effect 可执行，其余预留

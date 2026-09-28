@@ -236,6 +236,13 @@ export const SEMANTIC_ACTIONS = [
   "surprised",
   "stretch",
   "doze",
+  // wink（眨眼）：舞台指示解析（M-F）新增——参数包络实现，无需模型自带 motion
+  "wink",
+  // G1（L1 包络扩容）：嘟嘴/大笑/扭捏/警觉——均参数包络实现，任何 Cubism 模型可演
+  "pout",
+  "laugh",
+  "shy_shake",
+  "alert",
 ] as const;
 export type SemanticActionId = (typeof SEMANTIC_ACTIONS)[number];
 

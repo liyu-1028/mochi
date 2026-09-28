@@ -11,7 +11,12 @@
     "comfort",
     "surprised",
     "stretch",
-    "doze"
+    "doze",
+    "wink",
+    "pout",
+    "laugh",
+    "shy_shake",
+    "alert"
   ],
   "actionChannels": ["face", "body", "locomotion", "voice", "effect"]
 }
