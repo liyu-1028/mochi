@@ -81,7 +81,13 @@ export const devHook: {
   lastPlayMotion: { group: string; at: number } | null;
   /** M-C：最近提交到 director 的 reply 节拍（端到端实测断言用） */
   lastReplyCue: { actionId: string; channel: string; at: number } | null;
-} = { lastPlayMotion: null, lastReplyCue: null };
+  /** M-D：命中判定探针（GUI 实测定位可点击点；随构建刷新实现） */
+  hitTest: (x: number, y: number) => boolean;
+} = {
+  lastPlayMotion: null,
+  lastReplyCue: null,
+  hitTest: () => false,
+};
 import {
   resolveAnimation,
   EMOTION_PRESETS,
@@ -260,6 +266,8 @@ export function CharacterStage({
   useEffect(() => {
     if (import.meta.env.DEV) {
       (window as unknown as { __mochiDirector?: typeof devHook }).__mochiDirector = devHook;
+      // M-D：命中判定探针绑定当前构建的实现（掩码就绪后自动生效）
+      devHook.hitTest = (x: number, y: number) => hitTestRef.current(x, y);
       // M-C 调度器快照（端到端实测排查用）
       (window as unknown as { __mochiCueDebug?: () => unknown }).__mochiCueDebug = () => ({
         pending: cueSchedulerRef.current.pending.map((p) => p.cue.cueId),
@@ -785,11 +793,12 @@ export function CharacterStage({
       const plan = staticPlanRef.current;
 
       // Action Director 推进（M-B）：结算 one-shot 到期/出队；
-      // 表演节拍（M-C）：到期的 reply cue 提交 director
+      // 表演节拍（M-C）：到期的 reply cue 提交 director（观测钩子与 live2d 对称）
       const nowMs = Date.now();
       tickDirector(directorRef.current, directorCtxRef.current, nowMs);
       for (const c of dueReplyCues(cueSchedulerRef.current, nowMs, cueConvertRef.current)) {
         submitCue(directorRef.current, c, directorCtxRef.current, nowMs);
+        devHook.lastReplyCue = { actionId: c.actionId, channel: c.channel, at: nowMs };
       }
 
       if (!plan?.sleeping && !plan?.error) {

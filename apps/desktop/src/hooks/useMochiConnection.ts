@@ -132,6 +132,12 @@ export function useMochiConnection(url: string) {
   // focus 连续活跃超阈触发休息提醒 ask）
   useAttentionSignals(sendSignal);
 
+  // DEV 观测/驱动钩子（M-D GUI 实测用，沿用 __mochiDirector 先例）：
+  // 信号必须走前端自身连接（事件只回给提交方连接），测试经此注入
+  if (import.meta.env.DEV) {
+    (window as unknown as Record<string, unknown>).__mochiConn = { sendSignal, respondIntent };
+  }
+
   return { sendText, cancelRun, interruptRun, confirmTool, respondIntent, sendSignal };
 }
 
