@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   ACTION_CHANNELS,
+  ACTION_LABELS,
   COMMAND_TYPES,
   CUE_INTERRUPT_POLICIES,
   CUE_SOURCES,
@@ -34,6 +35,7 @@ const fixturePath = fileURLToPath(new URL("../testdata/semantic-actions.json", i
 interface Fixture {
   semanticActions: string[];
   actionChannels: string[];
+  actionLabels?: Record<string, string>;
 }
 
 const fixture = JSON.parse(readFileSync(fixturePath, "utf-8")) as Fixture;
@@ -52,6 +54,12 @@ describe("语义动作注册表（协议规范 §11）", () => {
     for (const id of SEMANTIC_ACTIONS) {
       expect(id).toMatch(/^[a-z][a-z0-9_]*$/);
     }
+  });
+
+  it("ACTION_LABELS 与共享夹具逐项一致（G2）；键集与词表相同", () => {
+    expect(fixture.actionLabels).toBeTruthy();
+    expect({ ...ACTION_LABELS }).toEqual(fixture.actionLabels);
+    expect(Object.keys(ACTION_LABELS).sort()).toEqual([...SEMANTIC_ACTIONS].sort());
   });
 });
 

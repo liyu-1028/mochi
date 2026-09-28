@@ -177,6 +177,17 @@ def test_action_channels_match_fixture() -> None:
     assert list(ACTION_CHANNELS) == fixture["actionChannels"]
 
 
+def test_action_labels_match_fixture() -> None:
+    """ACTION_LABELS 与共享夹具逐项一致（G2）；键集必须与词表相同。"""
+    from mochi_server.events import ACTION_LABELS
+
+    fixture = _load_semantic_fixture()
+    labels = fixture.get("actionLabels", {})
+    assert labels, "golden 夹具缺少 actionLabels"
+    assert dict(ACTION_LABELS) == labels
+    assert set(ACTION_LABELS) == set(SEMANTIC_ACTIONS)
+
+
 def test_semantic_actions_constraints() -> None:
     """词表约束：idle_neutral 必在（全链路兜底终点）、id 均为 snake_case。"""
     assert "idle_neutral" in SEMANTIC_ACTIONS

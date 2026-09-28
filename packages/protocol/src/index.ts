@@ -246,6 +246,31 @@ export const SEMANTIC_ACTIONS = [
 ] as const;
 export type SemanticActionId = (typeof SEMANTIC_ACTIONS)[number];
 
+/**
+ * 动作展示名（G2）：提示词能力注入与日志的统一中文名。
+ * Record 全量约束：新增词表项必须同时补 label（漏译编译报错）。
+ * 双端镜像：server/src/mochi_server/events.py；golden：testdata/semantic-actions.json。
+ */
+export const ACTION_LABELS: Record<SemanticActionId, string> = {
+  idle_neutral: "平静",
+  look_around: "东张西望",
+  think: "沉思",
+  listen: "竖耳听",
+  wave: "挥手",
+  nod: "点头",
+  shake_head: "摇头",
+  celebrate: "欢呼鼓掌",
+  comfort: "拍拍安慰",
+  surprised: "吓一跳",
+  stretch: "伸懒腰",
+  doze: "打哈欠犯困",
+  wink: "眨眨眼",
+  pout: "嘟嘴",
+  laugh: "大笑",
+  shy_shake: "扭捏",
+  alert: "警觉精神",
+};
+
 /** 动作通道（调研报告 §8.3）；M-A 仅 face/body/effect 可执行，其余预留 */
 export const ACTION_CHANNELS = ["face", "body", "locomotion", "voice", "effect"] as const;
 export type ActionChannel = (typeof ACTION_CHANNELS)[number];
