@@ -161,6 +161,47 @@ LLM 选择，除非 `agentSelectable: true`——白名单铁律在服务端 cue
 - `skin_id` 表单覆盖时清单 id 改写为与目录名一致（注册表按清单 id 登记）；
 - 错误一律可读文案（422/409），前端直接展示。
 
+## 动作扩展包（G4：给已导入的皮肤追加 motion 动作）
+
+免重新打包整个皮肤，直接向**用户导入的皮肤**追加原创 `motion3.json`
+动作（动作扩展方案 M-G 的 L3 层）：`POST /skins/import-motion-pack`
+（zip 内含 `pack.json`，根或单层子目录，与 skin.json 同惯例）。
+
+```json
+{
+  "targetSkin": "live2d-hiyori",
+  "name": "hiyori-extra-motions",
+  "license": "CC0（原创动作，作者：…）",
+  "motions": [{ "group": "MochiWave", "file": "motions/wave.motion3.json" }],
+  "actions": [
+    {
+      "id": "wave_hand",
+      "channels": ["body"],
+      "agentSelectable": true,
+      "live2d": { "motionGroups": ["MochiWave"] }
+    }
+  ]
+}
+```
+
+校验与合并规则：
+
+- **仅用户皮肤可扩展**（内置皮肤不可写）；`targetSkin` 不存在即 422；
+- **授权红线**：`license` 必填，登记进皮肤 `credits`（键
+  `motionPack:<name>`）；动作须为原创资产，不得转载官方/第三方动作；
+- motion3.json 结构校验（Cubism 3）：`Version: 3`、`Meta.Duration > 0`、
+  `Curves[].Target === "Parameter"`、`Id` 非空、`Segments` 段类型标记合法
+  （0/1/2/3）且曲线末点 ≤ Duration。与仓库脚本同口径：
+  `node scripts/validate-motion3.mjs <file...>`（资产仓库 CI 用）；
+- 组名 / 动作 id 冲突一律 **409 拒绝**（不静默覆盖）；`actions[].live2d.`
+  `motionGroups` 引用的组必须在包内声明（包络-only 动作除外）；
+- 合并前备份原 `model3.json` / `skin.json`（`*.orig.json`，仅首次保留
+  原始状态，可回滚）；合并 `FileReferences.Motions`（新组各挂一条
+  `{File}`）、`capabilities.motionGroups` 追加、`actions` 合并；
+- zip 大小/条目/zip-slip 防护与皮肤包导入同一套；
+- 前端：目标是当前装扮时经 `EVENT_SKIN_CHANGED` 热更；motion 组集合
+  变化触发舞台重建后即可播新动作，无需重启。
+
 ## 制作建议
 
 - 角色主体尽量占满画布、脚底贴下边（布局按包围盒底边对齐）；
