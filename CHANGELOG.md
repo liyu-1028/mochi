@@ -5,6 +5,74 @@
 > release.yml 发布时自动提取对应段落作为 GitHub Release Notes，
 > 缺少条目会在构建前拦截（先写 changelog 再打 tag）。
 
+## Unreleased
+
+L1 参数包络扩容 + 参数发现 + 包络下沉（G1，动作扩展方案 M-G）：任何 Cubism 模型
+可演的动作从 1 个增至 6 个
+
+**新增**
+
+- 语义动作词表新增 `pout`（嘟嘴）/`laugh`（大笑）/`shy_shake`（扸捏）/
+  `alert`（警觉）：TS/Python 协议同提交 + golden 夹具同步；均参数包络实现，
+  任何 Cubism 模型可演（缺参数模型逐参数静默跳过）
+- 内置包络表（`BODY_ACTION_ENVELOPES`）新增 5 项：pout/laugh/shy_shake/alert
+  - doze 升级（打哈欠/犯困点头：嘴大张 + 眼阖 + 头下垂，此前无诚实实现直接降级）
+- 服务端舞台指示关键词字典扩容：嘟嘴/大笑/扸捏/警觉等 17 词 + 犯困点头/瞌睡；
+  cue 提示词动作词指导同步
+- 参数发现（Phase A）：模型加载后 dump 全部参数 id（`driver.dumpParamIds()`，
+  best-effort），`ModelProfile.paramIds` 随档案携带；包络首次播放时打点
+  「模型缺失参数，逐参数跳过」日志（可观测降级）
+
+**变更**
+
+- 包络执行从 CharacterStage 帧循环下沉到 driver（`applyAction` 统一入口：
+  motion / 皮肤声明包络 / 内置兑底），组件层回归纯调度；face 之后的
+  最优先叠写顺序保持不变
+- `DEFAULT_LIVE2D_ACTIONS` / `reflexRules.DEFAULTS` 同步 5 项基线
+  （含各自真实动作组偏好声明：有则播真 motion，无则包络兑底）
+
+声明式参数包络（G3，动作扩展方案 M-G）：皮肤作者免 Live2D Editor 自定义动作
+
+**新增**
+
+- skin.json v3 字段：`actions[].live2d.paramEnvelope`（参数关键帧包络声明）
+  与 `actions[].durationMs`（占位窗口）。服务端 pydantic 强校验（时长范围、
+  关键帧点列严格递增/首末点约束、值域 ±10000、参数 id pattern、包络内参数
+  唯一），422 可读文案；详见 `docs/specs/skin-manifest-format.md` v3 节
+- 前端包络解释器（`live2d/paramEnvelope.ts`）：声明 → 编译为逐帧求值函数，
+  linear/smoothstep 逐段插值；对运行时数据防御性容错（畸形声明返回 null，
+  回落内置兑底，不阻塞渲染循环）
+- 播放优先级：motionGroups 命中 > 皮肤 paramEnvelope > 内置包络兑底（wink）；
+  参数缺失的模型运行时静默跳过该参数，包络声明不参与动作命中判定
+
+**变更**
+
+- `Live2dActionBinding`（TS/Python 双端）：`motionGroups` 改为可选（包络-only
+  绑定合法）；`Live2dActionPlan` 透传 `paramEnvelope`
+- `buildCue` 占位窗口：skin 条目 `durationMs` 优先（包络动作不再空占通用
+  2500ms 窗口）
+
+舞台指示驱动动作（M-F）：角色回复里的「（眨眨眼）（点头）」变成实时表演
+
+**新增**
+
+- 服务端舞台指示扫描器（`stage_directions.py`）：解析人格回复中的全角括号
+  舞台指示，经封闭关键词字典映射为白名单 `character.cue`（body/face 双通道），
+  与 `[[cue:id]]` 标记路径平行运行；能做的动作才映射，「掏申请表」类描写
+  静默忽略；cue 路径关闭时完全旁路（M-C 终点零回归）
+- 语义动作词表新增 `wink`（眨眼）：TS/Python 协议同提交 + golden 夹具同步；
+  无需模型自带 motion——前端新增 body 通道参数包络兑底（`BODY_ACTION_ENVELOPES`，
+  皮肤声明的 motion/expression 实现优先），任何 Cubism 模型都能演出
+- TTS 前端剥离全角舞台指示（借鉴 Open-LLM-VTuber `tts_filter`）：
+  「（眨眨眼）」保留气泡展示、不再被读出来；服务端分句计数同步括号感知，
+  `sentenceIndex` 与剥离后文本对齐，句对齐节拍不漂移
+- cue 路径提示词同步指导模型使用可识别的动作词（眨眨眼/点头/耷拉/脸红…）
+
+**变更**
+
+- `DEFAULT_LIVE2D_ACTIONS` / `reflexRules.DEFAULTS` 增加 `wink` 基线
+  （priority 50 / cooldown 2.5s / 包络时长 700ms）
+
 ## v0.13.0 - 2026-09-28
 
 静态皮肤类型下线（只保留 Live2D 及未来动态类型）+ 回复长度约束专项
