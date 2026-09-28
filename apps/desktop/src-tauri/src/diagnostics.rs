@@ -98,7 +98,7 @@ pub fn build_diagnostic_zip(data_dir: &std::path::Path, app_version: &str) -> Re
     }
 
     // 4) 日志：数据目录 *.log 逐个脱敏
-    if let Ok(entries) = fs::read_dir(&data_dir) {
+    if let Ok(entries) = fs::read_dir(data_dir) {
         for entry in entries.flatten() {
             let p = entry.path();
             if p.extension().and_then(|e| e.to_str()) == Some("log") {
