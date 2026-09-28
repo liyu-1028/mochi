@@ -96,6 +96,7 @@ class CueStreamParser:
         self._hold = ""  # 疑似标记前缀缓存（尚未决策）
         self._sentences_done = 0  # 已完成分句边界数
         self._pending_tail = ""  # 上一段文本末尾的终止符串（跨增量折叠，未确认完成）
+        self._paren_depth = 0  # 全角括号深度（跨增量；括号内终止符不计入分句，M-F）
         self._emitted_any_text = False
         self._cue_count = 0
         # 丢弃计数（验收：越权/未知丢弃可在日志观测）
@@ -169,6 +170,11 @@ class CueStreamParser:
         末尾终止符串（如"你好！"的"！"）在本段内无法确认句子是否完成——
         下一增量可能仍是终止符（"！！"折叠）或正文（确认完成）。故暂存为
         pending_tail，与下一段文本拼接后重算：正文到达即确认前段边界。
+
+        括号感知（M-F）：全角括号（...）内的终止符不计入分句——舞台指示
+        （...）会被前端从 TTS 文本中剥离，sentenceIndex 必须与剥离后的
+        TTS 文本对齐，否则句对齐节拍会漂移（与 stage_directions 扫描器
+        同一口径）。括号深度跨增量保持。
         """
         if not text:
             return []
@@ -176,18 +182,16 @@ class CueStreamParser:
         if not self._emitted_any_text:
             # 首段：开头连续终止符折叠为 0 个边界（无前置句子）
             merged = merged.lstrip("".join(sorted(_SENTENCE_TERMINATORS)))
-        tail = self._trailing_boundary_run(merged)
-        self._sentences_done += _count_boundaries(merged, tail)
+        # 末尾连续终止符串（跨增量折叠，未确认完成）
+        i = len(merged)
+        while i > 0 and merged[i - 1] in _SENTENCE_TERMINATORS:
+            i -= 1
+        body, tail = merged[:i], merged[i:]
+        self._sentences_done += _count_boundaries(body, self._paren_depth)
+        self._paren_depth = _paren_depth_after(body, self._paren_depth)
         self._pending_tail = tail
         self._emitted_any_text = True
         return [ParserOutput(kind="text", text=text)]
-
-    def _trailing_boundary_run(self, text: str) -> str:
-        """返回 text 末尾的连续终止符串（跨增量折叠边界用；无则空串）。"""
-        i = len(text)
-        while i > 0 and text[i - 1] in _SENTENCE_TERMINATORS:
-            i -= 1
-        return text[i:]
 
     def _take_tag(self, raw_id: str) -> list[ParserOutput]:
         """白名单校验 + 构造 cue；越权/未知丢弃计数（不产文本）。"""
@@ -249,19 +253,39 @@ def _looks_like_tag_start(fragment: str) -> bool:
     return _ATTEMPT_LITERAL.startswith(f) or f.startswith(_ATTEMPT_LITERAL)
 
 
-def _count_boundaries(text: str, exclude_tail: str) -> int:
-    """统计 text 中的分句边界数；末尾连续终止符不算完成（跨增量折叠）。"""
-    body = text[: len(text) - len(exclude_tail)] if exclude_tail else text
+def _count_boundaries(text: str, start_depth: int = 0) -> int:
+    """统计 text 中的分句边界数；末尾连续终止符不算完成（跨增量折叠）。
+
+    M-F：全角括号（...）内的终止符不计入（舞台指示会被从 TTS 文本剥离）。
+    """
     count = 0
+    depth = start_depth
     prev_boundary = False
-    for ch in body:
-        if ch in _SENTENCE_TERMINATORS:
-            if not prev_boundary:
+    for ch in text:
+        if ch == "（":
+            depth += 1
+            prev_boundary = False
+        elif ch == "）":
+            depth = max(0, depth - 1)
+            prev_boundary = False
+        elif ch in _SENTENCE_TERMINATORS:
+            if depth == 0 and not prev_boundary:
                 count += 1
             prev_boundary = True
         else:
             prev_boundary = False
     return count
+
+
+def _paren_depth_after(text: str, start_depth: int) -> int:
+    """返回 text 扫描后的括号深度（跨增量保持；嵌套按深度累加）。"""
+    depth = start_depth
+    for ch in text:
+        if ch == "（":
+            depth += 1
+        elif ch == ")":
+            depth = max(0, depth - 1)
+    return depth
 
 
 def cue_prompt_section() -> str:
@@ -274,5 +298,11 @@ def cue_prompt_section() -> str:
         f"- 动作标记：[[cue:id]]，id 可选：{body_ids}\n"
         f"- 表情标记：[[cue:emotion]]，emotion 可选：{face_ids}\n"
         "用法约束：整个回复至多 2~3 个标记；标记放在它所描述的句子开头；"
-        "不要连续使用、不要解释标记、不要把标记放进引用或列表。"
+        "不要连续使用、不要解释标记、不要把标记放进引用或列表。\n"
+        "\n你也会用括号写舞台指示（如（眨眨眼）（点点头）），它们会同步触发"
+        "角色动作；为获得最佳效果，请优先使用这些能被识别的动作词："
+        "眨眨眼、点头、摇头、挥手、鼓掌/庆祝、拍拍安慰、吓了一跳、"
+        "东张西望、沉思、伸懒腰、打哈欠/犯困、竖起耳朵、"
+        "嘟嘴、大笑、扸捏、警觉/打起精神；表情：微笑、耷拉、"
+        "脸红、歪头、惊讶、生气。"
     )

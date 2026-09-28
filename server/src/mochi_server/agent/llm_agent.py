@@ -62,6 +62,7 @@ from .emotion import classify_reply_emotion
 from .errors import AgentError
 from .react_graph import build_react_graph, is_llm_chunk
 from .service import AgentContext, AgentEvent, AgentService
+from .stage_directions import StageDirectionScanner
 from .tools import ToolPolicy, ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -237,6 +238,13 @@ class LLMAgentService(AgentService):
             if self._cue_enabled
             else None
         )
+        # 舞台指示扫描器（M-F）：与标记解析器平行运行，吃同一清洗流，
+        # 把「（眨眨眼）」式描写转成 character.cue（文本零改动）
+        direction_scanner = (
+            StageDirectionScanner(ctx.run_id, message_id, source=cue_source)
+            if cue_parser is not None
+            else None
+        )
         cue_emitted = False  # 本 run 已发 reply cue → 与迟到 emotion 分类互斥
 
         graph = build_react_graph(
@@ -354,6 +362,10 @@ class LLMAgentService(AgentService):
                                                     source=ctx.source,
                                                 ),
                                             )
+                                            if direction_scanner is not None:
+                                                for cue in direction_scanner.feed(piece):
+                                                    cue_emitted = True
+                                                    yield "character.cue", cue
                                     else:
                                         cue_emitted = True
                                         yield "character.cue", out.cue
@@ -407,6 +419,16 @@ class LLMAgentService(AgentService):
                     yield "character.cue", out.cue
             if cue_parser.dropped:
                 logger.info("character.cue 丢弃计数：run_id=%s %s", ctx.run_id, cue_parser.dropped)
+            if direction_scanner is not None:
+                if direction_scanner.dropped:
+                    logger.info(
+                        "舞台指示丢弃计数：run_id=%s %s",
+                        ctx.run_id,
+                        direction_scanner.dropped,
+                    )
+                for cue in direction_scanner.flush():
+                    cue_emitted = True
+                    yield "character.cue", cue
 
         # 长度封顶收尾：发生过截断 → 以「…」收尾（气泡/TTS/落盘一致）
         if reply_truncated:

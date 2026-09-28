@@ -160,6 +160,25 @@ def test_cue_cap_per_reply() -> None:
     assert p.dropped.get("cap_reached") == 4
 
 
+def test_stage_direction_inside_parens_does_not_count_boundary() -> None:
+    """M-F：全角括号内终止符不计入分句（与 TTS 剥离口径一致）。"""
+    p = CueStreamParser("r", "m")
+    # 指示内的「！」不产生边界；标记仍在第 2 句开头
+    outs = p.feed("第一句。（好笑！）[[cue:nod]]第二句")
+    cues = _cues(outs)
+    assert len(cues) == 1
+    assert cues[0].sentence_index == 2
+    assert _texts(outs) == "第一句。（好笑！）第二句"  # 括号文本原样保留
+
+
+def test_paren_depth_across_chunks() -> None:
+    p = CueStreamParser("r", "m")
+    outs = p.feed("你好（跨")
+    outs += p.feed("chunk！）后续。[[cue:wink]]末句")
+    cues = _cues(outs)
+    assert [c.sentence_index for c in cues] == [2]
+
+
 def test_consecutive_terminators_count_once() -> None:
     p = CueStreamParser("r", "m")
     outs = p.feed("好！！[[cue:happy]]真的吗？！")
