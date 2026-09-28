@@ -210,7 +210,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("runtime.json"), r#"{"port": 8199}"#).unwrap();
-        fs::write(dir.join("config.toml"), "active_skin = \"pikachu\"\n").unwrap();
+        fs::write(dir.join("config.toml"), "active_skin = \"live2d-hiyori\"\n").unwrap();
         fs::write(dir.join("mochi-server.log"), "error: key sk-abcdef123456 leaked").unwrap();
         fs::write(dir.join("mochi.db"), "x".repeat(1024)).unwrap();
 

@@ -5,6 +5,21 @@
 > release.yml 发布时自动提取对应段落作为 GitHub Release Notes，
 > 缺少条目会在构建前拦截（先写 changelog 再打 tag）。
 
+## Unreleased
+
+**破坏性变更：静态皮肤类型下线**
+
+- 角色装扮只保留 Live2D（及未来扩展的动态类型）：内置三只静态皮肤
+  （pikachu / eevee / snorlax）与 PNG「图片即皮肤」导入一并移除，
+  应用不再打包任何静态装扮
+- 皮肤导入仅接受 zip Live2D 皮肤包；`skin.json` 清单 `resourceType`
+  仅接受 `"live2d"`，static 清单导入时给出「已下线」可读文案
+- 升级影响：此前把静态皮肤设为当前装扮的用户，升级后回到未设置状态
+  （导入 Live2D 皮肤包即可恢复）；历史配置值 `active_skin = "default"`
+  不再解析到任何皮肤
+- 动作幅度包络、闲置小动作等静态渲染链路（actionEnvelopes /
+  idleBehaviors / staticDriver 等）随类型一并移除
+
 ## v0.12.0 - 2026-09-11
 
 细节交互与便携分发专项：思考动作可见化、Windows 便携版 zip
