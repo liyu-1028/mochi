@@ -29,6 +29,7 @@ export function SkinsPanel({ onClose, onSkinActivated }: SkinsPanelProps) {
   const [activeSkinId, setActiveSkinId] = useState("");
   const [switching, setSwitching] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
+  const [importingPack, setImportingPack] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // 删除两步确认（内联，与 HistoryPanel 同模式；Tauri webview 不依赖 JS 对话框）
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -80,6 +81,28 @@ export function SkinsPanel({ onClose, onSkinActivated }: SkinsPanelProps) {
       setError(err instanceof Error ? err.message : t("skins.errorSave"));
     } finally {
       setImporting(false);
+    }
+  }
+
+  async function handleImportPack(e: ChangeEvent<HTMLInputElement>) {
+    // 动作扩展包（G4）：给已导入的皮肤追加 motion 动作；不换装。
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setImportingPack(true);
+    setError(null);
+    try {
+      const updated = await skinsApi.importMotionPack(file);
+      setSkins((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+      // 目标是当前装扮：通知主窗口重新拉列表（新 motion 组须重建舞台才可演）
+      if (updated.id === activeSkinId) {
+        if (IS_TAURI) await emit(EVENT_SKIN_CHANGED, updated.id);
+        else onSkinActivated?.(updated.id);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("skins.errorSave"));
+    } finally {
+      setImportingPack(false);
     }
   }
 
@@ -192,6 +215,16 @@ export function SkinsPanel({ onClose, onSkinActivated }: SkinsPanelProps) {
               hidden
               disabled={importing}
               onChange={(e) => void handleImport(e)}
+            />
+          </label>
+          <label className="btn btn--ghost">
+            {importingPack ? t("skins.importingPack") : t("skins.importPack")}
+            <input
+              type="file"
+              accept=".zip"
+              hidden
+              disabled={importingPack}
+              onChange={(e) => void handleImportPack(e)}
             />
           </label>
         </div>

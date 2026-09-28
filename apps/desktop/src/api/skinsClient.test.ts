@@ -41,6 +41,20 @@ describe("skinsApi", () => {
     expect((init.body as FormData).get("file")).toBe(file);
   });
 
+  it("importMotionPack POST /skins/import-motion-pack 走 FormData", async () => {
+    const fetchMock = mockFetch({ id: "live2d-hiyori", source: "user", actions: [] });
+    const file = new File([new Uint8Array([1])], "pack.zip", { type: "application/zip" });
+    const result = await skinsApi.importMotionPack(file);
+    expect(result.id).toBe("live2d-hiyori");
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://127.0.0.1:8199/skins/import-motion-pack");
+    expect(init.method).toBe("POST");
+    expect(init.body).toBeInstanceOf(FormData);
+    expect(init.headers).toBeUndefined();
+    expect((init.body as FormData).get("file")).toBe(file);
+  });
+
   it("deleteSkin DELETE 带编码", async () => {
     mockFetch(undefined, 204);
     await expect(skinsApi.deleteSkin("a b")).resolves.toBeUndefined();

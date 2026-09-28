@@ -106,6 +106,17 @@ export const skinsApi = {
     return request("/skins/import", { method: "POST", body: formData, headers: undefined });
   },
 
+  /** 导入动作扩展包（G4）：给已导入的皮肤追加动作；不设 Content-Type 由浏览器定 boundary。 */
+  importMotionPack: (file: File): Promise<SkinSummary> => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return request("/skins/import-motion-pack", {
+      method: "POST",
+      body: formData,
+      headers: undefined,
+    });
+  },
+
   deleteSkin: (id: string): Promise<void> =>
     request(`/skins/${encodeURIComponent(id)}`, { method: "DELETE" }),
 };

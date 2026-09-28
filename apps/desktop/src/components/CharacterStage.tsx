@@ -414,7 +414,15 @@ export function CharacterStage({
       if (stageRef.current) previousStageRef.current = stageRef.current;
       stageRef.current = null;
     };
-  }, [skin?.id, skin?.resourceBaseUrl, skin?.modelFile, onModelReady, onFallback]);
+  }, [
+    skin?.id,
+    skin?.resourceBaseUrl,
+    skin?.modelFile,
+    // 动作扩展包导入（G4）：motion 组集合变化须重建舞台才能播新组
+    skin?.capabilities?.motionGroups?.join(","),
+    onModelReady,
+    onFallback,
+  ]);
 
   // 彻底卸载：残留舞台一并销毁
   useEffect(
@@ -475,7 +483,13 @@ export function CharacterStage({
       window.clearInterval(refreshTimer);
       maskRef.current = null; // 换肤/卸载：旧轮廓作废，判定退回旧行为直到新掩码就绪
     };
-  }, [ready, skin?.id, skin?.resourceBaseUrl, skin?.modelFile]);
+  }, [
+    ready,
+    skin?.id,
+    skin?.resourceBaseUrl,
+    skin?.modelFile,
+    skin?.capabilities?.motionGroups?.join(","),
+  ]);
 
   // 状态机：(有效状态, 情绪) → 动画计划；
   // 性能护栏（2.6）掩码：降档后改写 tickerFps + 关装饰动画，档位变化时重放。
