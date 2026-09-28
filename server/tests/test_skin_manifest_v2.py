@@ -154,3 +154,133 @@ def test_live2d_action_binding() -> None:
     assert isinstance(action.live2d, Live2dActionBinding)
     assert action.live2d.motion_groups == ["Tap", "Idle"]
     assert action.live2d.expression == "happy"
+
+
+# ---------------------------------------------------------------------------
+# v3：声明式参数包络（paramEnvelope）与动作时长（durationMs）—— G3
+# ---------------------------------------------------------------------------
+
+
+def _envelope(**overrides) -> dict:
+    payload = {
+        "durationMs": 700,
+        "keyframes": [{"param": "ParamEyeLOpen", "points": [[0, 1], [350, 0], [700, 1]]}],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_v3_param_envelope_valid() -> None:
+    """合法包络：camelCase alias 双向兼容，easing 缺省 linear。"""
+    binding = Live2dActionBinding.model_validate({"paramEnvelope": _envelope()})
+    env = binding.param_envelope
+    assert env is not None
+    assert env.duration_ms == 700
+    assert env.easing == "linear"
+    assert env.keyframes[0].param == "ParamEyeLOpen"
+
+
+def test_v3_param_envelope_snake_case_also_accepted() -> None:
+    binding = Live2dActionBinding.model_validate(
+        {
+            "param_envelope": {
+                "duration_ms": 500,
+                "keyframes": [{"param": "ParamEyeLOpen", "points": [[0, 1], [500, 1]]}],
+            }
+        }
+    )
+    assert binding.param_envelope is not None
+    assert binding.param_envelope.duration_ms == 500
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"durationMs": 0},  # 时长非正
+        {"durationMs": 10_001},  # 超上限
+        {"durationMs": 700, "easing": "bounce"},  # 非法 easing
+        {"durationMs": 700, "keyframes": []},  # 空 keyframes
+        {
+            "durationMs": 700,
+            "keyframes": [{"param": "P", "points": [[0, 1]]}],
+        },  # 点数不足
+        {
+            "durationMs": 700,
+            "keyframes": [{"param": "P", "points": [[100, 1], [700, 1]]}],
+        },  # 首点不为 0
+        {
+            "durationMs": 700,
+            "keyframes": [{"param": "P", "points": [[0, 1], [0, 1]]}],
+        },  # 时间戳非严格递增
+        {
+            "durationMs": 700,
+            "keyframes": [{"param": "P", "points": [[0, 99_999], [700, 1]]}],
+        },  # 值超安全范围
+        {
+            "durationMs": 700,
+            "keyframes": [{"param": "1bad", "points": [[0, 1], [700, 1]]}],
+        },  # 参数 id 非法
+        {
+            "durationMs": 700,
+            "keyframes": [
+                {"param": "P", "points": [[0, 1], [700, 1]]},
+                {"param": "P", "points": [[0, 0], [700, 0]]},
+            ],
+        },  # 参数重复
+        {
+            "durationMs": 500,
+            "keyframes": [{"param": "P", "points": [[0, 1], [700, 1]]}],
+        },  # 末点 ≠ durationMs
+    ],
+)
+def test_v3_param_envelope_rejected(overrides: dict) -> None:
+    with pytest.raises(ValidationError):
+        Live2dActionBinding.model_validate({"paramEnvelope": _envelope(**overrides)})
+
+
+def test_v3_action_with_envelope_only_binding_and_duration() -> None:
+    """包络-only 绑定 + 顶层 durationMs：完整的 v3 动作声明。"""
+    action = SkinAction.model_validate(
+        {
+            "id": "custom_wink",
+            "channels": ["body"],
+            "agentSelectable": True,
+            "durationMs": 700,
+            "live2d": {"paramEnvelope": _envelope()},
+        }
+    )
+    assert action.duration_ms == 700
+    assert action.live2d.param_envelope is not None
+    assert action.live2d.motion_groups == []
+
+
+def test_v3_duration_ms_bounds() -> None:
+    for bad in (0, -5, 10_001):
+        with pytest.raises(ValidationError):
+            SkinAction.model_validate(
+                {
+                    "id": "a",
+                    "durationMs": bad,
+                    "live2d": {"motionGroups": ["Tap"]},
+                }
+            )
+
+
+def test_v3_envelope_action_in_manifest_roundtrip() -> None:
+    """清单级：v3 动作在完整 manifest 中通过校验且 by_alias dump 保留 camelCase。"""
+    manifest = _manifest(
+        [
+            SkinAction.model_validate(
+                {
+                    "id": "custom_wink",
+                    "channels": ["body"],
+                    "durationMs": 700,
+                    "live2d": {"paramEnvelope": _envelope()},
+                }
+            )
+        ]
+    )
+    dumped = manifest.model_dump(by_alias=True, exclude_none=True)
+    entry = dumped["actions"][0]
+    assert entry["durationMs"] == 700
+    assert entry["live2d"]["paramEnvelope"]["durationMs"] == 700

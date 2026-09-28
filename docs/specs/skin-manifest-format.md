@@ -1,4 +1,4 @@
-# skin.json 清单规范 v2（功能清单 3.1）
+# skin.json 清单规范（v2 基线；v3 增 paramEnvelope/durationMs，G3）
 
 > 状态：v2（M-A：新增 `actions` 语义动作注册表）；v1（2026-08-06，M1-S1）
 > **2026-09-28：`static`（单张图片）资源类型下线移除**——产品决策只保留
@@ -35,7 +35,7 @@
 | `actions`       | SkinAction[] | 默认空（v2）   | 语义动作注册表，见下节；缺字段 = v1 行为，完全向后兼容                       |
 | `credits`       | object       | 默认空         | 致谢（`model` 等自由键）                                                     |
 
-### `actions` 语义动作注册表（v2，M-A）
+### `actions` 语义动作注册表（v2，M-A；v3 增补 G3）
 
 皮肤声明自己支持的语义动作与实现绑定；前端 ActionRegistry 据此解析，未实现的沿
 `fallback` 链降级到 `idle_neutral`（全链路兜底终点，协议规范 §11）。动作 id 从
@@ -53,6 +53,71 @@ LLM 选择，除非 `agentSelectable: true`——白名单铁律在服务端 cue
 | `cooldownMs`      | int ≥0                   | 0         | 动作冷却                                                                             |
 | `agentSelectable` | bool                     | **false** | 白名单铁律：仅 true 可被 LLM 选择                                                    |
 | `fallback`        | string                   | null      | 降级目标：同清单其他动作 id 或语义词表内动作；`idle_neutral` 自身不得声明 fallback   |
+| `durationMs`      | int 1–10000              | null      | **v3**：动作占位窗口（ms）；缺省用前端默认窗口                                       |
+
+`live2d` 绑定字段：
+
+| 字段            | 类型     | 默认 | 说明                                                         |
+| --------------- | -------- | ---- | ------------------------------------------------------------ |
+| `motionGroups`  | string[] | `[]` | 偏好有序；取首个模型实际拥有的组                             |
+| `expression`    | string   | null | 模型档案含此 exp3 时叠加表情                                 |
+| `paramEnvelope` | object   | null | **v3**：声明式参数包络（见下节）；声明后任何 Cubism 模型可演 |
+
+#### `live2d.paramEnvelope` 声明式参数包络（v3，G3）
+
+皮肤作者免 Live2D Editor，用参数关键帧定义动作；前端逐帧插值应用到模型。
+播放优先级：`motionGroups` 命中 > `paramEnvelope` > 内置兜底（`actionRegistry`
+默认映射的参数包络，如 wink）；畸形声明前端静默回落内置兜底，绝不阻塞渲染。
+
+```json
+{
+  "id": "custom_wink",
+  "channels": ["body"],
+  "agentSelectable": true,
+  "durationMs": 700,
+  "live2d": {
+    "paramEnvelope": {
+      "durationMs": 700,
+      "easing": "smoothstep",
+      "keyframes": [
+        {
+          "param": "ParamEyeLOpen",
+          "points": [
+            [0, 1],
+            [350, 0],
+            [700, 1]
+          ]
+        },
+        {
+          "param": "ParamMouthForm",
+          "points": [
+            [0, 0],
+            [200, 0.6],
+            [700, 0]
+          ]
+        }
+      ]
+    }
+  }
+}
+```
+
+| 字段                 | 类型                 | 默认     | 说明                                                       |
+| -------------------- | -------------------- | -------- | ---------------------------------------------------------- |
+| `durationMs`         | int 1–10000          | ✅       | 包络总时长（ms）                                           |
+| `easing`             | `linear\|smoothstep` | `linear` | 段内插值缓动（逐段应用）                                   |
+| `keyframes`          | object[]             | ✅ ≥1 项 | 单参数关键帧：`{param, points}`                            |
+| `keyframes[].param`  | string               | ✅       | Cubism 参数 id：`^[A-Za-z][A-Za-z0-9_]{0,63}$`，包络内唯一 |
+| `keyframes[].points` | `[t, value][]`       | ✅ ≥2 点 | `t` 为 ms 且严格递增、首点 t=0、末点 t=`durationMs`        |
+
+约束（服务端强校验，422 可读文案）：
+
+- 末点时间必须等于 `durationMs`；关键帧时间戳严格递增；
+- 值域 ±10000（防数值爆炸；真实物理范围由前端按模型钳制）；
+- 参数缺失的模型运行时静默跳过该参数（`getParameterIndex < 0`），
+  因此包络声明不参与「动作命中判定」——仅声明包络也视为可演；
+- 播放端不信任运行时数据：前端 `compileParamEnvelope` 对畸形声明防御性
+  返回 null 并回落内置兜底（服务端校验是第一道门，这是第二道）。
 
 约束（服务端校验，422 可读文案）：
 

@@ -31,6 +31,66 @@ ACTION_ID_PATTERN = r"^[a-z][a-z0-9_]{0,47}$"
 
 ActionKind = Literal["oneshot", "loop"]
 InterruptPolicy = Literal["replace", "queue", "ignore"]
+EnvelopeEasing = Literal["linear", "smoothstep"]
+
+# 包络时长上限（ms）：微动作，超过视为配置错误
+ENVELOPE_DURATION_MAX_MS = 10_000
+# 包络关键帧值安全范围：物理范围由前端按模型钳制，清单层只防数值爆炸
+ENVELOPE_VALUE_LIMIT = 10_000
+# Cubism 参数 id：字母/下划线开头，可含数字（如 ParamEyeLOpen、ParamMouthForm）
+ENVELOPE_PARAM_PATTERN = r"^[A-Za-z][A-Za-z0-9_]{0,63}$"
+
+
+class EnvelopeKeyframe(BaseModel):
+    """单参数关键帧：points 为 [t(ms), value] 点列（manifest v3，G3）。"""
+
+    param: str = Field(..., pattern=ENVELOPE_PARAM_PATTERN)
+    points: list[tuple[int, float]]
+
+    model_config = {"populate_by_name": True}
+
+    @model_validator(mode="after")
+    def _validate_points(self) -> EnvelopeKeyframe:
+        if len(self.points) < 2:
+            raise ValueError(
+                f"包络参数 {self.param} 至少需要 2 个关键帧点（收到 {len(self.points)}）"
+            )
+        prev_t = -1
+        for t, _v in self.points:
+            if t <= prev_t:
+                raise ValueError(f"包络参数 {self.param} 的时间戳必须严格递增：{prev_t} -> {t}")
+            prev_t = t
+        if self.points[0][0] != 0:
+            raise ValueError(f"包络参数 {self.param} 首点时间必须为 0（收到 {self.points[0][0]}）")
+        for _t, v in self.points:
+            if abs(v) > ENVELOPE_VALUE_LIMIT:
+                raise ValueError(
+                    f"包络参数 {self.param} 值超出安全范围 ±{ENVELOPE_VALUE_LIMIT}：{v}"
+                )
+        return self
+
+
+class ParamEnvelope(BaseModel):
+    """声明式参数包络（manifest v3，G3）：皮肤作者免 Editor 自定义动作。"""
+
+    duration_ms: int = Field(..., gt=0, le=ENVELOPE_DURATION_MAX_MS, alias="durationMs")
+    easing: EnvelopeEasing = "linear"
+    keyframes: list[EnvelopeKeyframe] = Field(..., min_length=1)
+
+    model_config = {"populate_by_name": True}
+
+    @model_validator(mode="after")
+    def _validate_keyframes(self) -> ParamEnvelope:
+        if self.keyframes[0].points[-1][0] != self.duration_ms:
+            raise ValueError(
+                "包络末点时间必须等于 durationMs："
+                f"{self.keyframes[0].param} 末点 {self.keyframes[0].points[-1][0]} ≠ {self.duration_ms}"
+            )
+        params = [k.param for k in self.keyframes]
+        duplicates = sorted({p for p in params if params.count(p) > 1})
+        if duplicates:
+            raise ValueError(f"包络参数重复：{', '.join(duplicates)}")
+        return self
 
 
 class SkinCapabilities(BaseModel):
@@ -43,10 +103,16 @@ class SkinCapabilities(BaseModel):
 
 
 class Live2dActionBinding(BaseModel):
-    """语义动作的 Live2D 实现绑定（motionGroups 按偏好取首个模型实际拥有的）。"""
+    """语义动作的 Live2D 实现绑定。
+
+    v2：motionGroups / expression；v3（G3）：paramEnvelope 声明式包络。
+    motionGroups 是否真实存在于模型由前端加载时判；paramEnvelope 由此处
+    强校验（时长/点列/值域）。
+    """
 
     motion_groups: list[str] = Field(default_factory=list, alias="motionGroups")
     expression: str | None = None
+    param_envelope: ParamEnvelope | None = Field(default=None, alias="paramEnvelope")
 
     model_config = {"populate_by_name": True}
 
@@ -68,6 +134,10 @@ class SkinAction(BaseModel):
     agent_selectable: bool = Field(default=False, alias="agentSelectable")
     # 降级链：指向同清单其他动作或语义词表（SEMANTIC_ACTIONS）内的内置安全动作
     fallback: str | None = Field(default=None, pattern=ACTION_ID_PATTERN)
+    # 动作时长（ms，v3/G3）：占位窗口（Live2D 动作位），缺省用前端默认值
+    duration_ms: int | None = Field(
+        default=None, ge=1, le=ENVELOPE_DURATION_MAX_MS, alias="durationMs"
+    )
 
     model_config = {"populate_by_name": True}
 
