@@ -113,11 +113,13 @@ function publishStats(avgFrameMs: number | null, framesLastSecond: number, level
   };
 }
 
-/** 皮肤清单 → Live2D 能力档案（模型实际拥有的动作组/表情，状态机据此挑选）。 */
-export function profileForSkin(skin: SkinSummary): ModelProfile {
+/** 皮肤清单 → Live2D 能力档案（模型实际拥有的动作组/表情，状态机据此挑选）。
+ *  paramIds（G1 Phase A）：模型加载后 dump 的参数 id 集，供包络能力核对/日志。 */
+export function profileForSkin(skin: SkinSummary, paramIds: readonly string[] = []): ModelProfile {
   return {
     motionGroups: skin.capabilities?.motionGroups ?? [],
     expressions: skin.capabilities?.expressions ?? [],
+    paramIds,
   };
 }
 
@@ -233,6 +235,8 @@ export function CharacterStage({
   skinRef.current = skin;
   /** body 通道已启动处理的 cueId（幂等去重，Live2D P0 修复） */
   const bodyHandledRef = useRef<string | null>(null);
+  /** 参数发现（G1 Phase A）：模型加载后 dump 的参数 id 集，供包络能力核对 */
+  const paramIdsRef = useRef<string[]>([]);
 
   // 每渲染同步 director 上下文（帧闭包读 ref，不重建）
   directorCtxRef.current = {
@@ -375,6 +379,12 @@ export function CharacterStage({
         }
         stageRef.current = loaded;
         driverRef.current = createDriver(loaded);
+        // 参数发现（G1 Phase A）：加载后 dump 一次，供包络能力核对与日志
+        paramIdsRef.current = driverRef.current.dumpParamIds();
+        console.info(
+          `[mochi] model-params ${paramIdsRef.current.length} 个参数可探测` +
+            (paramIdsRef.current.length === 0 ? "（dump 不可用，能力核对降级）" : ""),
+        );
         // 新舞台就绪才销毁旧舞台：换肤全程有画面（ADR-0006 D10）
         if (previousStageRef.current) {
           disposeStage(previousStageRef.current);
@@ -561,12 +571,24 @@ export function CharacterStage({
       const bodyAction = activeOn(directorRef.current, "body");
       if (bodyAction !== null && bodyHandledRef.current !== bodyAction.cue.cueId && skinNow) {
         bodyHandledRef.current = bodyAction.cue.cueId;
-        const actionPlan = resolveAction(bodyAction.cue.actionId, skinNow, profileForSkin(skinNow));
+        const actionPlan = resolveAction(
+          bodyAction.cue.actionId,
+          skinNow,
+          profileForSkin(skinNow, paramIdsRef.current),
+        );
+        // G1：包络执行下沉 driver（motion/声明包络/内置兑底统一入口），组件层纯调度
+        driver.applyAction(
+          {
+            requestedId: actionPlan.requestedId,
+            motionGroup: actionPlan.motionGroup,
+            paramEnvelope: actionPlan.paramEnvelope,
+          },
+          {
+            startedAtMs: bodyAction.startedAt,
+            priority: bodyAction.cue.priority >= 80 ? "force" : "normal",
+          },
+        );
         if (actionPlan.motionGroup) {
-          driver.playMotion(
-            actionPlan.motionGroup,
-            bodyAction.cue.priority >= 80 ? "force" : "normal",
-          );
           devHook.lastPlayMotion = { group: actionPlan.motionGroup, at: nowMs };
         }
       }
@@ -603,6 +625,9 @@ export function CharacterStage({
           for (const [id, v] of Object.entries(preset)) driver.setParam(id, v);
         }
       }
+
+      // body 参数包络逐帧应用已下沉 driver（G1，见 driver.applyAction；
+      // 包络叠在 face 表情与状态机预设之后（最优先）的顺序在 driver 内保持）
 
       // 分区点击反应（2.4）：摸头=眼笑+嘴角+头偏包络；戳身体=衰减摆动。
       // 包络归零后自然停止（不再下发参数，回落状态机计划）。

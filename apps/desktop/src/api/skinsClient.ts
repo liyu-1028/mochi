@@ -10,10 +10,29 @@ import { resolveHttpBaseUrl } from "./configClient";
 export type ResourceTypeId = "live2d";
 export type SkinSource = "builtin" | "user";
 
-/** 语义动作实现绑定（skin.json v2，M-A；服务端只验结构，motionGroups 真实性加载时判）。 */
+/** 包络关键帧点：[t(ms), value]（skin.json v3，G3）。 */
+export type ParamEnvelopePoint = readonly [number, number];
+
+/** 单参数关键帧。 */
+export interface ParamEnvelopeKeyframe {
+  param: string;
+  points: readonly ParamEnvelopePoint[];
+}
+
+/** 声明式参数包络（skin.json v3，G3）：皮肤作者免 Editor 自定义动作。 */
+export interface ParamEnvelopeBinding {
+  durationMs: number;
+  easing?: "linear" | "smoothstep";
+  keyframes: readonly ParamEnvelopeKeyframe[];
+}
+
+/** 语义动作实现绑定（skin.json v2，M-A；v3 增 paramEnvelope）。 */
 export interface Live2dActionBinding {
-  motionGroups: readonly string[];
+  /** 与服务端一致：缺省 = 空列表（包络-only 绑定合法） */
+  motionGroups?: readonly string[];
   expression?: string;
+  /** v3：声明式参数包络；声明后任何 Cubism 模型可演（缺参数运行时静默跳过）。 */
+  paramEnvelope?: ParamEnvelopeBinding;
 }
 
 export type ActionKind = "oneshot" | "loop";
@@ -33,6 +52,8 @@ export interface SkinAction {
   agentSelectable?: boolean;
   /** 降级链：同清单其他动作 id 或语义词表内动作 */
   fallback?: string;
+  /** 动作时长 ms（v3，G3）：占位窗口；缺省用前端默认值 */
+  durationMs?: number;
 }
 
 /** skin.json 完整清单（渲染层按需取用，缺字段给默认）。 */

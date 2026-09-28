@@ -20,6 +20,7 @@
 
 import type { SkinAction } from "../api/skinsClient";
 import type { CueSource, DirectorChannel, DirectorCue } from "./actionDirector";
+import { DOZE_DURATION_MS, WINK_DURATION_MS } from "./stateMachine";
 
 /** 连续轻戳判定窗口（ms） */
 export const TAP_WINDOW_MS = 2000;
@@ -32,8 +33,9 @@ export const LIVE2D_ACTION_MS = 2500;
 /** face 通道表情覆盖时长（ms） */
 export const FACE_OVERRIDE_MS = 2000;
 
-/** 优先级/冷却缺省（镜像 DEFAULT_LIVE2D_ACTIONS 基线；皮肤声明优先） */
-const DEFAULTS: Record<string, { priority: number; cooldownMs: number }> = {
+/** 优先级/冷却/时长缺省（镜像 DEFAULT_LIVE2D_ACTIONS 基线；皮肤声明优先）。
+ *  durationMs 缺省 = LIVE2D_ACTION_MS；参数包络类动作给实际包络时长（M-F） */
+const DEFAULTS: Record<string, { priority: number; cooldownMs: number; durationMs?: number }> = {
   idle_neutral: { priority: 10, cooldownMs: 0 },
   look_around: { priority: 20, cooldownMs: 15_000 },
   wave: { priority: 50, cooldownMs: 3000 },
@@ -43,9 +45,15 @@ const DEFAULTS: Record<string, { priority: number; cooldownMs: number }> = {
   comfort: { priority: 60, cooldownMs: 10_000 },
   surprised: { priority: 70, cooldownMs: 8000 },
   stretch: { priority: 30, cooldownMs: 20_000 },
-  doze: { priority: 20, cooldownMs: 30_000 },
+  doze: { priority: 20, cooldownMs: 30_000, durationMs: DOZE_DURATION_MS },
   think: { priority: 40, cooldownMs: 5000 },
   listen: { priority: 50, cooldownMs: 3000 },
+  wink: { priority: 50, cooldownMs: 2500, durationMs: WINK_DURATION_MS },
+  // G1（L1 包络扩容）：与 BODY_ACTION_ENVELOPES 时长对齐
+  pout: { priority: 50, cooldownMs: 2500, durationMs: 900 },
+  laugh: { priority: 60, cooldownMs: 4000, durationMs: 1200 },
+  shy_shake: { priority: 50, cooldownMs: 4000, durationMs: 1100 },
+  alert: { priority: 45, cooldownMs: 3000, durationMs: 800 },
   // face 通道表情 id 缺省：信息性覆盖，不抢系统级
   happy: { priority: 55, cooldownMs: 2000 },
   sad: { priority: 60, cooldownMs: 5000 },
@@ -73,11 +81,15 @@ export function buildCue(
     ttlMs?: number;
     /** 覆盖优先级（如「被拿起」= 用户交互级，需过高优先级守卫） */
     priority?: number;
+    /** 覆盖时长（如参数包络动作的实际包络时长，M-F） */
+    durationMs?: number;
   },
 ): DirectorCue {
   const skinEntry = opts.actions?.find((a) => a.id === actionId);
   const fallback = DEFAULTS[actionId] ?? { priority: 50, cooldownMs: 0 };
-  const durationMs = LIVE2D_ACTION_MS;
+  // v3（G3）：skin 条目 durationMs（包络/自定义动作的实际时长）> 内置兖底 > 通用窗口
+  const durationMs =
+    opts.durationMs ?? skinEntry?.durationMs ?? fallback.durationMs ?? LIVE2D_ACTION_MS;
   cueSeq += 1;
   return {
     cueId: `reflex-${opts.now}-${cueSeq}`,

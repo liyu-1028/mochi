@@ -3,7 +3,13 @@
  */
 import { describe, expect, it } from "vitest";
 import { TAP_REPEAT_COUNT, TAP_WINDOW_MS } from "./reflexRules";
-import { buildCue, isRepeatTap, toolReflexCues, type ToolReflexStatus } from "./reflexRules";
+import {
+  buildCue,
+  isRepeatTap,
+  LIVE2D_ACTION_MS,
+  toolReflexCues,
+  type ToolReflexStatus,
+} from "./reflexRules";
 import { DEFAULT_LIVE2D_ACTIONS } from "./actionRegistry";
 
 const NOW = 1_000_000;
@@ -38,6 +44,43 @@ describe("buildCue", () => {
     expect(cue.priority).toBe(77);
     expect(cue.cooldownMs).toBe(999);
     expect(cue.interruptPolicy).toBe("replace");
+  });
+
+  it("skin 条目 durationMs 作占位窗口（v3，G3）：包络动作不再空占 2500ms", () => {
+    const cue = buildCue("bounce", {
+      channel: "body",
+      source: "reflex",
+      now: NOW,
+      actions: [
+        {
+          id: "bounce",
+          live2d: {
+            paramEnvelope: {
+              durationMs: 900,
+              keyframes: [
+                {
+                  param: "P",
+                  points: [
+                    [0, 0],
+                    [900, 0],
+                  ],
+                },
+              ],
+            },
+          },
+          durationMs: 900,
+        },
+      ],
+    });
+    expect(cue.durationMs).toBe(900);
+    // 无 durationMs 声明时回退通用窗口
+    const cueDefault = buildCue("bounce", {
+      channel: "body",
+      source: "reflex",
+      now: NOW,
+      actions: [{ id: "bounce", live2d: { motionGroups: ["Tap"] } }],
+    });
+    expect(cueDefault.durationMs).toBe(LIVE2D_ACTION_MS);
   });
 
   it("face 表情 id 也有缺省优先级（信息性，不抢系统级）", () => {

@@ -18,6 +18,8 @@ export type ExpressionPlan = { kind: "file"; name: string } | { kind: "params"; 
 export interface ModelProfile {
   motionGroups: readonly string[];
   expressions: readonly string[];
+  /** 模型全部参数 id（G1 Phase A；未 dump 时为空数组——能力核对降级为跳过） */
+  paramIds?: readonly string[];
 }
 
 export interface AnimationPlan {
@@ -61,6 +63,139 @@ export const SLEEPING_PRESET: Record<string, number> = {
   ParamBrowLY: -0.3,
   ParamBrowRY: -0.3,
   ParamMouthForm: 0,
+};
+
+/**
+ * 身体动作参数包络（M-F）：无模型自带 motion 时的内置实现。
+ *
+ * 调研依据：Open-LLM-VTuber 把表情/动作绑定在模型自带资源上，而 Mochi 的
+ * 用户皮肤（如 Hiyori）往往没有专用动作文件——借鉴其 emotionMap 思路，
+ * 用 Cubism 标准参数的时间包络实现微动作，任何 Cubism 模型都能演出
+ * （driver.setParam 自动按模型实际范围钳制）。
+ *
+ * 优先级：皮肤清单声明的 motion/expression 实现 > 此表兜底
+ * （CharacterStage 先走 resolveAction，motionGroup 为空才查此表）。
+ * 返回 null = 包络已结束（one-shot 窗口内其余时间静默）。
+ */
+export interface BodyActionEnvelope {
+  durationMs: number;
+  params: (elapsedMs: number) => Record<string, number> | null;
+}
+
+/** wink（眨眨眼，M-F）：单眼闭合三角包络 + 眼角笑 + 头微偏，~700ms */
+export const WINK_DURATION_MS = 700;
+/** doze 包络时长（G1）：打哈欠/犯困点头 ~1600ms */
+export const DOZE_DURATION_MS = 1600;
+export const WINK_ENVELOPE: BodyActionEnvelope = {
+  durationMs: WINK_DURATION_MS,
+  params: (elapsedMs) => {
+    if (elapsedMs < 0 || elapsedMs >= WINK_DURATION_MS) return null;
+    const close = Math.sin((Math.PI * elapsedMs) / WINK_DURATION_MS); // 0→1→0
+    return {
+      ParamEyeLOpen: 1 - close,
+      ParamEyeRSmile: close * 0.8,
+      ParamMouthForm: 0.4 + close * 0.3,
+      ParamAngleZ: close * 4,
+      ParamBodyAngleZ: close * 2,
+    };
+  },
+};
+
+/** body 通道动作包络表（按语义动作 id 查找；wink + G1 扩容 4 项 + doze 升级） */
+export const BODY_ACTION_ENVELOPES: Record<string, BodyActionEnvelope> = {
+  wink: WINK_ENVELOPE,
+
+  // ---- G1（L1 包络扩容）：均用 Cubism 标准参数，缺参数模型运行时静默跳过 ----
+
+  /** pout（嘟嘴，G1）：嘴形收拢 + 眉微蹙 + 头微偏，~900ms */
+  pout: {
+    durationMs: 900,
+    params: (t) => {
+      if (t < 0 || t >= 900) return null;
+      const f = Math.sin((Math.PI * t) / 900); // 0→1→0
+      return {
+        ParamMouthForm: -f,
+        ParamBrowLAngle: -f * 0.35,
+        ParamBrowRAngle: -f * 0.35,
+        ParamAngleZ: f * -5,
+        ParamBodyAngleZ: f * -2,
+      };
+    },
+  },
+
+  /** laugh（大笑，G1）：眼眯 + 嘴张合两拍 + 身体前后晃，~1200ms */
+  laugh: {
+    durationMs: 1200,
+    params: (t) => {
+      if (t < 0 || t >= 1200) return null;
+      const fade = Math.sin((Math.PI * t) / 1200); // 整体包络 0→1→0
+      const beat = Math.abs(Math.sin((2 * Math.PI * t) / 600)); // 600ms 周期两拍
+      return {
+        ParamEyeLSmile: fade,
+        ParamEyeRSmile: fade,
+        ParamMouthOpenY: beat * fade,
+        ParamMouthForm: fade,
+        ParamBodyAngleY: Math.sin((2 * Math.PI * t) / 600) * 2 * fade,
+        ParamAngleZ: fade * 3,
+      };
+    },
+  },
+
+  /** shy_shake（扸捏，G1）：左右衰减摇头 + 脸颊 + 视线瞟开，~1100ms */
+  shy_shake: {
+    durationMs: 1100,
+    params: (t) => {
+      if (t < 0 || t >= 1100) return null;
+      const fade = Math.exp(-2.2 * (t / 1100)); // 衰减包络
+      const shake = Math.sin((2 * Math.PI * t) / 320); // ~320ms 周期左右摇
+      return {
+        ParamAngleX: shake * 6 * fade,
+        ParamBodyAngleX: shake * 3 * fade,
+        ParamCheek: Math.min(1, (t / 1100) * 2.5),
+        ParamEyeBallX: shake * 0.2 * fade,
+        ParamBrowLY: -0.2 * Math.min(1, (t / 1100) * 4),
+        ParamBrowRY: -0.2 * Math.min(1, (t / 1100) * 4),
+      };
+    },
+  },
+
+  /** alert（警觉，G1）：猛抬头 + 睁眼放大 + 短促停顿后回落，~800ms */
+  alert: {
+    durationMs: 800,
+    params: (t) => {
+      if (t < 0 || t >= 800) return null;
+      // 快起（前 120ms）慢落：保持段后余弦回落
+      const rise = t < 120 ? t / 120 : Math.pow(1 - (t - 120) / 680, 1.6);
+      return {
+        ParamAngleY: rise * 12,
+        ParamBodyAngleY: rise * 4,
+        ParamEyeLOpen: 1 + rise * 0.3,
+        ParamEyeROpen: 1 + rise * 0.3,
+        ParamBrowLY: rise * 0.6,
+        ParamBrowRY: rise * 0.6,
+      };
+    },
+  },
+
+  /** doze 升级（G1）：打哈欠/犯困点头——嘴大张 + 眼缓慢阖上再睁开 + 头下垂。
+   *  之前 doze 无诚实实现（无 Doze 组直接降级 idle_neutral），现为任何模型可演 */
+  doze: {
+    durationMs: DOZE_DURATION_MS,
+    params: (t) => {
+      if (t < 0 || t >= DOZE_DURATION_MS) return null;
+      const f = Math.sin((Math.PI * t) / DOZE_DURATION_MS); // 0→1→0
+      const yawn = Math.pow(f, 1.4); // 哈欠主体比包络更“憋”一点
+      return {
+        ParamMouthOpenY: yawn,
+        ParamEyeLOpen: Math.max(0, 1 - f * 1.1),
+        ParamEyeROpen: Math.max(0, 1 - f * 1.1),
+        ParamBrowLY: -f * 0.4,
+        ParamBrowRY: -f * 0.4,
+        ParamAngleY: -f * 10, // 头下垂
+        ParamBodyAngleY: -f * 3,
+      };
+    },
+  },
 };
 
 /**

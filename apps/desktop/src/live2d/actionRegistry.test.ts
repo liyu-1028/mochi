@@ -97,6 +97,84 @@ describe("Live2D 路径", () => {
   });
 });
 
+describe("声明式参数包络（v3，G3）", () => {
+  it("仅声明 paramEnvelope（无 motion/expression 命中）→ 视为可演，包络透传到计划", () => {
+    const envelope = {
+      durationMs: 700,
+      keyframes: [
+        {
+          param: "ParamEyeLOpen",
+          points: [
+            [0, 1],
+            [700, 1],
+          ] as const,
+        },
+      ],
+    };
+    const skin = live2dSkin([
+      action("wink", {
+        live2d: { motionGroups: ["Wink"], paramEnvelope: envelope },
+        agentSelectable: true,
+      }),
+    ]);
+    const plan = resolveAction("wink", skin, LIVE2D_PROFILE) as Live2dActionPlan;
+    expect(plan.motionGroup).toBeNull(); // 模型无 Wink 组
+    expect(plan.paramEnvelope).toEqual(envelope);
+  });
+
+  it("motionGroups 命中优先：包络仍随计划透传，由播放端按 motion > 包络顺序消费", () => {
+    const envelope = {
+      durationMs: 500,
+      keyframes: [
+        {
+          param: "P",
+          points: [
+            [0, 0],
+            [500, 1],
+          ] as const,
+        },
+      ],
+    };
+    const skin = live2dSkin([
+      action("wave", { live2d: { motionGroups: ["Tap"], paramEnvelope: envelope } }),
+    ]);
+    const plan = resolveAction("wave", skin, LIVE2D_PROFILE) as Live2dActionPlan;
+    expect(plan.motionGroup).toBe("Tap");
+    expect(plan.paramEnvelope).toEqual(envelope);
+  });
+
+  it("包络时长进计划源（skin 条目 durationMs 供 buildCue 占位窗口，见 reflexRules 测试）", () => {
+    const skin = live2dSkin([
+      action("bounce", {
+        live2d: {
+          paramEnvelope: {
+            durationMs: 900,
+            keyframes: [
+              {
+                param: "P",
+                points: [
+                  [0, 0],
+                  [900, 0],
+                ] as const,
+              },
+            ],
+          },
+        },
+        durationMs: 900,
+        agentSelectable: true,
+      }),
+    ]);
+    const plan = resolveAction("bounce", skin, LIVE2D_PROFILE);
+    expect(plan.actionId).toBe("bounce");
+  });
+
+  it("无任何 live2d 实现（绑定空）→ 未命中落兖底（原行为不变）", () => {
+    const skin = live2dSkin([action("ghost", { live2d: { motionGroups: [] } })]);
+    const plan = resolveAction("ghost", skin, LIVE2D_PROFILE);
+    expect(plan.actionId).toBe(TERMINAL_ACTION_ID);
+  });
+});
+
 describe("向后兼容（零回归前提）", () => {
   it("皮肤未就绪（null）：安全落兜底", () => {
     const plan = resolveAction("wave", null, LIVE2D_PROFILE);
@@ -156,12 +234,39 @@ describe("M-A/M-B 验收证据：全词表可解析", () => {
     }
   });
 
-  it("Live2D 默认映射覆盖除 idle_neutral 外的全部词表（含两项降级设计）", () => {
+  it("Live2D 默认映射覆盖除 idle_neutral 外的全部词表（stretch 降级，其余包络兑底）", () => {
     const ids = DEFAULT_LIVE2D_ACTIONS.map((a) => a.id);
-    expect(ids.length).toBe(11);
+    // 词表 17 项 - idle_neutral = 16；全部有默认映射（G1 后 doze 也可演）
+    expect(ids.length).toBe(SEMANTIC_ACTIONS.length - 1);
     expect(ids).not.toContain("idle_neutral");
+    expect(new Set(ids).size).toBe(ids.length); // 无重复
+    // stretch 仍是唯一无诚实实现的降级设计；其余 fallback 到 idle_neutral
+    // 的动作 = 包络兑底类（wink + G1 四项 + doze）
     expect(
       DEFAULT_LIVE2D_ACTIONS.filter((a) => a.fallback === "idle_neutral").map((a) => a.id),
-    ).toEqual(["stretch", "doze"]);
+    ).toEqual(["wink", "pout", "laugh", "shy_shake", "alert", "stretch", "doze"]);
+  });
+
+  it("G1 包络兑底：Hiyori 无专用组 → pout/laugh/shy_shake/alert 走内置包络计划", () => {
+    for (const id of ["pout", "laugh", "shy_shake", "alert", "doze"] as const) {
+      const plan = resolveAction(id, live2dSkin(undefined), HIYORI_PROFILE);
+      expect(plan.motionGroup, id).toBeNull();
+      expect(plan.requestedId, id).toBe(id); // driver 按 requestedId 查 BODY_ACTION_ENVELOPES
+      expect(plan.actionId, id).toBe(TERMINAL_ACTION_ID); // 计划层面降级到兑底占位
+    }
+  });
+
+  it("wink（M-F）：Hiyori 无 Wink 组 → 内置兑底计划（帧循环用参数包络演出）", () => {
+    const plan = resolveAction("wink", live2dSkin(undefined), HIYORI_PROFILE);
+    expect(plan.motionGroup).toBeNull(); // 无 motion 实现 → 兑底占位
+    expect(plan.requestedId).toBe("wink"); // 包络表按 requestedId 查找
+
+    // 皮肤声明了真实 Wink 组 → 播真 motion（包络不叠加）
+    const skin = live2dSkin([action("wink", { live2d: { motionGroups: ["Wink", "Tap"] } })]);
+    const declared = resolveAction("wink", skin, {
+      motionGroups: ["Idle", "Wink"],
+      expressions: [],
+    });
+    expect(declared.motionGroup).toBe("Wink");
   });
 });

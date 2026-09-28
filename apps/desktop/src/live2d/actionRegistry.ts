@@ -12,8 +12,15 @@
  */
 
 import { SEMANTIC_ACTIONS } from "@mochi/protocol";
-import type { ActionKind, InterruptPolicy, SkinAction, SkinSummary } from "../api/skinsClient";
+import type {
+  ActionKind,
+  InterruptPolicy,
+  ParamEnvelopeBinding,
+  SkinAction,
+  SkinSummary,
+} from "../api/skinsClient";
 import type { ModelProfile } from "./stateMachine";
+import { DOZE_DURATION_MS } from "./stateMachine";
 
 /** 内置兜底动作：全链路降级终点（协议规范 §11）。 */
 export const TERMINAL_ACTION_ID = "idle_neutral";
@@ -21,8 +28,9 @@ export const TERMINAL_ACTION_ID = "idle_neutral";
 /**
  * Live2D 默认动作映射（M-B 验收补）：用户导入的 Live2D 皮肤清单无 `actions`
  * 字段时（旧版导入），按模型通用动作组（Tap/Flick 系列）给全词表可解析的映射。
- * stretch/doze 无通用诚实实现 → 直接 fallback 到 idle_neutral；
- * 模型实际不存在的组按未命中继续降级，绝不硬猜文件名。
+ * wink/pout/laugh/shy_shake/alert/doze 优先真实动作组，无则参数包络兑底
+ * （BODY_ACTION_ENVELOPES，G1）；stretch 无通用诚实实现 → fallback 到
+ * idle_neutral；模型实际不存在的组按未命中继续降级，绝不硬猜文件名。
  */
 export const DEFAULT_LIVE2D_ACTIONS: readonly SkinAction[] = [
   {
@@ -107,6 +115,59 @@ export const DEFAULT_LIVE2D_ACTIONS: readonly SkinAction[] = [
     agentSelectable: true,
   },
   {
+    // wink（M-F）：优先用模型真实动作组（若皮肤声明）；Hiyori 等无专用组
+    // 的模型走 fallback → idle_neutral 计划，帧循环用参数包络兑底
+    id: "wink",
+    kind: "oneshot",
+    channels: ["body"],
+    live2d: { motionGroups: ["Wink"] },
+    fallback: "idle_neutral",
+    priority: 50,
+    cooldownMs: 2500,
+    agentSelectable: true,
+  },
+  // ---- G1（L1 包络扩容）：同 wink 模式——有真实组优先，无则包络兑底 ----
+  {
+    id: "pout",
+    kind: "oneshot",
+    channels: ["body"],
+    live2d: { motionGroups: ["Pout"] },
+    fallback: "idle_neutral",
+    priority: 50,
+    cooldownMs: 2500,
+    agentSelectable: true,
+  },
+  {
+    id: "laugh",
+    kind: "oneshot",
+    channels: ["body"],
+    live2d: { motionGroups: ["Laugh"] },
+    fallback: "idle_neutral",
+    priority: 60,
+    cooldownMs: 4000,
+    agentSelectable: true,
+  },
+  {
+    id: "shy_shake",
+    kind: "oneshot",
+    channels: ["body"],
+    live2d: { motionGroups: ["ShyShake"] },
+    fallback: "idle_neutral",
+    priority: 50,
+    cooldownMs: 4000,
+    agentSelectable: true,
+  },
+  {
+    id: "alert",
+    kind: "oneshot",
+    channels: ["body"],
+    live2d: { motionGroups: ["Alert"] },
+    fallback: "idle_neutral",
+    priority: 45,
+    cooldownMs: 3000,
+    agentSelectable: true,
+  },
+  {
     id: "stretch",
     kind: "oneshot",
     channels: ["body"],
@@ -117,10 +178,12 @@ export const DEFAULT_LIVE2D_ACTIONS: readonly SkinAction[] = [
     fallback: "idle_neutral",
   },
   {
+    // doze（G1 升级）：优先真实 Doze 组；无则参数包络兑底（打哈欠/犯困点头）
     id: "doze",
     kind: "oneshot",
     channels: ["body"],
     live2d: { motionGroups: ["Doze"] },
+    durationMs: DOZE_DURATION_MS,
     priority: 20,
     cooldownMs: 30_000,
     agentSelectable: true,
@@ -141,10 +204,16 @@ interface ResolvedActionBase {
 
 export interface Live2dActionPlan extends ResolvedActionBase {
   resourceType: "live2d";
-  /** 命中的 motion group；null = 不切换动作（如纯表情动作） */
+  /** 命中的 motion group；null = 不切换动作（如纯表情/包络动作） */
   motionGroup: string | null;
   /** 命中的 expression 名；仅当模型档案实际拥有时非 null */
   expression: string | null;
+  /**
+   * 声明式参数包络（skin.json v3，G3）：清单原样透传，播放端按
+   * motionGroup > paramEnvelope > 内置兖底顺序消费。不依赖模型档案
+   * （缺参数运行时静默跳过），因此不参与「命中判定」。
+   */
+  paramEnvelope: ParamEnvelopeBinding | null;
 }
 
 export type ResolvedAction = Live2dActionPlan;
@@ -176,6 +245,7 @@ export function builtinFallbackPlan(requestedId: string): ResolvedAction {
     resourceType: "live2d",
     motionGroup: null,
     expression: null,
+    paramEnvelope: null,
   };
 }
 
@@ -187,17 +257,21 @@ function resolveLive2d(
 ): Live2dActionPlan | null {
   const binding = entry.live2d;
   if (!binding) return null;
-  const group = binding.motionGroups.find((g) => profile.motionGroups.includes(g));
+  const group = (binding.motionGroups ?? []).find((g) => profile.motionGroups.includes(g));
   const expression =
     binding.expression !== undefined && profile.expressions.includes(binding.expression)
       ? binding.expression
       : null;
-  if (group === undefined && expression === null) return null;
+  const paramEnvelope = binding.paramEnvelope ?? null;
+  // 命中判定不包含 paramEnvelope：包络不依赖模型能力（缺参数运行时跳过），
+  // 仅声明了包络（无 motion/expression 命中）也视为可演
+  if (group === undefined && expression === null && paramEnvelope === null) return null;
   return {
     ...baseOf(requestedId, entry, entry.id),
     resourceType: "live2d",
     motionGroup: group ?? null,
     expression,
+    paramEnvelope,
   };
 }
 
