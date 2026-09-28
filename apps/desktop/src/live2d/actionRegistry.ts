@@ -2,17 +2,17 @@
  * actionRegistry —— 语义动作解析（M-A，纯函数）。
  *
  * (语义动作 id, 皮肤清单, 模型能力档案) → 动作计划：
- * - 命中清单条目 → 按皮肤类型取实现绑定（live2d motion/expression 或 static 包络）；
- * - 绑定不可用（类型不符 / motionGroups 全缺 / 包络未注册）→ 沿 fallback 链下探；
+ * - 命中清单条目 → 取 live2d 实现绑定（motion/expression）；
+ * - 绑定不可用（motionGroups 全缺 / expression 不存在）→ 沿 fallback 链下探；
  * - 语义词表内动作天然向 idle_neutral 收敛；链走死 / 循环 → 内置 idle_neutral 计划。
  *
+ * 静态皮肤包络路径已随静态皮肤类型下线移除（2026-09-28）。
  * 本模块只做解析不播放；调度（优先级/打断/队列/TTL）属 M-B Action Director。
  * 循环防护独立于服务端校验存在——前端永不因清单数据挂死。
  */
 
 import { SEMANTIC_ACTIONS } from "@mochi/protocol";
 import type { ActionKind, InterruptPolicy, SkinAction, SkinSummary } from "../api/skinsClient";
-import { ACTION_ENVELOPES, type ActionEnvelope } from "./actionEnvelopes";
 import type { ModelProfile } from "./stateMachine";
 
 /** 内置兜底动作：全链路降级终点（协议规范 §11）。 */
@@ -21,7 +21,7 @@ export const TERMINAL_ACTION_ID = "idle_neutral";
 /**
  * Live2D 默认动作映射（M-B 验收补）：用户导入的 Live2D 皮肤清单无 `actions`
  * 字段时（旧版导入），按模型通用动作组（Tap/Flick 系列）给全词表可解析的映射。
- * 与静态基线同构：stretch/doze 无诚实实现 → 直接 fallback 到 idle_neutral；
+ * stretch/doze 无通用诚实实现 → 直接 fallback 到 idle_neutral；
  * 模型实际不存在的组按未命中继续降级，绝不硬猜文件名。
  */
 export const DEFAULT_LIVE2D_ACTIONS: readonly SkinAction[] = [
@@ -147,13 +147,7 @@ export interface Live2dActionPlan extends ResolvedActionBase {
   expression: string | null;
 }
 
-export interface StaticActionPlan extends ResolvedActionBase {
-  resourceType: "static";
-  /** 静态包络；idle_neutral 兜底为 null 变换（保持当前 loop 原样） */
-  envelope: ActionEnvelope | null;
-}
-
-export type ResolvedAction = Live2dActionPlan | StaticActionPlan;
+export type ResolvedAction = Live2dActionPlan;
 
 function baseOf(
   requestedId: string,
@@ -171,22 +165,18 @@ function baseOf(
 }
 
 /** 内置 idle_neutral 兜底计划：不切动作、不换表情，仅作为调度层的合法占位。 */
-export function builtinFallbackPlan(
-  resourceType: "live2d" | "static",
-  requestedId: string,
-): ResolvedAction {
-  const base: ResolvedActionBase = {
+export function builtinFallbackPlan(requestedId: string): ResolvedAction {
+  return {
     requestedId,
     actionId: TERMINAL_ACTION_ID,
     kind: "oneshot",
     priority: 10,
     interruptPolicy: "replace",
     cooldownMs: 0,
+    resourceType: "live2d",
+    motionGroup: null,
+    expression: null,
   };
-  if (resourceType === "live2d") {
-    return { ...base, resourceType, motionGroup: null, expression: null };
-  }
-  return { ...base, resourceType, envelope: ACTION_ENVELOPES[TERMINAL_ACTION_ID] ?? null };
 }
 
 /** live2d 绑定 → 计划；motionGroups 全缺或 expression 不存在则返回 null（视为未命中）。 */
@@ -211,37 +201,19 @@ function resolveLive2d(
   };
 }
 
-/** static 绑定 → 计划；包络未注册返回 null（声明诚实但前端无实现，走降级）。 */
-function resolveStatic(requestedId: string, entry: SkinAction): StaticActionPlan | null {
-  const binding = entry.static;
-  if (!binding) return null;
-  const envelope = ACTION_ENVELOPES[binding.animation];
-  if (!envelope) return null;
-  return {
-    ...baseOf(requestedId, entry, entry.id),
-    resourceType: "static",
-    envelope,
-  };
-}
-
 /**
  * 语义动作解析主入口。skin 为 null（未就绪）时直接返回内置兜底。
  * 任何皮肤都保证返回非 null——调用方无需再判空。
  */
 export function resolveAction(
   requestedId: string,
-  skin: Pick<SkinSummary, "resourceType" | "actions"> | null,
+  skin: Pick<SkinSummary, "actions"> | null,
   profile: ModelProfile,
 ): ResolvedAction {
-  if (!skin) return builtinFallbackPlan("static", requestedId);
+  if (!skin) return builtinFallbackPlan(requestedId);
 
-  // Live2D 皮肤清单无动作时（旧版导入），回退内置 Live2D 默认映射
-  const declared =
-    (skin.actions?.length ?? 0) > 0
-      ? skin.actions
-      : skin.resourceType === "live2d"
-        ? DEFAULT_LIVE2D_ACTIONS
-        : undefined;
+  // 皮肤清单无动作时（旧版导入），回退内置 Live2D 默认映射
+  const declared = (skin.actions?.length ?? 0) > 0 ? skin.actions : DEFAULT_LIVE2D_ACTIONS;
   const byId = new Map((declared ?? []).map((a) => [a.id, a]));
   const visited = new Set<string>();
   let current: string | undefined = requestedId;
@@ -251,10 +223,7 @@ export function resolveAction(
     const entry = byId.get(current);
 
     if (entry) {
-      const plan =
-        skin.resourceType === "live2d"
-          ? resolveLive2d(requestedId, entry, profile)
-          : resolveStatic(requestedId, entry);
+      const plan = resolveLive2d(requestedId, entry, profile);
       if (plan) return plan;
     }
 
@@ -271,5 +240,5 @@ export function resolveAction(
     }
   }
 
-  return builtinFallbackPlan(skin.resourceType, requestedId);
+  return builtinFallbackPlan(requestedId);
 }

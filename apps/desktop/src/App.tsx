@@ -16,7 +16,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { configApi } from "./api/configClient";
-import { resolveSkinId, skinsApi, type SkinSummary } from "./api/skinsClient";
+import { skinsApi, type SkinSummary } from "./api/skinsClient";
 import { initRuntimePortListener, subscribeRuntimePort } from "./api/sidecarRuntime";
 import { CharacterMenu, type MenuItemId } from "./components/CharacterMenu";
 import { CharacterStage } from "./components/CharacterStage";
@@ -111,7 +111,7 @@ export default function App() {
 
   // 皮肤（M1-S1，3.3）：active_skin 事实源在 sidecar config；连接就绪后拉取，
   // 衣橱面板换肤经 EVENT_SKIN_CHANGED 跨窗口同步（zustand 不跨窗口）
-  const [activeSkinId, setActiveSkinId] = useState("default");
+  const [activeSkinId, setActiveSkinId] = useState("");
   const [skins, setSkins] = useState<SkinSummary[]>([]);
   const refreshSkins = useCallback(() => {
     Promise.all([configApi.getCharacter(), skinsApi.listSkins()])
@@ -140,7 +140,7 @@ export default function App() {
     };
   }, []);
   const activeSkin = useMemo(
-    () => skins.find((s) => s.id === resolveSkinId(activeSkinId)) ?? null,
+    () => skins.find((s) => s.id === activeSkinId) ?? null,
     [skins, activeSkinId],
   );
 

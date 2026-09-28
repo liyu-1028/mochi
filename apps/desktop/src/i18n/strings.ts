@@ -178,14 +178,11 @@ const zhCN: StringTable = {
 
   // 衣橱（M1-S1：换肤/导入/删除）
   "skins.title": "Mochi 的衣橱",
-  "skins.builtin": "内置",
   "skins.user": "用户",
   "skins.activate": "穿上",
   "skins.switching": "换装中…",
-  "skins.import": "导入皮肤（PNG / zip）",
+  "skins.import": "导入皮肤（zip 皮肤包）",
   "skins.importing": "导入中…",
-  "skins.transparencyHint": "透明底 PNG 穿上更好看；带底图的图片会原样展示。",
-  "skins.smallImageHint": "图片分辨率较低，穿上后可能不够清晰",
   "skins.errorLoad": "皮肤列表加载失败",
   "skins.errorSave": "皮肤操作失败",
   "skins.creditIllustration": "原画",
@@ -412,15 +409,11 @@ const en: StringTable = {
 
   // Wardrobe (M1-S1: switch/import/delete)
   "skins.title": "Mochi's Wardrobe",
-  "skins.builtin": "Built-in",
   "skins.user": "User",
   "skins.activate": "Wear",
   "skins.switching": "Switching…",
-  "skins.import": "Import skin (PNG / zip)",
+  "skins.import": "Import skin (zip package)",
   "skins.importing": "Importing…",
-  "skins.transparencyHint":
-    "Transparent-background PNGs look best; images with a background are shown as-is.",
-  "skins.smallImageHint": "Low-resolution image — it may look blurry when worn",
   "skins.errorLoad": "Failed to load skins",
   "skins.errorSave": "Skin operation failed",
   "skins.creditIllustration": "Illustration",

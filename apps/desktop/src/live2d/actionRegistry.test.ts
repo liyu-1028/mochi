@@ -3,6 +3,7 @@
  *
  * 验收（M-A）：resolveAction 全组合覆盖；旧皮肤（无 actions 字段）不崩溃且
  * 全部请求落到内置 idle_neutral 兜底（零回归前提）。
+ * 静态皮肤路径已随静态皮肤类型下线移除（2026-09-28），相关用例删除。
  */
 import { describe, expect, it } from "vitest";
 import type { SkinAction, SkinSummary } from "../api/skinsClient";
@@ -12,7 +13,6 @@ import {
   TERMINAL_ACTION_ID,
   DEFAULT_LIVE2D_ACTIONS,
   type Live2dActionPlan,
-  type StaticActionPlan,
 } from "./actionRegistry";
 import { HIYORI_PROFILE, type ModelProfile } from "./stateMachine";
 import { SEMANTIC_ACTIONS } from "@mochi/protocol";
@@ -26,70 +26,9 @@ function action(id: string, extra: Partial<SkinAction> = {}): SkinAction {
   return { id, kind: "oneshot", priority: 50, ...extra };
 }
 
-function staticSkin(actions?: SkinAction[]): Pick<SkinSummary, "resourceType" | "actions"> {
-  return { resourceType: "static", actions };
-}
-
 function live2dSkin(actions?: SkinAction[]): Pick<SkinSummary, "resourceType" | "actions"> {
   return { resourceType: "live2d", actions };
 }
-
-describe("静态皮肤路径", () => {
-  it("命中：清单条目 + 包络注册 → static 计划（保留 priority/cooldown 声明）", () => {
-    const skin = staticSkin([
-      action("wave", { static: { animation: "wave" }, priority: 60, cooldownMs: 3000 }),
-    ]);
-    const plan = resolveAction("wave", skin, LIVE2D_PROFILE) as StaticActionPlan;
-    expect(plan.resourceType).toBe("static");
-    expect(plan.actionId).toBe("wave");
-    expect(plan.requestedId).toBe("wave");
-    expect(plan.envelope?.id).toBe("wave");
-    expect(plan.priority).toBe(60);
-    expect(plan.cooldownMs).toBe(3000);
-  });
-
-  it("fallback 一层：celebrate 声明 fallback=nod → 命中 nod 包络", () => {
-    const skin = staticSkin([
-      action("nod", { static: { animation: "nod" } }),
-      action("celebrate", { static: { animation: "不存在的包络" }, fallback: "nod" }),
-    ]);
-    const plan = resolveAction("celebrate", skin, LIVE2D_PROFILE) as StaticActionPlan;
-    expect(plan.actionId).toBe("nod");
-    expect(plan.requestedId).toBe("celebrate");
-    expect(plan.envelope?.id).toBe("nod");
-  });
-
-  it("词表收敛：请求未登记的语义动作（think）→ 落内置 idle_neutral 兜底", () => {
-    const skin = staticSkin([action("wave", { static: { animation: "wave" } })]);
-    const plan = resolveAction("think", skin, LIVE2D_PROFILE) as StaticActionPlan;
-    expect(plan.actionId).toBe(TERMINAL_ACTION_ID);
-    expect(plan.envelope?.id).toBe(TERMINAL_ACTION_ID);
-  });
-
-  it("链走死：非语义词表 id 且无 fallback → 内置兜底，不抛异常", () => {
-    const skin = staticSkin([action("custom_dance", { static: { animation: "无此包络" } })]);
-    const plan = resolveAction("custom_dance", skin, LIVE2D_PROFILE) as StaticActionPlan;
-    expect(plan.actionId).toBe(TERMINAL_ACTION_ID);
-  });
-
-  it("循环防护：清单内互指 fallback → 落内置兜底，不挂死", () => {
-    const skin = staticSkin([
-      action("a", { static: { animation: "无此包络" }, fallback: "b" }),
-      action("b", { static: { animation: "无此包络" }, fallback: "a" }),
-    ]);
-    const plan = resolveAction("a", skin, LIVE2D_PROFILE);
-    expect(plan.actionId).toBe(TERMINAL_ACTION_ID);
-  });
-
-  it("包络未注册但声明了 static 绑定 → 视为未命中继续降级", () => {
-    const skin = staticSkin([
-      action("dance", { static: { animation: "神秘舞步" }, fallback: "wave" }),
-      action("wave", { static: { animation: "wave" } }),
-    ]);
-    const plan = resolveAction("dance", skin, LIVE2D_PROFILE) as StaticActionPlan;
-    expect(plan.actionId).toBe("wave");
-  });
-});
 
 describe("Live2D 路径", () => {
   it("命中：motionGroups 按偏好取首个模型实际拥有的组", () => {
@@ -121,31 +60,56 @@ describe("Live2D 路径", () => {
     expect(plan.expression).toBeNull();
   });
 
-  it("绑定与皮肤类型不符：live2d 皮肤上的 static-only 条目 → 降级", () => {
-    const skin = live2dSkin([action("wave", { static: { animation: "wave" } })]);
+  it("motionGroups 全缺且无 expression → 视为未命中落兜底", () => {
+    const skin = live2dSkin([action("wave", { live2d: { motionGroups: ["神秘组"] } })]);
     const plan = resolveAction("wave", skin, LIVE2D_PROFILE);
     expect(plan.actionId).toBe(TERMINAL_ACTION_ID);
+  });
+
+  it("词表收敛：请求未登记的语义动作（think）无清单声明 → 落内置兜底", () => {
+    const skin = live2dSkin([action("wave", { live2d: { motionGroups: ["Tap"] } })]);
+    const plan = resolveAction("think", skin, LIVE2D_PROFILE);
+    expect(plan.actionId).toBe(TERMINAL_ACTION_ID);
+  });
+
+  it("链走死：非语义词表 id 且无 fallback → 内置兜底，不抛异常", () => {
+    const skin = live2dSkin([action("custom_dance", { live2d: { motionGroups: ["无此组"] } })]);
+    const plan = resolveAction("custom_dance", skin, LIVE2D_PROFILE);
+    expect(plan.actionId).toBe(TERMINAL_ACTION_ID);
+  });
+
+  it("循环防护：清单内互指 fallback → 落内置兜底，不挂死", () => {
+    const skin = live2dSkin([
+      action("a", { live2d: { motionGroups: ["无此组"] }, fallback: "b" }),
+      action("b", { live2d: { motionGroups: ["无此组"] }, fallback: "a" }),
+    ]);
+    const plan = resolveAction("a", skin, LIVE2D_PROFILE);
+    expect(plan.actionId).toBe(TERMINAL_ACTION_ID);
+  });
+
+  it("priority/cooldown 保留清单声明", () => {
+    const skin = live2dSkin([
+      action("wave", { live2d: { motionGroups: ["Tap"] }, priority: 60, cooldownMs: 3000 }),
+    ]);
+    const plan = resolveAction("wave", skin, LIVE2D_PROFILE);
+    expect(plan.priority).toBe(60);
+    expect(plan.cooldownMs).toBe(3000);
   });
 });
 
 describe("向后兼容（零回归前提）", () => {
-  it("旧皮肤（无 actions 字段）：任何请求都安全落兜底", () => {
-    const plan = resolveAction("wave", staticSkin(undefined), LIVE2D_PROFILE) as StaticActionPlan;
-    expect(plan.actionId).toBe(TERMINAL_ACTION_ID);
-    expect(plan.envelope?.id).toBe(TERMINAL_ACTION_ID);
-    expect(plan.priority).toBe(10);
-  });
-
   it("皮肤未就绪（null）：安全落兜底", () => {
     const plan = resolveAction("wave", null, LIVE2D_PROFILE);
     expect(plan.actionId).toBe(TERMINAL_ACTION_ID);
+    expect(plan.motionGroup).toBeNull();
   });
 
-  it("内置兜底计划（live2d）：不切动作、不换表情", () => {
-    const plan = builtinFallbackPlan("live2d", "celebrate") as Live2dActionPlan;
+  it("内置兜底计划：不切动作、不换表情", () => {
+    const plan = builtinFallbackPlan("celebrate");
     expect(plan.motionGroup).toBeNull();
     expect(plan.expression).toBeNull();
     expect(plan.requestedId).toBe("celebrate");
+    expect(plan.priority).toBe(10);
   });
 });
 
@@ -180,50 +144,15 @@ describe("Live2D 默认映射（旧版导入皮肤无 actions 字段，M-B 验�
   });
 });
 
-describe("M-A/M-B 验收证据：12 动作全词表可解析", () => {
-  const STATIC_BASELINE_IDS = [
-    "idle_neutral",
-    "look_around",
-    "wave",
-    "nod",
-    "shake_head",
-    "celebrate",
-    "comfort",
-    "surprised",
-    "stretch",
-    "doze",
-  ];
-
-  it("Hiyori 能力档案：12 个语义动作均有合法解析（含降级），播放组必为模型实际拥有", () => {
+describe("M-A/M-B 验收证据：全词表可解析", () => {
+  it("Hiyori 能力档案：全部语义动作均有合法解析（含降级），播放组必为模型实际拥有", () => {
     for (const id of SEMANTIC_ACTIONS) {
       const plan = resolveAction(id, live2dSkin(undefined), HIYORI_PROFILE);
       expect(plan, id).toBeTruthy();
-      if (plan.resourceType === "live2d") {
-        expect(
-          plan.motionGroup === null || HIYORI_PROFILE.motionGroups.includes(plan.motionGroup),
-          `${id} motionGroup=${plan.motionGroup}`,
-        ).toBe(true);
-      }
-    }
-  });
-
-  it("静态基线皮肤：12 个语义动作均有合法解析（think/listen 按设计降级）", () => {
-    const staticBaseline = {
-      resourceType: "static" as const,
-      actions: STATIC_BASELINE_IDS.map((id) => ({
-        id,
-        static: { animation: id },
-        fallback: id === "idle_neutral" ? undefined : "idle_neutral",
-      })),
-    };
-    for (const id of SEMANTIC_ACTIONS) {
-      const plan = resolveAction(id, staticBaseline, LIVE2D_PROFILE) as StaticActionPlan;
-      expect(plan, id).toBeTruthy();
-      if (["think", "listen"].includes(id)) {
-        expect(plan.actionId, `${id} 应降级到兜底`).toBe(TERMINAL_ACTION_ID);
-      } else {
-        expect(plan.envelope, id).toBeTruthy();
-      }
+      expect(
+        plan.motionGroup === null || HIYORI_PROFILE.motionGroups.includes(plan.motionGroup),
+        `${id} motionGroup=${plan.motionGroup}`,
+      ).toBe(true);
     }
   });
 

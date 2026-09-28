@@ -4,39 +4,36 @@
 import { describe, expect, it } from "vitest";
 import { TAP_REPEAT_COUNT, TAP_WINDOW_MS } from "./reflexRules";
 import { buildCue, isRepeatTap, toolReflexCues, type ToolReflexStatus } from "./reflexRules";
+import { DEFAULT_LIVE2D_ACTIONS } from "./actionRegistry";
 
 const NOW = 1_000_000;
 
 describe("buildCue", () => {
-  it("static：时长取包络时长", () => {
-    const cue = buildCue("celebrate", {
-      channel: "body",
-      source: "tool",
-      resourceType: "static",
-      now: NOW,
-    });
-    expect(cue.durationMs).toBe(1200);
-    expect(cue.priority).toBe(60);
-    expect(cue.cooldownMs).toBe(10_000);
-  });
-
-  it("live2d：固定动作窗口（motion 时长未知）", () => {
+  it("one-shot 时长为固定动作窗口（motion 实际时长未知）", () => {
     const cue = buildCue("nod", {
       channel: "body",
       source: "reflex",
-      resourceType: "live2d",
       now: NOW,
     });
     expect(cue.durationMs).toBeGreaterThanOrEqual(2500);
+  });
+
+  it("内置缺省表：celebrate 优先级/冷却", () => {
+    const cue = buildCue("celebrate", {
+      channel: "body",
+      source: "tool",
+      now: NOW,
+    });
+    expect(cue.priority).toBe(60);
+    expect(cue.cooldownMs).toBe(10_000);
   });
 
   it("皮肤声明优先于内置缺省表", () => {
     const cue = buildCue("wave", {
       channel: "body",
       source: "reflex",
-      resourceType: "static",
       now: NOW,
-      actions: [{ id: "wave", static: { animation: "wave" }, priority: 77, cooldownMs: 999 }],
+      actions: [{ id: "wave", live2d: { motionGroups: ["Tap"] }, priority: 77, cooldownMs: 999 }],
     });
     expect(cue.priority).toBe(77);
     expect(cue.cooldownMs).toBe(999);
@@ -47,7 +44,6 @@ describe("buildCue", () => {
     const cue = buildCue("happy", {
       channel: "face",
       source: "tool",
-      resourceType: "static",
       now: NOW,
     });
     expect(cue.priority).toBe(55);
@@ -58,13 +54,11 @@ describe("buildCue", () => {
     const a = buildCue("nod", {
       channel: "body",
       source: "reflex",
-      resourceType: "static",
       now: NOW,
     });
     const b = buildCue("nod", {
       channel: "body",
       source: "reflex",
-      resourceType: "static",
       now: NOW,
     });
     expect(a.cueId).not.toBe(b.cueId);
@@ -93,7 +87,7 @@ describe("isRepeatTap（连续戳）", () => {
 });
 
 describe("toolReflexCues（工具生命周期反射表，对齐 rollout plan B3）", () => {
-  const opts = { resourceType: "static" as const, now: NOW };
+  const opts = { now: NOW };
 
   it.each<[ToolReflexStatus, string[], string[]]>([
     ["running", ["think"], []],
@@ -114,26 +108,16 @@ describe("toolReflexCues（工具生命周期反射表，对齐 rollout plan B3�
   });
 });
 
-describe("共享默认值夹具（验收工程问题 1：消除前后端漂移）", () => {
-  it("reflexRules DEFAULTS 基线与 action-defaults.json 一致", async () => {
-    const { readFileSync } = await import("node:fs");
-    const fixturePath = new URL(
-      "../../../../packages/protocol/testdata/action-defaults.json",
-      import.meta.url,
-    );
-    const fixture = JSON.parse(readFileSync(fixturePath, "utf-8")).defaults as Record<
-      string,
-      { priority: number; cooldownMs: number }
-    >;
-    for (const [actionId, spec] of Object.entries(fixture)) {
-      const cue = buildCue(actionId, {
+describe("默认值一致性（消除漂移）", () => {
+  it("reflexRules DEFAULTS 基线与 DEFAULT_LIVE2D_ACTIONS 声明一致", () => {
+    for (const action of DEFAULT_LIVE2D_ACTIONS) {
+      const cue = buildCue(action.id, {
         channel: "body",
         source: "reflex",
-        resourceType: "static",
         now: NOW,
       });
-      expect(cue.priority, actionId).toBe(spec.priority);
-      expect(cue.cooldownMs, actionId).toBe(spec.cooldownMs);
+      expect(cue.priority, action.id).toBe(action.priority);
+      expect(cue.cooldownMs, action.id).toBe(action.cooldownMs ?? 0);
     }
   });
 });
