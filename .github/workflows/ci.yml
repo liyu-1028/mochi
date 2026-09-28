@@ -1,10 +1,10 @@
 # M0-S1 最小 CI：lint + typecheck + 双端测试 + Rust clippy
-# 发布流水线（双平台构建/签名/自动更新）为 M1 专项，见 docs/specs/monorepo-structure.md §7
+# 触发策略（2026-09-28 收紧）：main 直推不跑 CI（发布前本地已全量验证，
+# 避免 push main 每次都白白跑三组构建）；ci 仅保留 pull_request 触发，
+# 产物发布唯一入口是 tag 触发的 release.yml。
 name: ci
 
 on:
-  push:
-    branches: [main]
   pull_request:
 
 jobs:
