@@ -10,6 +10,7 @@ import { useEffect } from "react";
 import { create } from "zustand";
 import { configApi } from "../api/configClient";
 import { ttsApi } from "../api/ttsClient";
+import { sanitizeSpeechText } from "../cue/speechText";
 import { ttsPlayer } from "../live2d/ttsPlayer";
 import { useConversation } from "../store/conversation";
 import { voiceEvents } from "../store/voiceEvents";
@@ -44,8 +45,12 @@ export function stopSpeaking(): void {
   ttsPlayer.stop();
   useTTSState.setState({ playing: false, engine: null });
 }
-/** 合成并播报全文；设置面板试听按钮共用。失败一律静默降级。 */
-export async function speakText(text: string): Promise<void> {
+/** 合成并播报全文；设置面板试听按钮共用。失败一律静默降级。
+ *  M-F：播报前净化文本——剥离全角舞台指示（（眨眨眼）等保留气泡展示、
+ *  不进语音）+ markdown 格式符号（**加粗**不再被读成「星号星号」）。 */
+export async function speakText(rawText: string): Promise<void> {
+  const text = sanitizeSpeechText(rawText);
+  if (!text.trim()) return;
   const token = ++session;
   ttsPlayer.stop();
   useTTSState.setState({ playing: false, engine: null });
