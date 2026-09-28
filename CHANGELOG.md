@@ -7,6 +7,26 @@
 
 ## Unreleased
 
+L3 动作扩展包导入（G4，动作扩展方案 M-G）：给已导入的皮肤追加原创
+motion3.json 动作，免重新打包整个皮肤
+
+**新增**
+
+- `POST /skins/import-motion-pack`：zip 内含 `pack.json`
+  （targetSkin / license / motions[] / actions[]）；仅用户皮肤可扩展；
+  motion3.json 结构强校验（Cubism 3：Version/Duration/Target/Segments
+  段标记/末点 ≤ Duration），与 `scripts/validate-motion3.mjs` 同口径
+  （资产仓库 CI 用）
+- 合并 `FileReferences.Motions`（组名冲突 409 拒绝）、`actions`（id
+  冲突 409）与 `capabilities.motionGroups`；`license` 必填并登记进
+  `credits[motionPack:<name>]`；合并前备份原 `model3.json`/`skin.json`
+  （`*.orig.json`，仅首次保留原始状态，可回滚）
+- 前端衣橱面板新增「导入动作扩展包」入口；目标是当前装扮时经
+  `EVENT_SKIN_CHANGED` 热更，motion 组集合变化触发舞台重建后即可演，
+  无需重启
+- 规范：skin manifest 文档新增「动作扩展包」节（pack.json 格式与
+  校验/合并规则）
+
 cue 提示词按皮肤能力注入（G2，动作扩展方案 M-G）：模型只被教当前装扮真实可演的动作
 
 **新增**
