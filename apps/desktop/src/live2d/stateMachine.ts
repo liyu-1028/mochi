@@ -141,7 +141,7 @@ export const BODY_ACTION_ENVELOPES: Record<string, BodyActionEnvelope> = {
     },
   },
 
-  /** shy_shake（扸捏，G1）：左右衰减摇头 + 脸颊 + 视线瞟开，~1100ms */
+  /** shy_shake（扭捏，G1）：左右衰减摇头 + 脸颊 + 视线瞟开，~1100ms */
   shy_shake: {
     durationMs: 1100,
     params: (t) => {
