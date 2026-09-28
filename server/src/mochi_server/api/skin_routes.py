@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse
 from ..config import AppConfig
 from ..paths import get_skins_dir
 from ..skin.importer import ZIP_MAGIC, import_zip_skin
+from ..skin.motion_pack import import_motion_pack
 from ..skin.registry import SkinRegistry
 from ..skin_manifest import manifest_to_summary
 from .config_routes import _apply, _config_path, _registry
@@ -59,6 +60,22 @@ async def import_skin(
         )
     manifest = import_zip_skin(content, skin_id, skin_registry)
     logger.info("导入皮肤：%s（%s）", manifest.id, manifest.resource_type)
+    return manifest_to_summary(
+        manifest, source="user", base_url=skin_registry.user_base_url(manifest.id)
+    ).model_dump(by_alias=True, exclude_none=True)
+
+
+@router.post("/skins/import-motion-pack", status_code=200)
+async def import_motion_pack_route(request: Request, file: UploadFile) -> dict:
+    """导入动作扩展包（G4）：给已导入的用户皮肤追加原创 motion3.json 动作。"""
+    skin_registry = _skin_registry(request)
+    content = await file.read()
+    if content[:4] != ZIP_MAGIC:
+        raise HTTPException(
+            status_code=422,
+            detail="不支持的文件格式（动作扩展包须为 zip，内含 pack.json）",
+        )
+    manifest = import_motion_pack(content, skin_registry)
     return manifest_to_summary(
         manifest, source="user", base_url=skin_registry.user_base_url(manifest.id)
     ).model_dump(by_alias=True, exclude_none=True)
