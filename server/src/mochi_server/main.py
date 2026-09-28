@@ -220,13 +220,20 @@ def create_app(
     # 会话持久化（M1-S1）：全局共享一个 SessionStore，Agent 与 REST 路由同源
     app.state.store = SessionStore()
     app.state.config_path = get_config_path()
+    # 皮肤注册表（M1-S1）：用户皮肤资源经 /user-skins 路由分发，base URL 带端口；
+    # 同时作为 AgentFactory 的能力注入来源（G2 提示词按皮肤可演动作收窄）
+    app.state.skin_registry = SkinRegistry(http_base_url=f"http://127.0.0.1:{resolve_port()}")
     app.state.registry = (
-        AgentFactory(config, key_store, store=app.state.store, config_path=app.state.config_path)
+        AgentFactory(
+            config,
+            key_store,
+            store=app.state.store,
+            config_path=app.state.config_path,
+            skin_registry=app.state.skin_registry,
+        )
         if config is not None
         else None
     )
-    # 皮肤注册表（M1-S1）：用户皮肤资源经 /user-skins 路由分发，base URL 带端口。
-    app.state.skin_registry = SkinRegistry(http_base_url=f"http://127.0.0.1:{resolve_port()}")
     app.include_router(config_router)
     app.include_router(session_router)
     app.include_router(skin_router)

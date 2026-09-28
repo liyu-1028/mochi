@@ -17,8 +17,9 @@ from fakes import ScriptedChatModel, make_test_adapter
 from langchain_core.messages import AIMessageChunk
 
 from mochi_server.agent import LLMAgentService
-from mochi_server.agent.cue_extractor import CueStreamParser
+from mochi_server.agent.cue_extractor import CueStreamParser, cue_prompt_section
 from mochi_server.agent.service import AgentContext
+from mochi_server.skin_manifest import SkinManifest
 
 # ---------------------------------------------------------------------------
 # CueStreamParser 单测
@@ -195,8 +196,27 @@ def _plain_agent(calls: list[list[Any]]) -> LLMAgentService:
     return LLMAgentService(make_test_adapter(ScriptedChatModel(calls=calls)))
 
 
-def _cue_agent(calls: list[list[Any]]) -> LLMAgentService:
-    return LLMAgentService(make_test_adapter(ScriptedChatModel(calls=calls)), cue_enabled=True)
+def _cue_agent(
+    calls: list[list[Any]],
+    skin_provider: Any | None = None,
+) -> tuple[LLMAgentService, ScriptedChatModel]:
+    model = ScriptedChatModel(calls=calls)
+    agent = LLMAgentService(
+        make_test_adapter(model),
+        cue_enabled=True,
+        skin_provider=skin_provider,
+    )
+    return agent, model
+
+
+def _system_text(model: ScriptedChatModel) -> str:
+    """首轮收到的 system 消息全文（G2 提示词断言用）。"""
+    from langchain_core.messages import SystemMessage
+
+    for msg in model.received[0]:
+        if isinstance(msg, SystemMessage):
+            return str(msg.content)
+    return ""
 
 
 def _ctx() -> AgentContext:
@@ -206,7 +226,7 @@ def _ctx() -> AgentContext:
 @pytest.mark.asyncio
 async def test_run_emits_character_cue_and_clean_full_text() -> None:
     """集成：标记解析 → character.cue 事件；text.end 落盘文本为清洗后全文。"""
-    agent = _cue_agent(
+    agent, _model = _cue_agent(
         [[AIMessageChunk(content="别担心。"), AIMessageChunk(content="[[cue:comfort]]我来帮你。")]]
     )
     events = [(t, p) async for t, p in agent.run(_ctx())]
@@ -231,7 +251,7 @@ async def test_run_emits_character_cue_and_clean_full_text() -> None:
 @pytest.mark.asyncio
 async def test_cue_run_skips_post_run_emotion() -> None:
     """互斥：发过 reply cue 的 run 不再暂存回复 → post_run_events 不发 emotion。"""
-    agent = _cue_agent([[AIMessageChunk(content="很遗憾。[[cue:sad]]")]])
+    agent, _model = _cue_agent([[AIMessageChunk(content="很遗憾。[[cue:sad]]")]])
     async for _ in agent.run(_ctx()):
         pass
 
@@ -245,3 +265,137 @@ async def test_cue_path_off_emits_no_cue_events() -> None:
     events = [(t, p) async for t, p in agent.run(_ctx())]
     assert not any(t == "character.cue" for t, _ in events)
     assert next(p for t, p in events if t == "text.end").full_text == "纯文本回复"
+
+
+# ---------------------------------------------------------------------------
+# G2：cue 提示词按皮肤能力注入
+# ---------------------------------------------------------------------------
+
+
+def _skin_with_actions(*action_ids: str, name: str = "团子·Hiyori") -> SkinManifest:
+    return SkinManifest.model_validate(
+        {
+            "id": "test-skin",
+            "name": name,
+            "resourceType": "live2d",
+            "modelFile": "m.model3.json",
+            "actions": [
+                {
+                    "id": aid,
+                    "channels": ["body"],
+                    "agentSelectable": True,
+                    "live2d": {"motionGroups": ["Tap"]},
+                }
+                for aid in action_ids
+            ],
+        }
+    )
+
+
+def test_cue_prompt_static_when_no_skin() -> None:
+    """skin=None：静态全词表（零回归）。"""
+    section = cue_prompt_section()
+    assert "当前装扮" not in section
+    assert "[[cue:id]]" in section
+    for aid in ("wink", "nod", "pout"):
+        assert aid in section
+    assert "不要发明清单外" not in section
+
+
+def test_cue_prompt_dynamic_injection_filters_to_skin() -> None:
+    """有皮肤清单：只教皮肤可演动作（label(id) 对照 + 示例指示词 + 收窄声明）。"""
+    section = cue_prompt_section(_skin_with_actions("wink", "nod"))
+    assert "当前装扮「团子·Hiyori」" in section
+    assert "眨眨眼(wink)" in section
+    assert "点头(nod)" in section
+    assert "pout" not in section  # 未声明 → 不教
+    assert "眨了眨眼" in section  # 示例指示词跟随可演动作
+    assert "不要发明清单外" in section
+
+
+def test_cue_prompt_dynamic_excludes_unselectable() -> None:
+    """agentSelectable=false 不进清单（idle_neutral 由词表约束永不可选）。"""
+    manifest = SkinManifest.model_validate(
+        {
+            "id": "test-skin",
+            "name": "s",
+            "resourceType": "live2d",
+            "modelFile": "m.model3.json",
+            "actions": [
+                {
+                    "id": "wink",
+                    "channels": ["body"],
+                    "agentSelectable": True,
+                    "live2d": {"motionGroups": ["Wink"]},
+                },
+                {
+                    "id": "nod",
+                    "channels": ["body"],
+                    "agentSelectable": False,
+                    "live2d": {"motionGroups": ["Tap"]},
+                },
+            ],
+        }
+    )
+    section = cue_prompt_section(manifest)
+    assert "wink" in section
+    assert "nod" not in section
+
+
+def test_cue_prompt_dynamic_falls_back_when_no_semantic_actions() -> None:
+    """清单只有自定义 id（∩词表为空）→ 回落静态全词表（不教空集）。"""
+    section = cue_prompt_section(_skin_with_actions("custom_trick"))
+    assert "当前装扮" not in section
+    assert "pout" in section
+
+
+def test_action_example_words() -> None:
+    from mochi_server.agent.stage_directions import action_example_words
+
+    assert action_example_words("wink")  # wink 有示例词（长词优先）
+    assert action_example_words("wink") == ["眨了眨眼", "眨眨眼", "眨了眨"]
+    assert action_example_words("非词表动作") == []
+
+
+@pytest.mark.asyncio
+async def test_cue_agent_injects_skin_capabilities() -> None:
+    """G2：skin_provider 返回清单 → system prompt 只教该皮肤可演动作。"""
+    calls = [[AIMessageChunk(content="好。")]]
+    model = ScriptedChatModel(calls=calls)
+    agent, model = _cue_agent(calls, skin_provider=lambda: _skin_with_actions("wink"))
+    async for _ in agent.run(_ctx()):
+        pass
+    system = _system_text(model)
+    assert "当前装扮「团子·Hiyori」" in system
+    assert "眨眨眼(wink)" in system
+    assert "pout" not in system
+
+
+@pytest.mark.asyncio
+async def test_cue_agent_skin_provider_error_falls_back() -> None:
+    """G2：provider 抛异常 → 回落静态全词表，回合不失败。"""
+    calls = [[AIMessageChunk(content="好。")]]
+    model = ScriptedChatModel(calls=calls)
+
+    def _boom() -> Any:
+        raise RuntimeError("registry down")
+
+    agent, model = _cue_agent(calls, skin_provider=_boom)
+    events = [(t, p) async for t, p in agent.run(_ctx())]
+    assert any(t == "text.end" for t, _ in events)  # 回合正常完成
+    system = _system_text(model)
+    assert "当前装扮" not in system
+    assert "pout" in system  # 静态全词表
+
+
+@pytest.mark.asyncio
+async def test_cue_agent_without_provider_keeps_static_prompt() -> None:
+    """G2：未注入 provider（零回归路径）→ 静态全词表。"""
+    calls = [[AIMessageChunk(content="好。")]]
+    model = ScriptedChatModel(calls=calls)
+    agent, model = _cue_agent(calls)
+    async for _ in agent.run(_ctx()):
+        pass
+    system = _system_text(model)
+    assert "当前装扮" not in system
+    assert "[[cue:id]]" in system

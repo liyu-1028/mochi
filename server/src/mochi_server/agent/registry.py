@@ -28,6 +28,7 @@ from ..memory import MemoryManager
 from ..model_runtime import ModelRuntime
 from ..persona import build_system_prompt
 from ..secrets import KeyStore
+from ..skin.registry import SkinRegistry
 from ..store import SessionStore
 from .echo_agent import EchoAgentService
 from .errors import AgentError
@@ -49,6 +50,7 @@ class AgentFactory:
         *,
         checkpointer: BaseCheckpointSaver | None = None,
         config_path: Path | None = None,
+        skin_registry: SkinRegistry | None = None,
     ) -> None:
         self._config = config
         self._key_store = key_store or KeyStore()
@@ -66,6 +68,8 @@ class AgentFactory:
         self._checkpointer = checkpointer
         # 白名单持久化目标（M1-S4，6.5）：None → 仅内存态（测试注入路径）
         self._config_path = config_path
+        # 皮肤注册表（G2）：提示词能力注入的清单来源；None → 静态全词表（零回归）
+        self._skin_registry = skin_registry
         # registry 级单例：load 闭包读 self._config，配置热切换后自动读到新值
         self._tool_policy = ToolPolicy(
             load=lambda: list(self._config.tools.allowed),
@@ -142,6 +146,12 @@ class AgentFactory:
         # 人格注入（6.13，ADR-0005）：system prompt 由 [character.persona] 拼装。
         # 全空回退 DEFAULT_SYSTEM_PROMPT；配置更新经 update_config 缓存失效后重建生效。
         system_prompt = build_system_prompt(self._config.character.persona)
+        # 皮肤能力提供者（G2）：闭包读活动配置 + 注册表，换肤即时生效（无需重建 agent）
+        skin_provider = (
+            (lambda: self._skin_registry.get(self._config.character.active_skin))
+            if self._skin_registry is not None
+            else None
+        )
         return LLMAgentService(
             adapter,
             system_prompt=system_prompt,
@@ -154,6 +164,7 @@ class AgentFactory:
             emotion_enabled=self._config.agent.emotion == "auto",
             cue_enabled=self._config.agent.cues == "auto",
             max_reply_chars=self._config.agent.max_reply_chars,
+            skin_provider=skin_provider,
         )
 
     # -- 连通性测试（功能清单 7.2） ------------------------------------------

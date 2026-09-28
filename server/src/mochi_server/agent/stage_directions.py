@@ -98,7 +98,7 @@ DIRECTION_KEYWORDS: dict[str, tuple[str, str]] = {
     "咯咯笑": ("body", "laugh"),
     "捧腹": ("body", "laugh"),
     "笑弯了腰": ("body", "laugh"),
-    "扸捏": ("body", "shy_shake"),
+    "扭捏": ("body", "shy_shake"),
     "忸怩": ("body", "shy_shake"),
     "局促": ("body", "shy_shake"),
     "羞涩地摇头": ("body", "shy_shake"),
@@ -138,6 +138,14 @@ DIRECTION_KEYWORDS: dict[str, tuple[str, str]] = {
 #: 同通道多词命中时长词优先（「眨了眨眼」先于「眨眼」）
 _KEYWORDS_BY_LENGTH = sorted(DIRECTION_KEYWORDS, key=len, reverse=True)
 
+#: 动作 id → 示例指示词（G2）：按长词优先预排序，供提示词能力注入选取
+_KEYWORDS_BY_ACTION: dict[str, list[str]] = {}
+for _kw, (_ch, _aid) in sorted(
+    DIRECTION_KEYWORDS.items(), key=lambda item: len(item[0]), reverse=True
+):
+    if _ch == "body":
+        _KEYWORDS_BY_ACTION.setdefault(_aid, []).append(_kw)
+
 
 #: 全角括号（人格舞台指示的书写惯例；半角括号可能是代码/数学，不碰）
 _OPEN, _CLOSE = "（", "）"
@@ -151,6 +159,14 @@ def map_direction(text: str) -> tuple[str, str] | None:
         if kw in text:
             return DIRECTION_KEYWORDS[kw]
     return None
+
+
+def action_example_words(action_id: str, limit: int = 3) -> list[str]:
+    """动作 id → 示例舞台指示词（长词优先，G2 提示词能力注入用）。
+
+    仅 body 通道语义词表内动作有示例；limit 截断避免提示词膨胀。
+    """
+    return _KEYWORDS_BY_ACTION.get(action_id, [])[:limit]
 
 
 class StageDirectionScanner:

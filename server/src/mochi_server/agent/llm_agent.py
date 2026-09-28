@@ -29,7 +29,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 
 from langchain_core.messages import AIMessageChunk
@@ -53,11 +53,12 @@ from ..events import (
 )
 from ..memory import MemoryManager
 from ..persona import DEFAULT_SYSTEM_PROMPT
+from ..skin_manifest import SkinManifest
 from ..store import HISTORY_LIMIT, SessionStore
 from .adapters.base import ChatMessage
 from .adapters.langchain import LangChainAdapter, _deltas_from_chunk, _to_lc_messages
 from .context import build_context_messages
-from .cue_extractor import CueStreamParser, cue_prompt_section
+from .cue_extractor import CueStreamParser, _performable_actions, cue_prompt_section
 from .emotion import classify_reply_emotion
 from .errors import AgentError
 from .react_graph import build_react_graph, is_llm_chunk
@@ -132,6 +133,7 @@ class LLMAgentService(AgentService):
         emotion_enabled: bool = True,
         cue_enabled: bool = False,
         max_reply_chars: int = DEFAULT_MAX_REPLY_CHARS,
+        skin_provider: Callable[[], SkinManifest | None] | None = None,
     ):
         self._adapter = adapter
         self._system_prompt = system_prompt
@@ -144,6 +146,9 @@ class LLMAgentService(AgentService):
         self._emotion_enabled = emotion_enabled  # 2.5 情绪后置；False → 不分类
         # 表演节拍（M-C）：默认 False（黄金样例/既有测试零影响）；registry 按配置开启
         self._cue_enabled = cue_enabled
+        # 皮肤能力提供者（G2）：每回合调用取当前皮肤清单，提示词只教真实可演动作；
+        # None/异常 → 静态全词表（零回归）；闭包内读活动配置，换肤即时生效
+        self._skin_provider = skin_provider
         # 回复长度上限（2026-09-28 用户可配）：流式放行 + system prompt 双侧生效
         self._max_reply_chars = max_reply_chars
         self._pending: dict[str, _PendingConfirm] = {}
@@ -178,6 +183,24 @@ class LLMAgentService(AgentService):
         except Exception:
             logger.exception("主动回复落盘失败（不影响本回合）：session_id=%s", session_id)
 
+    def _current_skin(self) -> SkinManifest | None:
+        """当前皮肤清单（G2）：provider 异常降级 None（静态全词表），不阻断回合。"""
+        if self._skin_provider is None:
+            return None
+        try:
+            skin = self._skin_provider()
+        except Exception:
+            logger.exception("皮肤能力读取失败，cue 提示词回落全词表")
+            return None
+        if skin is not None:
+            performable = _performable_actions(skin)
+            logger.info(
+                "cue 提示词按皮肤能力注入：%s（%d 个可演动作）",
+                skin.name,
+                len(performable) if performable else 0,
+            )
+        return skin
+
     async def _persist_turn(self, session_id: str, user_text: str, reply: str) -> None:
         if self._store is None:
             return
@@ -211,7 +234,8 @@ class LLMAgentService(AgentService):
         if self._tools is not None and self._tools.list_specs():
             effective_system += _TOOL_NUDGE
         if self._cue_enabled:
-            effective_system += cue_prompt_section()
+            skin = self._current_skin()
+            effective_system += cue_prompt_section(skin)
         # 回复长度硬性要求（2026-09-28 用户可配）：同步告知模型真实上限，
         # 否则模型会自行宣称/按其它长度标准作答（实测：被 200 截断却自称 300~500 字）
         effective_system += reply_length_requirement(self._max_reply_chars)

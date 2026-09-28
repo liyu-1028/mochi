@@ -30,6 +30,7 @@ import uuid
 from dataclasses import dataclass
 
 from ..events import (
+    ACTION_LABELS,
     CUE_INTERRUPT_POLICY_VALUES,
     SEMANTIC_ACTIONS,
     CharacterCueData,
@@ -38,6 +39,7 @@ from ..events import (
     CueFaceChannel,
     Emotion,
 )
+from ..skin_manifest import SkinManifest
 
 logger = logging.getLogger(__name__)
 
@@ -288,21 +290,63 @@ def _paren_depth_after(text: str, start_depth: int) -> int:
     return depth
 
 
-def cue_prompt_section() -> str:
-    """注入 system prompt 的标记使用说明（仅 cue 路径启用时拼接）。"""
-    body_ids = ", ".join(sorted(_AGENT_SELECTABLE))
+def _static_action_words() -> str:
+    """静态全词表的舞台指示示例词（能力注入不可用时的回落文案）。"""
+    return (
+        "眨眨眼、点头、摇头、挥手、鼓掌/庆祝、拍拍安慰、吓了一跳、"
+        "东张西望、沉思、伸懒腰、打哈欠/犯困、竖起耳朵、"
+        "嘟嘴、大笑、扭捏、警觉/打起精神"
+    )
+
+
+def _performable_actions(skin: SkinManifest | None) -> list[str] | None:
+    """皮肤可演动作 id 列表（∩ 语义词表）；None = 无有效能力清单（回落静态）。"""
+    if skin is None or not skin.actions:
+        return None
+    ids = [a.id for a in skin.actions if a.agent_selectable]
+    performable = [i for i in ids if i in _AGENT_SELECTABLE]
+    return performable or None
+
+
+def cue_prompt_section(skin: SkinManifest | None = None) -> str:
+    """注入 system prompt 的标记使用说明（仅 cue 路径启用时拼接）。
+
+    G2 能力注入：传入当前皮肤清单时，只教模型该皮肤真实可演的动作
+    （借鉴 Open-LLM-VTuber 用 emo_str 动态替换表情清单的同构设计）；
+    skin 为 None / 无 actions / 无可演动作 → 回落静态全词表（零回归）。
+    白名单校验（_AGENT_SELECTABLE）不变：动态注入只收窄可选集，不放宽。
+    """
+    # 函数级 import：stage_directions 反向依赖本模块常量，顶层互引会循环
+    from .stage_directions import action_example_words
+
+    performable = _performable_actions(skin)
+    dynamic = performable is not None
+    if dynamic:
+        body_line = "- 动作标记：[[cue:id]]，id 可选：{}\n".format(
+            ", ".join(f"{ACTION_LABELS.get(aid, aid)}({aid})" for aid in performable)
+        )
+        words = "、".join(w for aid in performable for w in action_example_words(aid))
+        words_part = words or _static_action_words()
+    else:
+        body_line = f"- 动作标记：[[cue:id]]，id 可选：{', '.join(sorted(_AGENT_SELECTABLE))}\n"
+        words_part = _static_action_words()
     face_ids = ", ".join(sorted(_FACE_EMOTIONS))
+    intro = (
+        f"当前装扮「{skin.name}」能演以下动作，你可以在回复的句子开头插入标记让角色表演：\n"
+        if dynamic
+        else "你可以在回复的句子开头插入标记，让角色做出对应的动作或表情：\n"
+    )
+    scope_note = "只使用上列动作与表情，不要发明清单外的标记或动作描写。\n" if dynamic else ""
     return (
         "\n\n# 表演标记（可选）\n"
-        "你可以在回复的句子开头插入标记，让角色做出对应的动作或表情：\n"
-        f"- 动作标记：[[cue:id]]，id 可选：{body_ids}\n"
+        f"{intro}"
+        f"{body_line}"
         f"- 表情标记：[[cue:emotion]]，emotion 可选：{face_ids}\n"
         "用法约束：整个回复至多 2~3 个标记；标记放在它所描述的句子开头；"
         "不要连续使用、不要解释标记、不要把标记放进引用或列表。\n"
         "\n你也会用括号写舞台指示（如（眨眨眼）（点点头）），它们会同步触发"
         "角色动作；为获得最佳效果，请优先使用这些能被识别的动作词："
-        "眨眨眼、点头、摇头、挥手、鼓掌/庆祝、拍拍安慰、吓了一跳、"
-        "东张西望、沉思、伸懒腰、打哈欠/犯困、竖起耳朵、"
-        "嘟嘴、大笑、扸捏、警觉/打起精神；表情：微笑、耷拉、"
-        "脸红、歪头、惊讶、生气。"
+        f"{words_part}；表情：微笑、耷拉、"
+        "脸红、歪头、惊讶、生气。\n"
+        f"{scope_note}"
     )
