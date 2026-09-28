@@ -17,6 +17,7 @@ import {
   type ToolConfirmData,
 } from "@mochi/protocol";
 import { useCallback, useEffect, useRef } from "react";
+import { useAttentionSignals } from "./useAttentionSignals";
 import { sessionApi } from "../api/configClient";
 import { DEFAULT_SIDECAR_PORT, getRuntimePort } from "../api/sidecarRuntime";
 import { historyToMessages, useConversation } from "../store/conversation";
@@ -126,6 +127,10 @@ export function useMochiConnection(url: string) {
     },
     [sendSignal],
   );
+
+  // 环境信号（M-D D3）：闲置与连续活跃上报（引擎 idle→silent 只记账；
+  // focus 连续活跃超阈触发休息提醒 ask）
+  useAttentionSignals(sendSignal);
 
   return { sendText, cancelRun, interruptRun, confirmTool, respondIntent, sendSignal };
 }
