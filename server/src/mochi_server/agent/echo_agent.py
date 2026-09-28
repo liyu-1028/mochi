@@ -48,6 +48,9 @@ class EchoAgentService(AgentService):
 
     async def run(self, ctx: AgentContext) -> AsyncIterator[AgentEvent]:
         message_id = f"m-{uuid.uuid4().hex[:12]}"
+        # proactive 回合（M-D）：ctx.text 是引擎触发指令，不是用户发言——
+        # 不引用、不落盘 user message（D4 记忆边界，与 LLMAgentService 同构）
+        proactive = ctx.source == "proactive"
 
         # --- 思考阶段（驱动角色 thinking 动画）---
         yield "state.change", StateChangeData(state="thinking")
@@ -68,10 +71,13 @@ class EchoAgentService(AgentService):
         yield "state.change", StateChangeData(state="talking")
         yield "emotion", EmotionData(run_id=ctx.run_id, emotion=Emotion.HAPPY, intensity=0.6)
 
-        reply = (
-            f"收到你的消息：「{ctx.text}」。"
-            "我是 Mochi 的 echo 桩模型，端到端链路已打通，真实模型将在 S2 接入。"
-        )
+        if proactive:
+            reply = "我是 Mochi 的 echo 桩（主动模式）：链路已打通，稍后由真实模型来关心你。"
+        else:
+            reply = (
+                f"收到你的消息：「{ctx.text}」。"
+                "我是 Mochi 的 echo 桩模型，端到端链路已打通，真实模型将在 S2 接入。"
+            )
         yield "text.start", TextStartData(run_id=ctx.run_id, message_id=message_id)
         for i in range(0, len(reply), _CHUNK_SIZE):
             if self._chunk_delay:
@@ -83,10 +89,12 @@ class EchoAgentService(AgentService):
                 ),
             )
 
-        # 落盘本轮（4.3，与 LLMAgentService 同构；存储故障不阻断回显）
+        # 落盘本轮（4.3，与 LLMAgentService 同构；存储故障不阻断回显）；
+        # proactive 只落 assistant（D4：不伪造 user message）
         if self._store is not None:
             try:
-                await self._store.append_message(ctx.session_id, "user", ctx.text)
+                if not proactive:
+                    await self._store.append_message(ctx.session_id, "user", ctx.text)
                 await self._store.append_message(ctx.session_id, "assistant", reply)
             except Exception:
                 logger.exception("会话落盘失败（不影响本回合回复）：session_id=%s", ctx.session_id)

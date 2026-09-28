@@ -6,6 +6,7 @@ import pytest
 
 from mochi_server.agent import AgentContext, EchoAgentService
 from mochi_server.events import TextDeltaData, TextEndData
+from mochi_server.store import SessionStore
 
 
 def _ctx() -> AgentContext:
@@ -55,3 +56,26 @@ async def test_echo_contains_user_input() -> None:
     events = await _collect(EchoAgentService(chunk_delay=0, thinking_delay=0))
     full = next(d.full_text for t, d in events if t == "text.end")
     assert _ctx().text in full
+
+
+@pytest.mark.asyncio
+async def test_proactive_round_does_not_forge_user_message(tmp_path):
+    """M-D D4（echo 桩同构）：proactive 回合不落盘 user message、不引用触发指令。"""
+    from mochi_server.agent.service import AgentContext
+
+    store = SessionStore(db_path=tmp_path / "s.db")
+    agent = EchoAgentService(chunk_delay=0, thinking_delay=0, store=store)
+    ctx = AgentContext(
+        run_id="r-p",
+        session_id="s",
+        text="（系统提示：工具 bash 已连续失败 2 次……）",
+        source="proactive",
+        intent_id="i-1",
+    )
+    async for _ in agent.run(ctx):
+        pass
+    messages = await store.get_messages("s")
+    roles = [m["role"] for m in messages]
+    assert roles == ["assistant"]
+    assert "系统提示" not in messages[0]["content"]  # 触发指令不进气泡文本
+    await store.close()
