@@ -128,20 +128,22 @@ export function createDriver(stage: StageHandle): CharacterDriver {
     // one-shot 微动作不被常规表情覆写冲掉；到期后静默并清除播放态
     if (actionEnvelope) {
       const elapsed = Date.now() - actionEnvelope.startedAtMs;
-      const snapshot = actionEnvelope.env.params(elapsed);
-      if (snapshot) {
-        if (!actionEnvelope.missingLogged) {
-          actionEnvelope.missingLogged = true;
-          const missing = Object.keys(snapshot).filter((id) => params.getParameterIndex(id) < 0);
-          if (missing.length > 0) {
-            console.info(
-              `[mochi] envelope ${actionEnvelope.requestedId} 模型缺失参数，逐参数跳过：${missing.join(", ")}`,
-            );
-          }
-        }
-        for (const [id, value] of Object.entries(snapshot)) setParam(id, value);
-      } else if (elapsed >= actionEnvelope.env.durationMs) {
+      if (elapsed >= actionEnvelope.env.durationMs) {
         actionEnvelope = null;
+      } else {
+        const snapshot = actionEnvelope.env.params(elapsed);
+        if (snapshot) {
+          if (!actionEnvelope.missingLogged) {
+            actionEnvelope.missingLogged = true;
+            const missing = Object.keys(snapshot).filter((id) => params.getParameterIndex(id) < 0);
+            if (missing.length > 0) {
+              console.info(
+                `[mochi] envelope ${actionEnvelope.requestedId} 模型缺失参数，逐参数跳过：${missing.join(", ")}`,
+              );
+            }
+          }
+          for (const [id, value] of Object.entries(snapshot)) setParam(id, value);
+        }
       }
     }
   };
