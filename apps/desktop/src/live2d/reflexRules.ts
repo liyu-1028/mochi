@@ -46,6 +46,10 @@ const DEFAULTS: Record<string, { priority: number; cooldownMs: number; durationM
   surprised: { priority: 70, cooldownMs: 8000 },
   stretch: { priority: 30, cooldownMs: 20_000 },
   doze: { priority: 20, cooldownMs: 30_000, durationMs: DOZE_DURATION_MS },
+  // G5（2b 资产解锁）：与 DEFAULT_LIVE2D_ACTIONS 基线同参
+  jump: { priority: 55, cooldownMs: 6000 },
+  spin: { priority: 55, cooldownMs: 8000 },
+  bow: { priority: 45, cooldownMs: 5000 },
   think: { priority: 40, cooldownMs: 5000 },
   listen: { priority: 50, cooldownMs: 3000 },
   wink: { priority: 50, cooldownMs: 2500, durationMs: WINK_DURATION_MS },

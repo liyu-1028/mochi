@@ -189,6 +189,38 @@ export const DEFAULT_LIVE2D_ACTIONS: readonly SkinAction[] = [
     agentSelectable: true,
     fallback: "idle_neutral",
   },
+  // ---- G5（2b 资产解锁）：无内置兑底——仅当皮肤扩展包（G4）提供对应
+  // motion3.json 才可演；组未命中 → fallback idle_neutral，与设计一致 ----
+  {
+    id: "jump",
+    kind: "oneshot",
+    channels: ["body"],
+    live2d: { motionGroups: ["MochiJump"] },
+    fallback: "idle_neutral",
+    priority: 55,
+    cooldownMs: 6000,
+    agentSelectable: true,
+  },
+  {
+    id: "spin",
+    kind: "oneshot",
+    channels: ["body"],
+    live2d: { motionGroups: ["MochiSpin"] },
+    fallback: "idle_neutral",
+    priority: 55,
+    cooldownMs: 8000,
+    agentSelectable: true,
+  },
+  {
+    id: "bow",
+    kind: "oneshot",
+    channels: ["body"],
+    live2d: { motionGroups: ["MochiBow"] },
+    fallback: "idle_neutral",
+    priority: 45,
+    cooldownMs: 5000,
+    agentSelectable: true,
+  },
 ];
 
 interface ResolvedActionBase {

@@ -46,6 +46,12 @@ def test_map_direction_g1_envelope_actions() -> None:
     assert map_direction("突然警觉") == ("body", "alert")
     assert map_direction("打起精神") == ("body", "alert")
     assert map_direction("听得犯困点头") == ("body", "doze")
+    # G5（2b 资产解锁）：跳跃/转圈/鞠躬
+    assert map_direction("开心地跳") == ("body", "jump")
+    assert map_direction("蹦跳") == ("body", "jump")
+    assert map_direction("转了个圈") == ("body", "spin")
+    assert map_direction("鞠了个躬") == ("body", "bow")
+    assert map_direction("弯腰行礼") == ("body", "bow")
 
 
 def test_map_direction_unmapped_returns_none() -> None:

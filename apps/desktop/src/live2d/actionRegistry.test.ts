@@ -236,15 +236,27 @@ describe("M-A/M-B 验收证据：全词表可解析", () => {
 
   it("Live2D 默认映射覆盖除 idle_neutral 外的全部词表（stretch 降级，其余包络兑底）", () => {
     const ids = DEFAULT_LIVE2D_ACTIONS.map((a) => a.id);
-    // 词表 17 项 - idle_neutral = 16；全部有默认映射（G1 后 doze 也可演）
+    // 词表 20 项（G5 后）- idle_neutral = 19；全部有默认映射
     expect(ids.length).toBe(SEMANTIC_ACTIONS.length - 1);
     expect(ids).not.toContain("idle_neutral");
     expect(new Set(ids).size).toBe(ids.length); // 无重复
     // stretch 仍是唯一无诚实实现的降级设计；其余 fallback 到 idle_neutral
-    // 的动作 = 包络兑底类（wink + G1 四项 + doze）
+    // 的动作 = 包络兑底类（wink + G1 四项 + doze）+ 2b 资产解锁类（G5：
+    // jump/spin/bow 无内置兑底，仅皮肤扩展包提供 motion3.json 才可演）
     expect(
       DEFAULT_LIVE2D_ACTIONS.filter((a) => a.fallback === "idle_neutral").map((a) => a.id),
-    ).toEqual(["wink", "pout", "laugh", "shy_shake", "alert", "stretch", "doze"]);
+    ).toEqual([
+      "wink",
+      "pout",
+      "laugh",
+      "shy_shake",
+      "alert",
+      "stretch",
+      "doze",
+      "jump",
+      "spin",
+      "bow",
+    ]);
   });
 
   it("G1 包络兑底：Hiyori 无专用组 → pout/laugh/shy_shake/alert 走内置包络计划", () => {
@@ -268,5 +280,24 @@ describe("M-A/M-B 验收证据：全词表可解析", () => {
       expressions: [],
     });
     expect(declared.motionGroup).toBe("Wink");
+  });
+
+  it("G5（2b 资产解锁）：无资产皮肤 → jump/spin/bow 降级 idle_neutral", () => {
+    for (const id of ["jump", "spin", "bow"] as const) {
+      const plan = resolveAction(id, live2dSkin(undefined), HIYORI_PROFILE);
+      expect(plan.motionGroup, id).toBeNull();
+      expect(plan.actionId, id).toBe(TERMINAL_ACTION_ID);
+      expect(plan.requestedId, id).toBe(id);
+    }
+  });
+
+  it("G5（2b 资产解锁）：扩展包提供 MochiBow 组 → bow 命中真实 motion", () => {
+    const skin = live2dSkin([action("bow", { live2d: { motionGroups: ["MochiBow"] } })]);
+    const plan = resolveAction("bow", skin, {
+      motionGroups: ["Idle", "MochiBow"],
+      expressions: [],
+    });
+    expect(plan.motionGroup).toBe("MochiBow");
+    expect(plan.actionId).toBe("bow");
   });
 });

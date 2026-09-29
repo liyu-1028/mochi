@@ -107,6 +107,18 @@ DIRECTION_KEYWORDS: dict[str, tuple[str, str]] = {
     "猛地抬头": ("body", "alert"),
     "精神一振": ("body", "alert"),
     "打起精神": ("body", "alert"),
+    # -- body：G5（2b 资产解锁）——仅当皮肤扩展包提供对应 motion3.json 才可演
+    "跳跃": ("body", "jump"),
+    "跳了一下": ("body", "jump"),
+    "蹦跳": ("body", "jump"),
+    "开心地跳": ("body", "jump"),
+    "转了个圈": ("body", "spin"),
+    "转圈": ("body", "spin"),
+    "旋转": ("body", "spin"),
+    "鞠了个躬": ("body", "bow"),
+    "鞠躬": ("body", "bow"),
+    "弯腰行礼": ("body", "bow"),
+    "欠身": ("body", "bow"),
     # -- face：情绪（EMOTIONS 词表内）--
     "微笑": ("face", "happy"),
     "笑了笑": ("face", "happy"),
