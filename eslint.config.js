@@ -13,6 +13,7 @@ export default tseslint.config(
       "server/**",
       // 下载的第三方产物（Live2D Cubism Core 等专有代码，见 .gitignore）
       "apps/desktop/public/**",
+      ".claude/**",
     ],
   },
   js.configs.recommended,
