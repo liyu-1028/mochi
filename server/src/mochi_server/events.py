@@ -125,6 +125,26 @@ ACTION_LABELS: dict[str, str] = {
 # 动作通道（调研报告 §8.3）；M-A 仅 face/body/effect 可执行，其余预留
 ACTION_CHANNELS = ("face", "body", "locomotion", "voice", "effect")
 
+# locomotion 通道动作词表（I3/M-H 容器联动）：角色在自身窗口活动区内的位置
+# 指令；封闭白名单——服务端只产词表内 id，前端未知 id 忽略。center 由
+# come_back 表达（回默认居中位）。
+LOCOMOTION_ACTIONS = (
+    "come_back",
+    "lean_edge",
+    "peek_dock",
+    "lean_bubble",
+    "peek_out",
+)
+
+# locomotion 展示名（与 ACTION_LABELS 同惯例）
+LOCOMOTION_LABELS = {
+    "come_back": "回到中间",
+    "lean_edge": "靠墙歇会儿",
+    "peek_dock": "趴在输入框上",
+    "lean_bubble": "靠在气泡边",
+    "peek_out": "探出头",
+}
+
 
 class ErrorCode(StrEnum):
     """标准化错误码（规范文档 §7）。"""
@@ -436,7 +456,7 @@ class CueBodyChannel(CamelModel):
 
 
 class CueLocomotionChannel(CamelModel):
-    """M-C 预留：服务端不产出，前端忽略。"""
+    """容器联动位置指令（I3/M-H）：actionId ∈ LOCOMOTION_ACTIONS 白名单。"""
 
     action_id: str
 

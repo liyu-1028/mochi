@@ -188,6 +188,16 @@ def test_action_labels_match_fixture() -> None:
     assert set(ACTION_LABELS) == set(SEMANTIC_ACTIONS)
 
 
+def test_locomotion_actions_match_fixture() -> None:
+    """locomotion 词表与展示名和共享夹具一致（I3/M-H）。"""
+    from mochi_server.events import LOCOMOTION_ACTIONS, LOCOMOTION_LABELS
+
+    fixture = _load_semantic_fixture()
+    assert list(LOCOMOTION_ACTIONS) == fixture["locomotionActions"]
+    assert dict(LOCOMOTION_LABELS) == fixture["locomotionLabels"]
+    assert set(LOCOMOTION_LABELS) == set(LOCOMOTION_ACTIONS)
+
+
 def test_semantic_actions_constraints() -> None:
     """词表约束：idle_neutral 必在（全链路兜底终点）、id 均为 snake_case。"""
     assert "idle_neutral" in SEMANTIC_ACTIONS

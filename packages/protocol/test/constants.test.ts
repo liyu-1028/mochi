@@ -13,6 +13,8 @@ import {
   ACTION_CHANNELS,
   ACTION_LABELS,
   COMMAND_TYPES,
+  LOCOMOTION_ACTIONS,
+  LOCOMOTION_LABELS,
   CUE_INTERRUPT_POLICIES,
   CUE_SOURCES,
   CUE_SYNC,
@@ -60,6 +62,15 @@ describe("语义动作注册表（协议规范 §11）", () => {
     expect(fixture.actionLabels).toBeTruthy();
     expect({ ...ACTION_LABELS }).toEqual(fixture.actionLabels);
     expect(Object.keys(ACTION_LABELS).sort()).toEqual([...SEMANTIC_ACTIONS].sort());
+  });
+
+  it("locomotion 词表与展示名与共享夹具一致（I3/M-H）", () => {
+    const fixture = JSON.parse(readFileSync(fixturePath, "utf-8")) as {
+      locomotionActions: string[];
+      locomotionLabels: Record<string, string>;
+    };
+    expect([...LOCOMOTION_ACTIONS]).toEqual(fixture.locomotionActions);
+    expect({ ...LOCOMOTION_LABELS }).toEqual(fixture.locomotionLabels);
   });
 
   it("词表总数 25 项，且所有中文展示名均为非空可读文本", () => {

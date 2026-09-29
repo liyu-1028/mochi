@@ -294,6 +294,28 @@ export const ACTION_LABELS: Record<SemanticActionId, string> = {
 export const ACTION_CHANNELS = ["face", "body", "locomotion", "voice", "effect"] as const;
 export type ActionChannel = (typeof ACTION_CHANNELS)[number];
 
+/**
+ * locomotion 通道动作词表（I3/M-H 容器联动）：角色在自身窗口活动区内的
+ * 位置指令。封闭白名单；服务端只产词表内 id，前端未知 id 忽略。
+ * center 由 come_back 表达（回默认居中位）。
+ */
+export const LOCOMOTION_ACTIONS = [
+  "come_back",
+  "lean_edge",
+  "peek_dock",
+  "lean_bubble",
+  "peek_out",
+] as const;
+export type LocomotionActionId = (typeof LOCOMOTION_ACTIONS)[number];
+/** locomotion 展示名（与 ACTION_LABELS 同惯例） */
+export const LOCOMOTION_LABELS: Record<LocomotionActionId, string> = {
+  come_back: "回到中间",
+  lean_edge: "靠墙歇会儿",
+  peek_dock: "趴在输入框上",
+  lean_bubble: "靠在气泡边",
+  peek_out: "探出头",
+};
+
 /** 标准化错误码（规范文档 §7） */
 export const ERROR_CODES = {
   VersionMismatch: "ERR_VERSION_MISMATCH",

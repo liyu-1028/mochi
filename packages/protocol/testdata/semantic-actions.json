@@ -53,5 +53,13 @@
     "question": "满脸问号",
     "type": "打字"
   },
-  "actionChannels": ["face", "body", "locomotion", "voice", "effect"]
+  "actionChannels": ["face", "body", "locomotion", "voice", "effect"],
+  "locomotionActions": ["come_back", "lean_edge", "peek_dock", "lean_bubble", "peek_out"],
+  "locomotionLabels": {
+    "come_back": "回到中间",
+    "lean_edge": "靠墙歇会儿",
+    "peek_dock": "趴在输入框上",
+    "lean_bubble": "靠在气泡边",
+    "peek_out": "探出头"
+  }
 }
