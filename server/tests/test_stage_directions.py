@@ -52,6 +52,14 @@ def test_map_direction_g1_envelope_actions() -> None:
     assert map_direction("转了个圈") == ("body", "spin")
     assert map_direction("鞠了个躬") == ("body", "bow")
     assert map_direction("弯腰行礼") == ("body", "bow")
+    # 批次 3（I1，L1 包络）：跳舞/比心/飞吻/满脸问号/打字
+    assert map_direction("跳个舞") == ("body", "dance")
+    assert map_direction("手舞足蹈") == ("body", "dance")
+    assert map_direction("对镜头比了个心") == ("body", "finger_heart")
+    assert map_direction("送个飞吻") == ("body", "blow_kiss")
+    assert map_direction("满脸问号") == ("body", "question")
+    assert map_direction("一头雾水") == ("body", "question")
+    assert map_direction("噼里啪啦敲键盘") == ("body", "type")
 
 
 def test_map_direction_unmapped_returns_none() -> None:

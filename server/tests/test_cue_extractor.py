@@ -141,7 +141,8 @@ def test_non_tag_brackets_pass_through() -> None:
 
 def test_unknown_action_dropped_with_counter() -> None:
     p = CueStreamParser("r", "m")
-    outs = p.feed("正文[[cue:dance]]继续")
+    # not_an_action 永不在词表（dance 曾是非法样例，批次 3 后已入表）
+    outs = p.feed("正文[[cue:not_an_action]]继续")
     assert _cues(outs) == []
     assert p.dropped.get("unknown_action") == 1
 
