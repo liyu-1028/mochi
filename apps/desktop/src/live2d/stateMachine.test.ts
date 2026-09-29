@@ -58,10 +58,14 @@ describe("resolveAnimation：6 状态基础计划", () => {
     }
   });
 
-  it("仅 working 启用身体微晃", () => {
-    expect(resolveAnimation("working", null, HIYORI_PROFILE).bodySway).toBe(true);
+  it("working 启用持续打字姿态（批次 3 I1），其余状态 bodySway/typing 均关", () => {
+    const working = resolveAnimation("working", null, HIYORI_PROFILE);
+    expect(working.typing).toBe(true);
+    expect(working.bodySway).toBe(false); // 打字姿态自带身体前倾，与微晃互斥
     for (const state of CHARACTER_STATES.filter((s) => s !== "working")) {
-      expect(resolveAnimation(state, null, HIYORI_PROFILE).bodySway).toBe(false);
+      const plan = resolveAnimation(state, null, HIYORI_PROFILE);
+      expect(plan.typing).toBe(false);
+      expect(plan.bodySway).toBe(false);
     }
   });
 
