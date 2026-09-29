@@ -5,7 +5,7 @@
 > release.yml 发布时自动提取对应段落作为 GitHub Release Notes，
 > 缺少条目会在构建前拦截（先写 changelog 再打 tag）。
 
-## Unreleased
+## v0.14.0 - 2026-09-29
 
 容器联动（I3/M-H）：窗口扩为活动区 + locomotion 位置指令 + 问号贴图
 
