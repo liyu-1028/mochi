@@ -22,6 +22,10 @@ export const MIN_WINDOW_WIDTH = 320;
 /** 静态皮肤渲染放大上限：小图拉到标准高的倍数封顶（扁平风 ≤2x 糊感可控）。
  *  Live2D 不传参（矢量模型任意缩放清晰），仅静态路径生效。 */
 export const MAX_STATIC_UPSCALE = 2;
+/** 活动区宽度比（I3/M-H）：窗口宽 = 角色宽 × 该比例，左右各留约半个身位
+ *  余量供容器联动平移（靠墙/探头）；透明余量区由穿透层保证不拦桌面。
+ *  仅在余量有效时生效：窄角色受 MIN_WINDOW_WIDTH 兑底时不额外扩宽。 */
+export const LOCOMOTION_AREA_RATIO = 2.2;
 /** 角色头顶留给气泡叠层的空白区高度。 */
 export const BUBBLE_HEADROOM = 96;
 /** 气泡内缘距窗口中线的间距占角色宽比例（头半宽经验值）：贴近头部又不遮脸。 */
@@ -64,9 +68,14 @@ export function computeCharacterLayout(
   );
   const charW = modelW * scale;
   const charH = modelH * scale;
+  // 活动区扩容（I3）：仅当角色宽足以撑出余量时才放宽窗口，
+  // 否则保持「只有角色那么大」的原语义（窄角色/静态皮肤兑底）
+  const stageW = Math.ceil(charW) + PAD * 2;
+  const areaW = Math.ceil(charW * LOCOMOTION_AREA_RATIO) + PAD * 2;
+  const expandedW = charW >= MIN_WINDOW_WIDTH ? areaW : stageW;
   return {
     // 宽度下限保 dock 输入条可用（窄角色不再压扁输入框，见 MIN_WINDOW_WIDTH）
-    winW: Math.max(Math.ceil(charW) + PAD * 2, MIN_WINDOW_WIDTH),
+    winW: Math.max(expandedW, MIN_WINDOW_WIDTH),
     winH: BUBBLE_HEADROOM + Math.ceil(charH) + CHROME_HEIGHT,
     scale,
     charW,

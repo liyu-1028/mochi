@@ -64,6 +64,41 @@ body {
   cursor: pointer;
   position: relative;
   z-index: 0;
+  /* 容器联动（I3/M-H）：locomotion 位移/缩放的平滑过渡；
+     come_back 回位走同一条过渡，靠墙/探头/趴输入框互切不跳变 */
+  transition: transform 1s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 头顶问号贴图（H4）：question 包络同期浮出，动画结束自动消散 */
+.character-qmark {
+  position: absolute;
+  top: 4%;
+  left: 64%;
+  font-size: clamp(26px, 9vh, 44px);
+  font-weight: 700;
+  color: #7c6b70;
+  text-shadow: 0 2px 6px rgba(255, 255, 255, 0.9);
+  pointer-events: none; /* 纯装饰，不参与命中/穿透 */
+  z-index: 2;
+  animation: qmark-pop 1.8s ease-out forwards;
+}
+
+@keyframes qmark-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.6) rotate(-10deg);
+  }
+  22% {
+    opacity: 1;
+    transform: translateY(-2px) scale(1.08) rotate(5deg);
+  }
+  55% {
+    transform: translateY(-10px) scale(1) rotate(-4deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-24px) scale(0.92) rotate(2deg);
+  }
 }
 
 /* 加载失败降级（G5 修复）：badge 以 overlay 叠加，隐藏残留画布避免残影；
@@ -578,9 +613,12 @@ body {
   overflow: hidden; /* 防输入条内容溢出撑宽窗口导致角色水平偏移 */
 }
 
-/* 输入条容器：占据 dock 槽位（流内布局，不再绝对定位悬浮于角色之上） */
+/* 输入条容器：占据 dock 槽位（流内布局，不再绝对定位悬浮于角色之上）。
+   活动区扩容（I3）后 dock 槽位比角色宽，输入条以角色宽度为上限居中，
+   不随窗口一起拉宽 */
 .chat-toggle {
   width: 100%;
+  max-width: min(100%, 360px); /* 360 = MAX_CHARACTER_WIDTH：输入条以角色宽度为上限 */
 }
 
 .chat-toggle__panel {

@@ -44,6 +44,13 @@ import {
   reactionFor,
 } from "../live2d/interactions";
 import { buildMaskFromCanvas, maskOpaqueAt, type AlphaMask } from "../passthrough/alphaMask";
+import {
+  LOCOMOTION_STAY_MS,
+  approachLerp,
+  locomotionPose,
+  locomotionTransform,
+  type LocomotionPose,
+} from "../live2d/locomotion";
 
 /**
  * DEV 观测钩子（M-B B4/实测断言用）：挂到 window.__mochiDirector（仅 dev 构建），
@@ -67,7 +74,7 @@ import {
   type AnimationPlan,
   type ModelProfile,
 } from "../live2d/stateMachine";
-import type { Emotion } from "@mochi/protocol";
+import { LOCOMOTION_ACTIONS, type Emotion, type LocomotionActionId } from "@mochi/protocol";
 import {
   createDirectorState,
   submitCue,
@@ -166,6 +173,23 @@ export function CharacterStage({
   const gazeCurrentRef = useRef<GazeTarget>({ x: 0, y: 0 });
   /** 分区点击反应（2.4，仅 live2d）：点击时刻 + 类型，帧覆写期间消费 */
   const reactionRef = useRef<{ kind: "head" | "body"; startedAt: number } | null>(null);
+  // 容器联动位置（I3/M-H）：持久状态，非 idle/超时自动回位；帧闭包读 ref
+  const [locomotion, setLocomotion] = useState<LocomotionActionId>("come_back");
+  const locomotionRef = useRef<LocomotionActionId>("come_back");
+  locomotionRef.current = locomotion;
+  const locomotionSinceRef = useRef(0);
+  /** locomotion 姿态当前值（帧覆写指数趋近目标，避免瞬移） */
+  const locomotionPoseRef = useRef<LocomotionPose>({
+    dx: 0,
+    dy: 0,
+    scale: 1,
+    bodyZ: 0,
+    headZ: 0,
+    bodyY: 0,
+    headY: 0,
+  });
+  /** 模型原始宽高比（onModelReady 回传，位移量计算用） */
+  const modelAspectRef = useRef(1);
   /** 命中掩码：null = 未就绪/降级，命中判定退回“整窗可交互”（旧行为） */
   const maskRef = useRef<AlphaMask | null>(null);
   /** 命中判定（视口坐标）：掩码 ∪ Live2D 分区；掩码就绪前恒 true */
@@ -273,11 +297,41 @@ export function CharacterStage({
   const consumePendingCues = useConversation((s) => s.consumePendingCues);
   useEffect(() => {
     if (pendingCues.length === 0) return;
+    // locomotion 通道（I3/M-H）：白名单校验后取最后一条执行（到达即执行，
+    // 忽略 sync——位移是 ~1s 的 CSS transition，无需句级对齐）；不进
+    // 调度器（转换器只认 face/body）
+    const locoHits: LocomotionActionId[] = [];
+    for (const { cue } of pendingCues) {
+      const lid = cue.channels.locomotion?.actionId;
+      if (lid && (LOCOMOTION_ACTIONS as readonly string[]).includes(lid)) {
+        locoHits.push(lid as LocomotionActionId);
+      }
+    }
+    if (locoHits.length > 0) {
+      const target = locoHits[locoHits.length - 1];
+      setLocomotion(target);
+      locomotionSinceRef.current = Date.now();
+      if (import.meta.env.DEV) console.debug(`[locomotion] ${target}`);
+    }
     for (const { cue, ts } of pendingCues) {
       scheduleReplyCue(cueSchedulerRef.current, cue, ts, Date.now());
     }
     consumePendingCues(pendingCues.length);
   }, [pendingCues, consumePendingCues]);
+
+  // 自动回位：进入非 idle 状态（说话/思考要回中间）或停留超时 → come_back
+  useEffect(() => {
+    if (locomotion === "come_back") return;
+    const timer = window.setInterval(() => {
+      if (
+        effectiveState !== "idle" ||
+        Date.now() - locomotionSinceRef.current > LOCOMOTION_STAY_MS
+      ) {
+        setLocomotion("come_back");
+      }
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [locomotion, effectiveState]);
 
   // 播报上下文：开始（含真实/估算时长）→ beginSpeech；结束 → speech_end 提前到期
   const speechKeyRef = useRef(0);
@@ -399,6 +453,7 @@ export function CharacterStage({
         // 1.1 冷启动验收 / 2.6 性能回归排查用，release 下经 macOS 统一日志可见
         console.info(`[mochi] character-ready(live2d) +${Math.round(performance.now())}ms`);
         onModelReady?.(loaded.modelWidth, loaded.modelHeight);
+        modelAspectRef.current = loaded.modelWidth / loaded.modelHeight;
         setReady(true);
         setStageEpoch((n) => n + 1);
       })
@@ -692,6 +747,32 @@ export function CharacterStage({
           else reactionRef.current = null;
         }
       }
+
+      // locomotion 姿态叠加（I3/M-H）：位移走 CSS transform（渲染层），
+      // 倚靠/趴伏姿态走参数趋近；写在包络应用之后会被包络覆盖——
+      // 「包络最优先」顺序不变。容器量测每帧重取太贵，250ms 节流缓存复用。
+      const loco = locomotionRef.current;
+      const rectNow = stageRectRef.current?.rect;
+      if (rectNow && modelAspectRef.current > 0) {
+        const targetPose = locomotionPose(
+          loco,
+          rectNow.width,
+          rectNow.height,
+          modelAspectRef.current,
+        );
+        const cur = locomotionPoseRef.current;
+        cur.dx = approachLerp(cur.dx, targetPose.dx);
+        cur.dy = approachLerp(cur.dy, targetPose.dy);
+        cur.scale = approachLerp(cur.scale, targetPose.scale);
+        cur.bodyZ = approachLerp(cur.bodyZ, targetPose.bodyZ);
+        cur.headZ = approachLerp(cur.headZ, targetPose.headZ);
+        cur.bodyY = approachLerp(cur.bodyY, targetPose.bodyY);
+        cur.headY = approachLerp(cur.headY, targetPose.headY);
+        if (cur.bodyZ !== 0) driver.setParam("ParamBodyAngleZ", cur.bodyZ);
+        if (cur.headZ !== 0) driver.setParam("ParamAngleZ", cur.headZ);
+        if (cur.bodyY !== 0) driver.setParam("ParamBodyAngleY", cur.bodyY);
+        if (cur.headY !== 0) driver.setParam("ParamAngleY", cur.headY);
+      }
     });
   }, [ready, ttsPlaying]);
 
@@ -800,11 +881,15 @@ export function CharacterStage({
 
   // 失败降级：badge 以 overlay 叠加（容器不卸载——containerRef 持续有效，
   // 换装即重试；旧画布以 CSS 隐藏避免残影，引用仍留给新加载就绪时销毁）
+  const activePose = locomotionPoseRef.current;
+  const transformed = activePose.dx !== 0 || activePose.dy !== 0 || activePose.scale !== 1;
   return (
     <div
-      className={`character-stage${failed ? " character-stage--failed" : ""}`}
+      className={`character-stage${failed ? " character-stage--failed" : ""}${transformed ? " character-stage--locomoted" : ""}`}
       ref={containerRef}
       data-skin={skin?.id}
+      data-locomotion={locomotion}
+      style={transformed ? { transform: locomotionTransform(activePose) } : undefined}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
       onPointerDown={handlePointerDown}

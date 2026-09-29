@@ -15,6 +15,7 @@ import {
   TARGET_CHARACTER_HEIGHT,
   anchorBottomY,
   computeCharacterLayout,
+  LOCOMOTION_AREA_RATIO,
 } from "./characterLayout";
 
 describe("computeCharacterLayout", () => {
@@ -33,7 +34,8 @@ describe("computeCharacterLayout", () => {
     const layout = computeCharacterLayout(4000, 1000);
     expect(layout.charW).toBeCloseTo(MAX_CHARACTER_WIDTH, 10);
     expect(layout.charH).toBeCloseTo(90, 10);
-    expect(layout.winW).toBe(360 + PAD * 2);
+    // 活动区扩容（I3）：charW≥MIN_WINDOW_WIDTH 时窗口放宽为角色宽×2.2
+    expect(layout.winW).toBe(Math.ceil(360 * LOCOMOTION_AREA_RATIO) + PAD * 2);
   });
 
   it("窗口高度 = 头顶气泡区 + 角色高 + 纵向开销", () => {
@@ -47,7 +49,16 @@ describe("computeCharacterLayout", () => {
     expect(narrow.charW).toBeCloseTo(35, 5);
     expect(narrow.winW).toBe(MIN_WINDOW_WIDTH);
     const wide = computeCharacterLayout(4000, 1000);
-    expect(wide.winW).toBe(360 + PAD * 2);
+    expect(wide.winW).toBe(Math.ceil(360 * LOCOMOTION_AREA_RATIO) + PAD * 2);
+  });
+
+  it("活动区扩容（I3）：宽角色窗口放宽供容器联动平移，窄角色保持原语义", () => {
+    const live2d = computeCharacterLayout(800, 1200); // charW≈187 < 320：不扩容
+    expect(live2d.winW).toBe(MIN_WINDOW_WIDTH);
+    const tall = computeCharacterLayout(1000, 2000); // charW=140：不扩容
+    expect(tall.winW).toBe(MIN_WINDOW_WIDTH);
+    const wide = computeCharacterLayout(3000, 2000); // charW=360（clamp）≥ 320：扩容
+    expect(wide.winW).toBe(Math.ceil(360 * LOCOMOTION_AREA_RATIO) + PAD * 2);
   });
 
   it("放大上限：64px 小图 scale 封顶 MAX_STATIC_UPSCALE，不再无限拉大", () => {
