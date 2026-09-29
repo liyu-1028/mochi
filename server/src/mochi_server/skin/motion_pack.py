@@ -161,7 +161,10 @@ def _validate_curve(curve: object, filename: str, duration: float) -> None:
 def _load_pack(zf: zipfile.ZipFile) -> tuple[MotionPackManifest, str]:
     """解析 pack.json（根或单层子目录内），返回（清单, 目录前缀）。"""
     names = zf.namelist()
-    entry = next((n for n in names if n.endswith("pack.json") and n.count("/") <= 1), None)
+    entry = next(
+        (n for n in names if (n == "pack.json" or n.endswith("/pack.json")) and n.count("/") <= 1),
+        None,
+    )
     if entry is None:
         raise HTTPException(status_code=422, detail="zip 内缺少 pack.json（须位于根或单层目录内）")
     try:
@@ -237,7 +240,14 @@ def import_motion_pack(content: bytes, registry: SkinRegistry) -> SkinManifest:
     if not model3_path.is_file():
         raise HTTPException(status_code=422, detail=f"目标皮肤缺少模型文件：{target.model_file}")
     model3 = json.loads(model3_path.read_text(encoding="utf-8"))
-    motions_table: dict = model3.setdefault("FileReferences", {}).setdefault("Motions", {})
+    file_refs = model3.setdefault("FileReferences", {})
+    if not isinstance(file_refs, dict):
+        file_refs = {}
+        model3["FileReferences"] = file_refs
+    motions_table = file_refs.setdefault("Motions", {})
+    if not isinstance(motions_table, dict):
+        motions_table = {}
+        file_refs["Motions"] = motions_table
     clashes = [e.group for e in pack.motions if e.group in motions_table]
     if clashes:
         raise HTTPException(
