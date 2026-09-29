@@ -1,0 +1,25 @@
+{
+  "targetSkin": "live2d-hiyori",
+  "name": "hiyori-greeting",
+  "license": "CC0 1.0（Mochi 项目原创动作数据，作者：Mochi contributors）",
+  "motions": [
+    { "group": "MochiWave", "file": "motions/mochi-wave.motion3.json" },
+    { "group": "MochiBow", "file": "motions/mochi-bow.motion3.json" }
+  ],
+  "actions": [
+    {
+      "id": "wave",
+      "kind": "oneshot",
+      "channels": ["body"],
+      "agentSelectable": true,
+      "live2d": { "motionGroups": ["MochiWave"] }
+    },
+    {
+      "id": "bow",
+      "kind": "oneshot",
+      "channels": ["body"],
+      "agentSelectable": true,
+      "live2d": { "motionGroups": ["MochiBow"] }
+    }
+  ]
+}

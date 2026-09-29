@@ -24,6 +24,7 @@ Live2D Cubism SDK 及其 Core 库为 Live2D Inc. 的**专有软件**，受
 
 | 资产目录 | 名称 | 作者 | 许可条款 | 备注 |
 | --- | --- | --- | --- | --- |
+| `assets/motion-packs/hiyori-greeting/` | Mochi 招手/鞠躬动作扩展包 | Mochi contributors | CC0 1.0 | 原创动作数据（不含模型）；目标皮肤 live2d-hiyori |
 <!-- 2026-09-28：内置静态皮肤（pikachu/eevee/snorlax，pokesprite）已随静态皮肤类型下线移除。
 历史版本（≤ 2026-09-28 之前）曾包含上述三只精灵图皮肤，许可：© Nintendo / Creatures Inc. / GAME FREAK inc.
 （精灵图来源：<https://github.com/msikma/pokesprite>）。 -->
