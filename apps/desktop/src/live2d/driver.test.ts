@@ -113,6 +113,7 @@ describe("CharacterDriver (live2d)", () => {
       gazeOffsetY: 0,
       thinkingPose: false,
       bodySway: false,
+      typing: false,
       tickerFps: 60,
     });
 

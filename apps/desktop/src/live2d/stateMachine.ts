@@ -40,6 +40,8 @@ export interface AnimationPlan {
   thinkingPose: boolean;
   /** 身体微晃（working） */
   bodySway: boolean;
+  /** 持续打字姿态（working，批次 3 I1）：双臂交替 + 低头 + 眼下视 */
+  typing: boolean;
   /** 目标帧率（性能护栏，Phase 7 使用） */
   tickerFps: 15 | 30 | 60;
 }
@@ -196,6 +198,128 @@ export const BODY_ACTION_ENVELOPES: Record<string, BodyActionEnvelope> = {
       };
     },
   },
+
+  // ---- 批次 3（I1，L1 包络）：均用 Cubism 标准参数，缺参数模型运行时静默跳过 ----
+
+  /** dance（跳舞）：身体 Z 轴正弦摇摆两拍 + 头部反相随动 + 节拍路脚微蹲 + 笑脸，~2.4s */
+  dance: {
+    durationMs: 2400,
+    params: (t) => {
+      if (t < 0 || t >= 2400) return null;
+      const sway = Math.sin((2 * Math.PI * t) / 1200); // 1.2s 一个左右摆周期，共两拍
+      const beat = Math.abs(Math.sin((Math.PI * t) / 600)); // 600ms 节拍，用于路脚微蹲与眨眼
+      const fade = Math.min(1, t / 300, (2400 - t) / 300); // 首尾 300ms 淡入淡出
+      return {
+        ParamBodyAngleZ: sway * 8 * fade,
+        ParamAngleZ: -sway * 10 * fade,
+        ParamBodyAngleY: -beat * 2 * fade,
+        ParamMouthForm: 0.5 * fade,
+        ParamEyeRSmile: 0.5 * fade,
+        ParamEyeLSmile: 0.5 * fade,
+      };
+    },
+  },
+
+  /** finger_heart（比心）：举手定格 + 头微偏 + 笑眼笑嘴；Hiyori 类模型无手指参数，
+   *  用「手臂 + 表情组合」表意（手势级演出走 L3 资产），~1.6s */
+  finger_heart: {
+    durationMs: 1600,
+    params: (t) => {
+      if (t < 0 || t >= 1600) return null;
+      // 前 300ms 快举手，尾 300ms 收回，中段定格
+      const raise = t < 300 ? t / 300 : t >= 1300 ? (1600 - t) / 300 : 1;
+      return {
+        ParamArmLA: 2 * raise,
+        ParamAngleZ: 6 * raise,
+        ParamBodyAngleZ: 2 * raise,
+        ParamEyeLOpen: 1 - 0.6 * raise, // 笑眼（弯成月牙）
+        ParamEyeROpen: 1 - 0.6 * raise,
+        ParamEyeLSmile: 0.8 * raise,
+        ParamEyeRSmile: 0.8 * raise,
+        ParamMouthForm: 0.8 * raise,
+      };
+    },
+  },
+
+  /** blow_kiss（飞吻）：抬手到脸侧 + 嘟嘴蓄力 → 张手送出 + 身体前倾 → 眨眼收尾，~1.6s */
+  blow_kiss: {
+    durationMs: 1600,
+    params: (t) => {
+      if (t < 0 || t >= 1600) return null;
+      // 阶段：0–400 抬手蓄力；400–700 嘟嘴；700–1000 张手送出；1000–1600 回收+眨眼
+      const raise =
+        t < 400 ? (t / 400) * 1.6 : t >= 1300 ? Math.max(0, (1600 - t) / 300) * 1.6 : 1.6;
+      const pucker = t >= 400 && t < 700 ? 1 : 0;
+      const blow = t >= 700 && t < 1000 ? (t - 700) / 300 : 0;
+      const wink = t >= 1000 && t < 1300 ? Math.sin((Math.PI * (t - 1000)) / 300) : 0;
+      return {
+        ParamArmLA: raise,
+        ParamMouthForm: pucker ? -0.8 : blow ? 0.5 : 0,
+        ParamMouthOpenY: blow * 0.6,
+        ParamBodyAngleY: blow * -2,
+        ParamAngleZ: raise * 3,
+        ParamEyeROpen: 1 - wink,
+      };
+    },
+  },
+
+  /** question（满脸问号）：歪头停顿 + 双眉不对称 + 眼神游移 + 身体微缩，~1.8s。
+   *  问号贴图属容器渲染层（I3），包络层用纯姿态表意 */
+  question: {
+    durationMs: 1800,
+    params: (t) => {
+      if (t < 0 || t >= 1800) return null;
+      // 歪头：300ms 歪到位，停到 1200ms，600ms 回正
+      const tilt = t < 300 ? t / 300 : t >= 1200 ? Math.max(0, (1800 - t) / 600) : 1;
+      const wander = t < 900 ? -0.6 : 0.5; // 眼神先左后右游移
+      return {
+        ParamAngleZ: -12 * tilt,
+        ParamBrowLForm: 0.6 * tilt,
+        ParamBrowRForm: -0.6 * tilt,
+        ParamBrowLY: tilt * 0.3,
+        ParamBrowRY: -tilt * 0.3,
+        ParamEyeBallX: wander * tilt,
+        ParamBodyAngleZ: -3 * tilt,
+      };
+    },
+  },
+
+  /** idle_hum（哼歌摇头，批次 3 I2）：内部动作（不在语义词表），闲置轮换池专用。
+   *  头部节拍小晃 + 嘴形哼唱开合 + 眼睛微眯，~2.4s */
+  idle_hum: {
+    durationMs: 2400,
+    params: (t) => {
+      if (t < 0 || t >= 2400) return null;
+      const fade = Math.min(1, t / 300, (2400 - t) / 300);
+      const sway = Math.sin((2 * Math.PI * t) / 600); // 600ms 一个小晃周期
+      const hum = Math.sin((2 * Math.PI * t) / 1200); // 1.2s 一个哼唱开合
+      return {
+        ParamAngleZ: sway * 3 * fade,
+        ParamBodyAngleZ: sway * 1.5 * fade,
+        ParamMouthOpenY: Math.max(0, hum) * 0.25 * fade,
+        ParamMouthForm: 0.3 * fade,
+        ParamEyeLSmile: 0.4 * fade,
+        ParamEyeRSmile: 0.4 * fade,
+      };
+    },
+  },
+
+  /** type（打字，oneshot 窗口 2.4s；working 状态的持续打字由 driver typing 位驱动） */
+  type: {
+    durationMs: 2400,
+    params: (t) => {
+      if (t < 0 || t >= 2400) return null;
+      const fade = Math.min(1, t / 200, (2400 - t) / 200);
+      const cycle = (2 * Math.PI * t) / 150;
+      return {
+        ParamArmLA: (0.35 + 0.15 * Math.sin(cycle)) * fade,
+        ParamArmRA: (0.35 + 0.15 * Math.sin(cycle + Math.PI)) * fade, // 双臂反相交替
+        ParamAngleY: -6 * fade,
+        ParamEyeBallY: -0.4 * fade,
+        ParamBodyAngleY: -2 * fade,
+      };
+    },
+  },
 };
 
 /**
@@ -239,6 +363,7 @@ interface StateRule {
   gazeOffsetY: number;
   thinkingPose: boolean;
   bodySway: boolean;
+  typing: boolean;
   tickerFps: 15 | 30 | 60;
 }
 
@@ -253,6 +378,7 @@ export const STATE_RULES: Record<CharacterState, StateRule> = {
     gazeOffsetY: 0,
     thinkingPose: false,
     bodySway: false,
+    typing: false,
     tickerFps: 30,
   },
   talking: {
@@ -264,6 +390,7 @@ export const STATE_RULES: Record<CharacterState, StateRule> = {
     gazeOffsetY: 0,
     thinkingPose: false,
     bodySway: false,
+    typing: false,
     tickerFps: 60,
   },
   thinking: {
@@ -276,6 +403,7 @@ export const STATE_RULES: Record<CharacterState, StateRule> = {
     gazeOffsetY: 0.4,
     thinkingPose: true,
     bodySway: false,
+    typing: false,
     tickerFps: 60,
   },
   working: {
@@ -286,7 +414,8 @@ export const STATE_RULES: Record<CharacterState, StateRule> = {
     gazeEnabled: true,
     gazeOffsetY: 0,
     thinkingPose: false,
-    bodySway: true,
+    bodySway: false,
+    typing: true, // 批次 3 I1：工作中持续打字演出（双臂交替 + 低头）
     tickerFps: 60,
   },
   error: {
@@ -299,6 +428,7 @@ export const STATE_RULES: Record<CharacterState, StateRule> = {
     gazeOffsetY: -0.2,
     thinkingPose: false,
     bodySway: false,
+    typing: false,
     tickerFps: 30,
   },
   sleeping: {
@@ -311,6 +441,7 @@ export const STATE_RULES: Record<CharacterState, StateRule> = {
     gazeOffsetY: 0,
     thinkingPose: false,
     bodySway: false,
+    typing: false,
     tickerFps: 30,
   },
 };
@@ -351,6 +482,7 @@ export function resolveAnimation(
     gazeOffsetY: rule.gazeOffsetY,
     thinkingPose: rule.thinkingPose,
     bodySway: rule.bodySway,
+    typing: rule.typing,
     tickerFps: rule.tickerFps,
   };
 }

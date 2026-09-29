@@ -123,6 +123,16 @@ export function createDriver(stage: StageHandle): CharacterDriver {
     if (plan.bodySway) {
       setParam("ParamBodyAngleX", Math.sin(now * 2.2) * 2);
     }
+    // 持续打字姿态（批次 3 I1，working 状态）：双臂反相交替 + 低头 + 眼下视。
+    // 与 bodySway 互斥使用；包络（overrides）仍最优先，可叠加打断
+    if (plan.typing) {
+      const cycle = (2 * Math.PI * now) / 0.15; // 150ms 一敲
+      setParam("ParamArmLA", 0.35 + 0.15 * Math.sin(cycle));
+      setParam("ParamArmRA", 0.35 + 0.15 * Math.sin(cycle + Math.PI));
+      setParam("ParamAngleY", -6);
+      setParam("ParamEyeBallY", -0.4);
+      setParam("ParamBodyAngleY", -2);
+    }
     for (const fn of overrides) fn(params, now);
     // body 包络最后应用（G1）：叠在 face 通道与状态机预设之后（最优先），
     // one-shot 微动作不被常规表情覆写冲掉；到期后静默并清除播放态
