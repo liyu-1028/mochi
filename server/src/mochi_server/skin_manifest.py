@@ -81,11 +81,12 @@ class ParamEnvelope(BaseModel):
 
     @model_validator(mode="after")
     def _validate_keyframes(self) -> ParamEnvelope:
-        if self.keyframes[0].points[-1][0] != self.duration_ms:
-            raise ValueError(
-                "包络末点时间必须等于 durationMs："
-                f"{self.keyframes[0].param} 末点 {self.keyframes[0].points[-1][0]} ≠ {self.duration_ms}"
-            )
+        for kf in self.keyframes:
+            if kf.points[-1][0] != self.duration_ms:
+                raise ValueError(
+                    "包络末点时间必须等于 durationMs："
+                    f"{kf.param} 末点 {kf.points[-1][0]} ≠ {self.duration_ms}"
+                )
         params = [k.param for k in self.keyframes]
         duplicates = sorted({p for p in params if params.count(p) > 1})
         if duplicates:
