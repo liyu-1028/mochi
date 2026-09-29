@@ -365,6 +365,9 @@ export function CharacterStage({
   useEffect(() => {
     const container = containerRef.current;
     if (!container || !skin) return;
+    // 换装重试：清上一轮失败标记（badge 为 overlay，容器始终挂载，
+    // 否则失败后 containerRef 被摘除、后续换装永远无法重新加载）
+    setFailed(false);
     let cancelled = false;
 
     const url = `${skin.resourceBaseUrl}/${skin.modelFile ?? ""}`;
@@ -766,27 +769,19 @@ export function CharacterStage({
     onContextMenu?.(e.clientX, e.clientY);
   };
 
-  if (failed)
-    return (
-      <div
-        className="character-stage"
-        onClick={handleClick}
-        onContextMenu={handleContextMenu}
-        onPointerDown={handlePointerDown}
-        onPointerUp={handlePointerUp}
-      >
-        <CharacterBadge />
-      </div>
-    );
+  // 失败降级：badge 以 overlay 叠加（容器不卸载——containerRef 持续有效，
+  // 换装即重试；旧画布以 CSS 隐藏避免残影，引用仍留给新加载就绪时销毁）
   return (
     <div
-      className="character-stage"
+      className={`character-stage${failed ? " character-stage--failed" : ""}`}
       ref={containerRef}
       data-skin={skin?.id}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
-    />
+    >
+      {failed ? <CharacterBadge /> : null}
+    </div>
   );
 }

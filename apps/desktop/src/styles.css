@@ -66,6 +66,18 @@ body {
   z-index: 0;
 }
 
+/* 加载失败降级（G5 修复）：badge 以 overlay 叠加，隐藏残留画布避免残影；
+   容器不卸载，换装即重试（修复失败后 containerRef 被摘除、换装永远失效） */
+.character-stage--failed canvas {
+  display: none;
+}
+
+.character-stage--failed .character__badge {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+}
+
 .character {
   display: flex;
   flex-direction: column;
