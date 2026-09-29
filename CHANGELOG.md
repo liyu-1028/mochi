@@ -7,6 +7,22 @@
 
 ## Unreleased
 
+G5 收口：2b 词表扩容 + Hiyori 示例扩展包 + 实测报告（动作扩展方案 M-G）
+
+**新增**
+
+- 词表 +3（jump/spin/bow，总 20 项）：无内置兑底的「资产解锁」类——
+  仅当皮肤扩展包（G4）提供对应 motion3.json 才可演；能力注入（G2）
+  保证模型只在皮肤真的有时才会选出；双端 ACTION_LABELS + golden 同步
+- DEFAULT_LIVE2D_ACTIONS / reflexRules.DEFAULTS 基线接线；无资产皮肤
+  请求 → fallback idle_neutral（vitest 覆盖）
+- 舞台指示关键词 +11（跳跃/转圈/鞠躬）；cue 提示词示例词自动跟随
+- 示例扩展包 `assets/motion-packs/hiyori-greeting/`：原创 CC0 动作
+  （wave 手臂挥动 1.6s / bow 鞠躬 1.8s）+ 打包说明；已在
+  `LICENSE-Live2D.md` 登记，双端口径校验通过
+- 实测报告：`docs/test-reports/2026-09/2026-09-29_mg-motion-pack-g5_PASS.md`
+  （真机 API 级导入 + G2 提示词闭环验证 + 已知行为边界 + GUI checklist）
+
 L3 动作扩展包导入（G4，动作扩展方案 M-G）：给已导入的皮肤追加原创
 motion3.json 动作，免重新打包整个皮肤
 
