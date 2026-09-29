@@ -237,7 +237,10 @@ class StageDirectionScanner:
         merged = self._pending_tail + text
         if not self._emitted_any_text:
             merged = merged.lstrip("。！？!?；;\n")
-        self._emitted_any_text = True
+            if not merged:
+                self._pending_tail = ""
+                return []
+            self._emitted_any_text = True
         # 末尾连续终止符暂不确认完成（下一增量可能折叠/续正文）
         i = len(merged)
         while i > 0 and merged[i - 1] in "。！？!?；;\n":
