@@ -37,6 +37,7 @@ from .attention.engine import AttentionEngine, settings_from_config
 from .config import AppConfig, load_config
 from .events import (
     EVENT_TYPES,
+    LOCOMOTION_ACTIONS,
     PROTOCOL_VERSION,
     SEMANTIC_ACTIONS,
     SERVER_NAME,
@@ -47,6 +48,9 @@ from .events import (
     CompanionSignalData,
     CueBodyChannel,
     CueChannels,
+    CueFaceChannel,
+    CueLocomotionChannel,
+    Emotion,
     ErrorCode,
     ErrorPayload,
     HelloAckData,
@@ -437,15 +441,37 @@ def create_app(
         except Exception:
             return {"ok": False, "error": "body 不是合法 JSON"}
         action_id = str(body.get("actionId", "")).strip()
-        if action_id not in SEMANTIC_ACTIONS:
-            return {"ok": False, "error": f"未知动作（不在语义词表）：{action_id or '(空)'}"}
+        channel = str(body.get("channel", "body")).strip()
+        # 通道化白名单强校验（I3 起 locomotion 同样只收词表内 id）
+        face_ids = frozenset(e.value for e in Emotion)
+        whitelist: dict[str, frozenset[str]] = {
+            "body": frozenset(SEMANTIC_ACTIONS),
+            "face": face_ids,
+            "locomotion": frozenset(LOCOMOTION_ACTIONS),
+        }
+        if channel not in whitelist:
+            return {
+                "ok": False,
+                "error": f"未知通道：{channel or '(空)'}（可选 body/face/locomotion）",
+            }
+        if action_id not in whitelist[channel]:
+            return {
+                "ok": False,
+                "error": f"{channel} 通道未知动作（不在词表）：{action_id or '(空)'}",
+            }
+        if channel == "face":
+            channels = CueChannels(face=CueFaceChannel(emotion=action_id, intensity=0.9))
+        elif channel == "locomotion":
+            channels = CueChannels(locomotion=CueLocomotionChannel(action_id=action_id))
+        else:
+            channels = CueChannels(body=CueBodyChannel(action_id=action_id))
         frame = make_frame(
             EVENT_TYPES["character.cue"],
             CharacterCueData(
                 cue_id=f"c-{uuid.uuid4().hex[:12]}",
                 run_id=None,
                 source="proactive",
-                channels=CueChannels(body=CueBodyChannel(action_id=action_id)),
+                channels=channels,
                 sync="immediate",
                 priority=30,
                 interrupt_policy="replace",

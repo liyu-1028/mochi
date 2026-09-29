@@ -27,6 +27,26 @@ def test_dev_cue_rejects_unknown_action() -> None:
         assert r.json()["ok"] is False
 
 
+def test_dev_cue_channel_whitelists() -> None:
+    """通道化白名单（I3 起）：face/locomotion 各自词表校验，越权丢弃。"""
+    app = create_app(config=AppConfig())
+    with TestClient(app) as client:
+        # locomotion 合法 id
+        r = client.post("/dev/cue", json={"channel": "locomotion", "actionId": "lean_edge"})
+        assert r.json()["ok"] is True
+        # locomotion 越权（body 词表 id 不在 locomotion 表）
+        r = client.post("/dev/cue", json={"channel": "locomotion", "actionId": "nod"})
+        assert r.json()["ok"] is False
+        # face 合法 / 非法
+        r = client.post("/dev/cue", json={"channel": "face", "actionId": "happy"})
+        assert r.json()["ok"] is True
+        r = client.post("/dev/cue", json={"channel": "face", "actionId": "nod"})
+        assert r.json()["ok"] is False
+        # 未知通道
+        r = client.post("/dev/cue", json={"channel": "voice", "actionId": "nod"})
+        assert r.json()["ok"] is False
+
+
 def test_dev_cue_broadcasts_to_ws_clients() -> None:
     app = create_app(config=AppConfig())
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
