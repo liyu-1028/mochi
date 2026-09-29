@@ -81,6 +81,8 @@ import {
   buildCue,
   isRepeatTap,
   toolReflexCues,
+  pickIdleAction,
+  IDLE_ROTATION_INTERVAL_MS,
   TAP_WINDOW_MS,
   HOLD_THRESHOLD_MS,
 } from "../live2d/reflexRules";
@@ -545,6 +547,33 @@ export function CharacterStage({
       window.clearInterval(timer);
     };
   }, [stageEpoch, powerSave]);
+
+  // 闲置轮换池（批次 3 I2）：idle 状态下低频触发小动作，权重随闲置时长渐进
+  // （刚闲置安静 → 中期东张西望/哼歌/伸懒腰 → 久置偏向打盹）。非 idle 交互
+  // 即重置计时；全部走包络可演项，proactive 源不抢播报节拍。
+  const idleSinceRef = useRef(Date.now());
+  useEffect(() => {
+    if (!ready) return;
+    const timer = window.setInterval(() => {
+      const now = Date.now();
+      if (effectiveState !== "idle") {
+        idleSinceRef.current = now;
+        return;
+      }
+      const actionId = pickIdleAction(now - idleSinceRef.current, Math.random());
+      if (!actionId) return;
+      idleSinceRef.current = now - 60_000; // 触发后视为仍有活动，回退到中期档
+      submitReflexes([
+        buildCue(actionId, {
+          channel: "body",
+          source: "proactive",
+          now,
+          actions: skinRef.current?.actions,
+        }),
+      ]);
+    }, IDLE_ROTATION_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [ready, effectiveState, submitReflexes]);
 
   // 口型（2.3）：每个 text.delta 触发一次张嘴；帧覆写负责衰减与闭合
   useEffect(() => {

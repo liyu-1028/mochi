@@ -50,6 +50,14 @@ const DEFAULTS: Record<string, { priority: number; cooldownMs: number; durationM
   jump: { priority: 55, cooldownMs: 6000 },
   spin: { priority: 55, cooldownMs: 8000 },
   bow: { priority: 45, cooldownMs: 5000 },
+  // 批次 3（I1，L1 包络）：与 DEFAULT_LIVE2D_ACTIONS 基线同参
+  dance: { priority: 60, cooldownMs: 15_000, durationMs: 2400 },
+  finger_heart: { priority: 55, cooldownMs: 8000, durationMs: 1600 },
+  blow_kiss: { priority: 55, cooldownMs: 8000, durationMs: 1600 },
+  question: { priority: 45, cooldownMs: 5000, durationMs: 1800 },
+  type: { priority: 40, cooldownMs: 5000, durationMs: 2400 },
+  // idle_hum 仅闲置轮换用（不在语义词表，LLM 不可选）
+  idle_hum: { priority: 15, cooldownMs: 20_000, durationMs: 2400 },
   think: { priority: 40, cooldownMs: 5000 },
   listen: { priority: 50, cooldownMs: 3000 },
   wink: { priority: 50, cooldownMs: 2500, durationMs: WINK_DURATION_MS },
@@ -136,4 +144,44 @@ export function toolReflexCues(
     case "denied":
       return [buildCue("shake_head", { ...base, channel: "body", source: "tool" })];
   }
+}
+
+// ---- 闲置轮换池（批次 3 I2）----
+
+/** idle 轮换评估间隔（ms）：低频轻触发，不喧宾夺主 */
+export const IDLE_ROTATION_INTERVAL_MS = 25_000;
+
+/**
+ * 闲置小动作选择（纯函数，可测）：权重随闲置时长渐进——
+ * 刚闲置以安静为主；久置（>5min）偏向打盹。返回动作 id 或 null（本轮跳过）。
+ * 可选池均为包络可演项；idle_hum 为内部动作（不在语义词表）。
+ */
+export function pickIdleAction(idleMs: number, rand: number): string | null {
+  if (idleMs < IDLE_ROTATION_INTERVAL_MS) return null; // 刚进入 idle，先安静一轮
+  let table: readonly (readonly [string, number])[];
+  if (idleMs < 120_000) {
+    table = [
+      ["look_around", 0.2],
+      ["idle_hum", 0.1],
+    ];
+  } else if (idleMs < 300_000) {
+    table = [
+      ["look_around", 0.2],
+      ["idle_hum", 0.15],
+      ["stretch", 0.15],
+    ];
+  } else {
+    table = [
+      ["doze", 0.4],
+      ["stretch", 0.2],
+      ["look_around", 0.2],
+      ["idle_hum", 0.2],
+    ];
+  }
+  let acc = 0;
+  for (const [id, weight] of table) {
+    acc += weight;
+    if (rand < acc) return id;
+  }
+  return null; // 其余概率静默（保持安静）
 }

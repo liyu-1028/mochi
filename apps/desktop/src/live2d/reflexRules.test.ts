@@ -2,7 +2,7 @@
  * reflexRules 测试（M-B）：反射事件 → cue 的确定性映射。
  */
 import { describe, expect, it } from "vitest";
-import { TAP_REPEAT_COUNT, TAP_WINDOW_MS } from "./reflexRules";
+import { pickIdleAction, TAP_REPEAT_COUNT, TAP_WINDOW_MS } from "./reflexRules";
 import {
   buildCue,
   isRepeatTap,
@@ -161,6 +161,42 @@ describe("默认值一致性（消除漂移）", () => {
       });
       expect(cue.priority, action.id).toBe(action.priority);
       expect(cue.cooldownMs, action.id).toBe(action.cooldownMs ?? 0);
+    }
+  });
+});
+
+// ---- 闲置轮换池（批次 3 I2）----
+
+describe("pickIdleAction（闲置轮换池渐进权重）", () => {
+  const pick = (idleMs: number, rand: number) => pickIdleAction(idleMs, rand);
+
+  it("刚进入 idle（<评估间隔）一律安静", () => {
+    expect(pick(0, 0)).toBeNull();
+    expect(pick(24_999, 0)).toBeNull();
+  });
+
+  it("短闲置（<2min）：只会在 look_around/idle_hum 中小概率触发", () => {
+    expect(pick(60_000, 0)).toBe("look_around"); // rand=0 → 第一项
+    expect(pick(60_000, 0.25)).toBe("idle_hum");
+    expect(pick(60_000, 0.5)).toBeNull(); // 0.25+0.1=0.35 之外静默
+    expect(pick(60_000, 0.9)).toBeNull();
+    // 短档绝不出现 doze/stretch（久置专属）
+    for (let r = 0; r < 1; r += 0.01) {
+      const id = pick(60_000, r);
+      expect(id === null || id === "look_around" || id === "idle_hum").toBe(true);
+    }
+  });
+
+  it("久置（>5min）：doze 权重最高（rand=0 直接打盹），档内权重合计 1.0 恒触发", () => {
+    expect(pick(360_000, 0)).toBe("doze");
+    expect(pick(360_000, 0.5)).toBe("stretch");
+    expect(pick(360_000, 0.75)).toBe("look_around");
+    expect(pick(360_000, 0.85)).toBe("idle_hum");
+  });
+
+  it("mid 档（2–5min）无 doze", () => {
+    for (let r = 0; r < 1; r += 0.01) {
+      expect(pick(200_000, r)).not.toBe("doze");
     }
   });
 });
