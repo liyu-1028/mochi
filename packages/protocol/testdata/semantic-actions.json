@@ -16,7 +16,10 @@
     "pout",
     "laugh",
     "shy_shake",
-    "alert"
+    "alert",
+    "jump",
+    "spin",
+    "bow"
   ],
   "actionLabels": {
     "idle_neutral": "平静",
@@ -35,7 +38,10 @@
     "pout": "嘟嘴",
     "laugh": "大笑",
     "shy_shake": "扭捏",
-    "alert": "警觉精神"
+    "alert": "警觉精神",
+    "jump": "跳一下",
+    "spin": "转个圈",
+    "bow": "鞠躬"
   },
   "actionChannels": ["face", "body", "locomotion", "voice", "effect"]
 }

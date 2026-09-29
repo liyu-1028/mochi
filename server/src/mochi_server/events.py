@@ -80,6 +80,10 @@ SEMANTIC_ACTIONS = (
     "laugh",  # G1：大笑——参数包络实现
     "shy_shake",  # G1：扭捏（左右小摇+脸红）——参数包络实现
     "alert",  # G1：警觉（猛抬头+睁眼）——参数包络实现
+    # G5（2b 资产解锁）：无内置兑底，仅当皮肤扩展包提供对应 motion3.json 才可演
+    "jump",
+    "spin",
+    "bow",
 )
 
 # 动作展示名（G2）：提示词能力注入与日志的统一中文名；与词表同键集，
@@ -102,6 +106,9 @@ ACTION_LABELS: dict[str, str] = {
     "laugh": "大笑",
     "shy_shake": "扭捏",
     "alert": "警觉精神",
+    "jump": "跳一下",
+    "spin": "转个圈",
+    "bow": "鞠躬",
 }
 
 # 动作通道（调研报告 §8.3）；M-A 仅 face/body/effect 可执行，其余预留

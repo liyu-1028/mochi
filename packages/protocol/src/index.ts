@@ -243,6 +243,11 @@ export const SEMANTIC_ACTIONS = [
   "laugh",
   "shy_shake",
   "alert",
+  // G5（2b 资产解锁）：跳跃/转圈/鞠躬——无内置兑底，仅当皮肤扩展包提供
+  // 对应 motion3.json 才可演；能力注入（G2）保证模型只在皮肤真的有时才会选出
+  "jump",
+  "spin",
+  "bow",
 ] as const;
 export type SemanticActionId = (typeof SEMANTIC_ACTIONS)[number];
 
@@ -269,6 +274,9 @@ export const ACTION_LABELS: Record<SemanticActionId, string> = {
   laugh: "大笑",
   shy_shake: "扭捏",
   alert: "警觉精神",
+  jump: "跳一下",
+  spin: "转个圈",
+  bow: "鞠躬",
 };
 
 /** 动作通道（调研报告 §8.3）；M-A 仅 face/body/effect 可执行，其余预留 */
