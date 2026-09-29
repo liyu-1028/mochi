@@ -236,13 +236,14 @@ describe("M-A/M-B 验收证据：全词表可解析", () => {
 
   it("Live2D 默认映射覆盖除 idle_neutral 外的全部词表（stretch 降级，其余包络兑底）", () => {
     const ids = DEFAULT_LIVE2D_ACTIONS.map((a) => a.id);
-    // 词表 20 项（G5 后）- idle_neutral = 19；全部有默认映射
+    // 词表 25 项（批次 3 后）- idle_neutral = 24；全部有默认映射
     expect(ids.length).toBe(SEMANTIC_ACTIONS.length - 1);
     expect(ids).not.toContain("idle_neutral");
     expect(new Set(ids).size).toBe(ids.length); // 无重复
     // stretch 仍是唯一无诚实实现的降级设计；其余 fallback 到 idle_neutral
-    // 的动作 = 包络兑底类（wink + G1 四项 + doze）+ 2b 资产解锁类（G5：
-    // jump/spin/bow 无内置兑底，仅皮肤扩展包提供 motion3.json 才可演）
+    // 的动作 = 包络兑底类（wink + G1 四项 + doze + 批次 3 五项）
+    // + 2b 资产解锁类（G5：jump/spin/bow 无内置兑底，仅皮肤扩展包提供
+    // motion3.json 才可演）
     expect(
       DEFAULT_LIVE2D_ACTIONS.filter((a) => a.fallback === "idle_neutral").map((a) => a.id),
     ).toEqual([
@@ -256,6 +257,11 @@ describe("M-A/M-B 验收证据：全词表可解析", () => {
       "jump",
       "spin",
       "bow",
+      "dance",
+      "finger_heart",
+      "blow_kiss",
+      "question",
+      "type",
     ]);
   });
 
