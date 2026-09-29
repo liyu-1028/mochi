@@ -178,6 +178,9 @@ export function CharacterStage({
   const locomotionRef = useRef<LocomotionActionId>("come_back");
   locomotionRef.current = locomotion;
   const locomotionSinceRef = useRef(0);
+  /** 问号贴图（H4）：question 动作触发时头顶浮出，包络时长后消散 */
+  const [questionMark, setQuestionMark] = useState(false);
+  const questionMarkTimerRef = useRef<number | null>(null);
   /** locomotion 姿态当前值（帧覆写指数趋近目标，避免瞬移） */
   const locomotionPoseRef = useRef<LocomotionPose>({
     dx: 0,
@@ -692,6 +695,17 @@ export function CharacterStage({
         if (actionPlan.motionGroup) {
           devHook.lastPlayMotion = { group: actionPlan.motionGroup, at: nowMs };
         }
+        // 问号贴图（H4）：question 包络同期头顶浮出「？」，时长对齐包络
+        if (actionPlan.requestedId === "question") {
+          setQuestionMark(true);
+          if (questionMarkTimerRef.current !== null) {
+            window.clearTimeout(questionMarkTimerRef.current);
+          }
+          questionMarkTimerRef.current = window.setTimeout(
+            () => setQuestionMark(false),
+            actionPlan.paramEnvelope?.durationMs ?? 1800,
+          );
+        }
       }
 
       // 口型：播报期音量驱动（2.7），否则 delta 节奏 + 平滑衰减
@@ -895,6 +909,11 @@ export function CharacterStage({
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
     >
+      {questionMark ? (
+        <div className="character-qmark" aria-hidden="true">
+          ？
+        </div>
+      ) : null}
       {failed ? <CharacterBadge /> : null}
     </div>
   );
