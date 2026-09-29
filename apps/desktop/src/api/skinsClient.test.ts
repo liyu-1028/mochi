@@ -67,6 +67,17 @@ describe("skinsApi", () => {
     await expect(skinsApi.importSkin(file)).rejects.toThrow("皮肤 ID 已存在：dup");
   });
 
+  it("importMotionPack 错误响应（409/422）抛出服务端 detail", async () => {
+    mockFetch({ detail: "动作组名已存在（不覆盖）：MochiWave" }, 409);
+    const file = new File([new Uint8Array([1])], "p.zip");
+    await expect(skinsApi.importMotionPack(file)).rejects.toThrow(
+      "动作组名已存在（不覆盖）：MochiWave",
+    );
+
+    mockFetch({ detail: "Meta.Duration 必须为正数" }, 422);
+    await expect(skinsApi.importMotionPack(file)).rejects.toThrow("Meta.Duration 必须为正数");
+  });
+
   it("204 返回 undefined（deleteSkin）", async () => {
     const fetchMock = mockFetch(undefined, 204);
     await expect(skinsApi.deleteSkin("x")).resolves.toBeUndefined();

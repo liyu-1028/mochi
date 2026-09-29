@@ -61,6 +61,15 @@ describe("语义动作注册表（协议规范 §11）", () => {
     expect({ ...ACTION_LABELS }).toEqual(fixture.actionLabels);
     expect(Object.keys(ACTION_LABELS).sort()).toEqual([...SEMANTIC_ACTIONS].sort());
   });
+
+  it("词表总数 20 项，且所有中文展示名均为非空可读文本", () => {
+    expect(SEMANTIC_ACTIONS.length).toBe(20);
+    for (const [id, label] of Object.entries(ACTION_LABELS)) {
+      expect(typeof label).toBe("string");
+      expect(label.trim().length).toBeGreaterThan(0);
+      expect(id).toMatch(/^[a-z][a-z0-9_]*$/);
+    }
+  });
 });
 
 describe("character.cue 负载（协议规范 §5.6，M-C）", () => {
