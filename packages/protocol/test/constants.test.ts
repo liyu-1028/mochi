@@ -62,8 +62,8 @@ describe("语义动作注册表（协议规范 §11）", () => {
     expect(Object.keys(ACTION_LABELS).sort()).toEqual([...SEMANTIC_ACTIONS].sort());
   });
 
-  it("词表总数 20 项，且所有中文展示名均为非空可读文本", () => {
-    expect(SEMANTIC_ACTIONS.length).toBe(20);
+  it("词表总数 25 项，且所有中文展示名均为非空可读文本", () => {
+    expect(SEMANTIC_ACTIONS.length).toBe(25);
     for (const [id, label] of Object.entries(ACTION_LABELS)) {
       expect(typeof label).toBe("string");
       expect(label.trim().length).toBeGreaterThan(0);

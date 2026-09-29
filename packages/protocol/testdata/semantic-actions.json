@@ -19,7 +19,12 @@
     "alert",
     "jump",
     "spin",
-    "bow"
+    "bow",
+    "dance",
+    "finger_heart",
+    "blow_kiss",
+    "question",
+    "type"
   ],
   "actionLabels": {
     "idle_neutral": "平静",
@@ -41,7 +46,12 @@
     "alert": "警觉精神",
     "jump": "跳一下",
     "spin": "转个圈",
-    "bow": "鞠躬"
+    "bow": "鞠躬",
+    "dance": "跳舞",
+    "finger_heart": "比心",
+    "blow_kiss": "飞吻",
+    "question": "满脸问号",
+    "type": "打字"
   },
   "actionChannels": ["face", "body", "locomotion", "voice", "effect"]
 }

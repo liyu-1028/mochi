@@ -84,6 +84,12 @@ SEMANTIC_ACTIONS = (
     "jump",
     "spin",
     "bow",
+    # 批次 3（I1，L1 包络）：跳舞/比心/飞吻/疑惑/打字——均参数包络实现
+    "dance",
+    "finger_heart",
+    "blow_kiss",
+    "question",
+    "type",
 )
 
 # 动作展示名（G2）：提示词能力注入与日志的统一中文名；与词表同键集，
@@ -109,6 +115,11 @@ ACTION_LABELS: dict[str, str] = {
     "jump": "跳一下",
     "spin": "转个圈",
     "bow": "鞠躬",
+    "dance": "跳舞",
+    "finger_heart": "比心",
+    "blow_kiss": "飞吻",
+    "question": "满脸问号",
+    "type": "打字",
 }
 
 # 动作通道（调研报告 §8.3）；M-A 仅 face/body/effect 可执行，其余预留
