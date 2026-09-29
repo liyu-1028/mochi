@@ -62,6 +62,16 @@ def test_map_direction_g1_envelope_actions() -> None:
     assert map_direction("噼里啪啦敲键盘") == ("body", "type")
 
 
+def test_map_direction_locomotion() -> None:
+    """容器联动（I3/M-H）：locomotion 通道位置指令。"""
+    assert map_direction("趴在输入框上") == ("locomotion", "peek_dock")
+    assert map_direction("靠墙歇会儿") == ("locomotion", "lean_edge")
+    assert map_direction("靠墙") == ("locomotion", "lean_edge")
+    assert map_direction("靠着气泡") == ("locomotion", "lean_bubble")
+    assert map_direction("探出半个脑袋") == ("locomotion", "peek_out")
+    assert map_direction("回到屏幕中间") == ("locomotion", "come_back")
+
+
 def test_map_direction_unmapped_returns_none() -> None:
     # 做不出的舞台描写 → None（不硬猜资源）
     assert map_direction("慢动作掏出一张皱巴巴的重修申请表") is None

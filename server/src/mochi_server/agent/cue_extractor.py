@@ -348,5 +348,7 @@ def cue_prompt_section(skin: SkinManifest | None = None) -> str:
         "角色动作；为获得最佳效果，请优先使用这些能被识别的动作词："
         f"{words_part}；表情：微笑、耷拉、"
         "脸红、歪头、惊讶、生气。\n"
+        "容器动作（括号描写即可）：趴在输入框上、靠墙歇会儿、靠在气泡边、"
+        "探出头、回到中间——适合在合适的语境偶尔使用。\n"
         f"{scope_note}"
     )

@@ -29,10 +29,12 @@ import uuid
 
 from ..events import (
     CUE_INTERRUPT_POLICY_VALUES,
+    LOCOMOTION_ACTIONS,
     CharacterCueData,
     CueBodyChannel,
     CueChannels,
     CueFaceChannel,
+    CueLocomotionChannel,
     Emotion,
 )
 from .cue_extractor import (
@@ -136,6 +138,18 @@ DIRECTION_KEYWORDS: dict[str, tuple[str, str]] = {
     "不解地歪头": ("body", "question"),
     "敲键盘": ("body", "type"),
     "打字": ("body", "type"),
+    # -- locomotion：容器联动（I3/M-H）——位置指令，LOCOMOTION_ACTIONS 白名单内 --
+    "趴在输入框上": ("locomotion", "peek_dock"),
+    "趴到输入框上": ("locomotion", "peek_dock"),
+    "靠墙歇会儿": ("locomotion", "lean_edge"),
+    "靠墙休息": ("locomotion", "lean_edge"),
+    "靠墙": ("locomotion", "lean_edge"),
+    "靠在气泡边": ("locomotion", "lean_bubble"),
+    "靠着气泡": ("locomotion", "lean_bubble"),
+    "探出半个脑袋": ("locomotion", "peek_out"),
+    "探出头": ("locomotion", "peek_out"),
+    "回到中间": ("locomotion", "come_back"),
+    "回到屏幕中间": ("locomotion", "come_back"),
     # -- face：情绪（EMOTIONS 词表内）--
     "微笑": ("face", "happy"),
     "笑了笑": ("face", "happy"),
@@ -298,6 +312,9 @@ class StageDirectionScanner:
         if channel == "face" and action_id not in _FACE_EMOTIONS:  # 双保险
             self._count("unknown_emotion")
             return []
+        if channel == "locomotion" and action_id not in LOCOMOTION_ACTIONS:  # 双保险
+            self._count("unknown_locomotion")
+            return []
         self._cue_count += 1
         if self._cue_count > MAX_CUES_PER_REPLY:
             self._count("cap_reached")
@@ -306,11 +323,14 @@ class StageDirectionScanner:
             sync, sentence_index = "speech_start", 1
         else:
             sync, sentence_index = "sentence_boundary", self._sentences_done + 1
-        channels = (
-            CueChannels(face=CueFaceChannel(emotion=action_id, intensity=REPLY_CUE_INTENSITY))
-            if channel == "face"
-            else CueChannels(body=CueBodyChannel(action_id=action_id))
-        )
+        if channel == "face":
+            channels = CueChannels(
+                face=CueFaceChannel(emotion=action_id, intensity=REPLY_CUE_INTENSITY)
+            )
+        elif channel == "locomotion":
+            channels = CueChannels(locomotion=CueLocomotionChannel(action_id=action_id))
+        else:
+            channels = CueChannels(body=CueBodyChannel(action_id=action_id))
         logger.info("舞台指示 → cue：%s（%s:%s）", content[:24], channel, action_id)
         return [
             CharacterCueData(
