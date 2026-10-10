@@ -1,8 +1,9 @@
 """skin.json 清单模型（功能清单 3.1，规范 docs/specs/skin-manifest-format.md）。
 
 皮肤包清单是皮肤系统的唯一描述格式：
-- ``resourceType`` 仅 ``live2d``（Cubism 模型）；``static``（单张图片）类型已下线
-  （2026-09-28 产品决策：只保留 Live2D 及未来扩展的动态类型）；
+- ``resourceType`` 为 ``live2d``（Cubism 模型）或 ``vrm``（VRM 1.0/0.x 模型，
+  ADR-0011）；``static``（单张图片）类型已下线
+  （2026-09-28 产品决策：只保留动态类型）；
 - ``capabilities`` 能力档案（motionGroups/expressions），前端状态机据此选动作；
 - ``actions``（v2，M-A）语义动作注册表：皮肤声明自己支持的语义动作与实现绑定，
   前端 ActionRegistry 据此解析，未实现的沿 fallback 链降级；
@@ -20,7 +21,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from .events import ACTION_CHANNELS, SEMANTIC_ACTIONS
 
-ResourceType = Literal["live2d"]
+ResourceType = Literal["live2d", "vrm"]
 SkinSource = Literal["builtin", "user"]
 
 # 皮肤 id：小写字母/数字开头，可含连字符，≤32 字符（目录名安全）。
@@ -122,12 +123,14 @@ class SkinAction(BaseModel):
     """语义动作注册表条目（skin manifest v2，M-A）。
 
     服务端只验结构；live2d.motionGroups 是否真实存在于模型由前端加载时判。
+    live2d 绑定自 VRM 皮肤起可选（VRM 皮肤的动作经 motion-pack 绑定，
+    P2 进协议；无绑定动作由前端内置动作集兜底解析）。
     """
 
     id: str = Field(..., pattern=ACTION_ID_PATTERN)
     kind: ActionKind = "oneshot"
     channels: list[str] = Field(default_factory=list)
-    live2d: Live2dActionBinding = Field(..., alias="live2d")
+    live2d: Live2dActionBinding | None = Field(default=None, alias="live2d")
     priority: int = Field(default=50, ge=0, le=100)
     interrupt_policy: InterruptPolicy = Field("replace", alias="interruptPolicy")
     cooldown_ms: int = Field(default=0, ge=0, alias="cooldownMs")

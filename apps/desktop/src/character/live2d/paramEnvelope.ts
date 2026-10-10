@@ -11,7 +11,7 @@
  * 调用方回落内置包络链，绝不抛异常打断渲染循环。
  */
 
-import type { ParamEnvelopeBinding } from "../api/skinsClient";
+import type { ParamEnvelopeBinding } from "../../api/skinsClient";
 
 export interface EnvelopeDeclaration {
   durationMs: number;

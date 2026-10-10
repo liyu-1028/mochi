@@ -71,8 +71,8 @@ class PersonaConfig(BaseModel):
 
 
 class CharacterConfig(BaseModel):
-    # 旧值 "default"（内置静态皮肤占位）随静态类型下线；空串 = 未设置
-    active_skin: str = ""
+    # 默认使用内置长发女性 VRM；空串仍表示清空选择，由前端回落内置角色。
+    active_skin: str = "mochi-vrm"
     persona: PersonaConfig = Field(default_factory=PersonaConfig)
 
 

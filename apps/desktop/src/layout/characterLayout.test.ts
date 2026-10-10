@@ -13,12 +13,28 @@ import {
   MIN_WINDOW_WIDTH,
   PAD,
   TARGET_CHARACTER_HEIGHT,
+  VRM_TOP_HEADROOM_RATIO,
   anchorBottomY,
   computeCharacterLayout,
   LOCOMOTION_AREA_RATIO,
 } from "./characterLayout";
 
 describe("computeCharacterLayout", () => {
+  it("VRM 顶部预留角色高度 20%，角色大小不变，气泡仍贴近头部", () => {
+    for (const [w, h] of [
+      [650, 1700],
+      [4000, 1000],
+    ]) {
+      const base = computeCharacterLayout(w, h);
+      const vrm = computeCharacterLayout(w, h, undefined, VRM_TOP_HEADROOM_RATIO);
+      const extra = Math.ceil(base.charH * 0.2);
+      expect(vrm.charH).toBe(base.charH);
+      expect(vrm.charW).toBe(base.charW);
+      expect(vrm.winW).toBe(base.winW);
+      expect(vrm.winH - base.winH).toBe(extra);
+      expect(vrm.bubbleTop - base.bubbleTop).toBe(extra);
+    }
+  });
   it("竖版模型：高度约束生效，角色达到目标高", () => {
     const layout = computeCharacterLayout(1000, 2000);
     expect(layout.scale).toBeCloseTo(TARGET_CHARACTER_HEIGHT / 2000, 10);
@@ -38,9 +54,9 @@ describe("computeCharacterLayout", () => {
     expect(layout.winW).toBe(Math.ceil(360 * LOCOMOTION_AREA_RATIO) + PAD * 2);
   });
 
-  it("窗口高度 = 头顶气泡区 + 角色高 + 纵向开销", () => {
+  it("窗口只包含角色高度与纵向开销，不预留头顶空白", () => {
     const layout = computeCharacterLayout(800, 1200);
-    expect(layout.winH).toBe(BUBBLE_HEADROOM + Math.ceil(layout.charH) + CHROME_HEIGHT);
+    expect(layout.winH).toBe(Math.ceil(layout.charH) + CHROME_HEIGHT);
     expect(layout.winW).toBe(Math.max(Math.ceil(layout.charW) + PAD * 2, MIN_WINDOW_WIDTH));
   });
 

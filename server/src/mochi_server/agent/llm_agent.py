@@ -21,7 +21,7 @@ emotion 策略（ADR-0002 D5）：固定 neutral/0.5；真实情绪推断推迟�
 拼装上下文，回合完成后落盘——**历史以 store 为唯一事实源**，checkpoint
 thread_id 用 run_id（非 session_id），避免与图内消息双计（ADR-0008 D4）。
 记忆（M1-S3，6.4）：MemoryManager 注入后，对话前召回相关记忆注入 system
-prompt；当前版本仅手动添加，自动提取留后续版本。
+prompt；完整回合后后台提取用户事实与偏好并持久化。
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ from ..skin_manifest import SkinManifest
 from ..store import HISTORY_LIMIT, SessionStore
 from .adapters.base import ChatMessage
 from .adapters.langchain import LangChainAdapter, _deltas_from_chunk, _to_lc_messages
-from .context import build_context_messages
+from .context import build_context_messages, compute_budget
 from .cue_extractor import CueStreamParser, _performable_actions, cue_prompt_section
 from .emotion import classify_reply_emotion
 from .errors import AgentError
@@ -214,16 +214,10 @@ class LLMAgentService(AgentService):
         message_id = f"m-{uuid.uuid4().hex[:12]}"
         proactive = ctx.source == "proactive"
 
-        # 记忆召回（6.4）：按用户输入检索相关记忆，注入 system prompt；
-        # proactive 回合无用户输入（ctx.text 是引擎触发指令），跳过检索
-        memory_section = ""
-        if self._memory is not None and not proactive:
-            memory_section = await self._memory.recall_for_prompt(ctx.text)
-
         # 多轮拼装（6.2）+ 上下文预算（4.4）：system + 预算内历史 + 本轮 user；
         # 超限自动截断并注入省略标记，长对话不报错、对用户无感
         history = await self._load_history(ctx.session_id)
-        effective_system = self._system_prompt + memory_section
+        effective_system = self._system_prompt
         if proactive:
             # M-D：触发上下文由引擎生成（不落盘），模型以「主动关心/提醒」
             # 姿态回复，不假装在回答用户问题
@@ -239,6 +233,19 @@ class LLMAgentService(AgentService):
         # 回复长度硬性要求（2026-09-28 用户可配）：同步告知模型真实上限，
         # 否则模型会自行宣称/按其它长度标准作答（实测：被 200 截断却自称 300~500 字）
         effective_system += reply_length_requirement(self._max_reply_chars)
+        # 用户背景不依赖关键词命中；按当前窗口预留最多 1/3 可用预算，
+        # 字符数按每字符至多一个 token 保守限制，余量留给历史与回复。
+        # proactive 的 ctx.text 是系统触发指令，继续跳过记忆检索。
+        if self._memory is not None and not proactive:
+            memory_budget = (
+                compute_budget(
+                    effective_system, ctx.text, context_window=self._context_window
+                ).available
+                // 3
+            )
+            effective_system += await self._memory.recall_for_prompt(
+                ctx.text, max_chars=memory_budget
+            )
         messages, budget, dropped = build_context_messages(
             effective_system, history, ctx.text, context_window=self._context_window
         )

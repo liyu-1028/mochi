@@ -17,7 +17,8 @@ function clamp(x: number, y: number) {
 describe("getMenuSize", () => {
   it("固定宽 160，高随条目数推导（32 + 36n，dev 构建含 devtools 项）", () => {
     expect(MENU).toEqual({ width: 160, height: MENU_HEIGHT });
-    expect(MENU_HEIGHT).toBeGreaterThanOrEqual(176); // 4 项基准，dev 构建更高
+    // 5 项基准（动作管理随 ADR-0011 P2.7 加入），dev 构建更高
+    expect(MENU_HEIGHT).toBeGreaterThanOrEqual(212);
   });
 
   it("常量与函数同源", () => {
@@ -28,7 +29,7 @@ describe("getMenuSize", () => {
 
 describe("clampMenuPosition", () => {
   it("窗口中部原样返回", () => {
-    expect(clamp(100, 150)).toEqual({ x: 100, y: 150 });
+    expect(clamp(100, 100)).toEqual({ x: 100, y: 100 });
   });
 
   it("靠近右缘时向左收回", () => {

@@ -1,3 +1,5 @@
+> 2026-10-09：默认角色仅 Mochi。装扮管理支持直接导入 VRM 0.x/1.0 文件，自动从模型元数据生成本地清单，原始 VRM 保持不变；ZIP 皮肤包导入继续可用。
+
 # skin.json 清单规范（v2 基线；v3 增 paramEnvelope/durationMs，G3）
 
 > 状态：v2（M-A：新增 `actions` 语义动作注册表）；v1（2026-08-06，M1-S1）

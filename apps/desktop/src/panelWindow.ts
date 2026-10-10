@@ -10,10 +10,11 @@
  * - mochi:language-changed：任一窗口切换界面语言 → 其余窗口同步（zustand 不跨窗口）。
  */
 import { emit } from "@tauri-apps/api/event";
+import { LogicalSize } from "@tauri-apps/api/dpi";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 /** 面板窗口可承载的视图（与 CharacterMenu 菜单项一一对应 + 引导向导）。 */
-export type PanelId = "settings" | "history" | "memory" | "skins" | "onboarding";
+export type PanelId = "settings" | "history" | "memory" | "skins" | "motions" | "onboarding";
 
 export const PANEL_WINDOW_LABEL = "panel";
 export const EVENT_PANEL_NAVIGATE = "mochi:panel-navigate";
@@ -22,7 +23,7 @@ export const EVENT_PROVIDERS_CHANGED = "mochi:providers-changed";
 export const EVENT_LANGUAGE_CHANGED = "mochi:language-changed";
 /** 2.6 省电模式跨窗口同步（设置面板 ↔ 主窗口渲染层）。 */
 export const EVENT_POWER_SAVE_CHANGED = "mochi:power-save-changed";
-export const EVENT_ACTIVE_SESSION_DELETED = "mochi:active-session-deleted";
+export const EVENT_SESSION_CHANGED = "mochi:session-changed";
 /** M1-S1：衣橱面板换肤 → 主窗口重建角色舞台（3.3 热切换）。 */
 export const EVENT_SKIN_CHANGED = "mochi:skin-changed";
 
@@ -53,7 +54,11 @@ export function openPanelWindow(id: PanelId): Promise<void> {
 
 async function open(id: PanelId): Promise<void> {
   const existing = await WebviewWindow.getByLabel(PANEL_WINDOW_LABEL);
+  const width = id === "motions" ? 900 : PANEL_WIDTH;
+  const height = id === "motions" ? 700 : PANEL_HEIGHT;
   if (existing) {
+    await existing.setSize(new LogicalSize(width, height));
+    await existing.center();
     await existing.setFocus();
     await emit(EVENT_PANEL_NAVIGATE, { panelId: id });
     return;
@@ -61,12 +66,13 @@ async function open(id: PanelId): Promise<void> {
   const win = new WebviewWindow(PANEL_WINDOW_LABEL, {
     url: `index.html?panel=${id}`,
     title: "Mochi",
-    width: PANEL_WIDTH,
-    height: PANEL_HEIGHT,
+    width,
+    height,
     center: true,
     resizable: false,
-    // 与 character 窗口同置顶层级，避免被置顶的角色窗遮挡
-    alwaysOnTop: true,
+    // 功能面板使用普通窗口层级，切换应用后随系统窗口顺序退到后面。
+    alwaysOnTop: false,
+    focus: true,
     // 无边框卡片风：透明 + CSS 圆角/阴影，头部拖拽区见各面板 settings__header
     transparent: true,
     decorations: false,

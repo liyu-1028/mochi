@@ -30,11 +30,18 @@ from .agent.llm_agent import LLMAgentService
 from .agent.ollama_probe import probe_ollama
 from .agent.registry import AgentFactory
 from .agent.service import AgentService
-from .api import config_router, memory_router, session_router, skin_router, tts_router
+from .api import (
+    config_router,
+    memory_router,
+    motion_router,
+    session_router,
+    skin_router,
+    tts_router,
+)
 from .api.security import ALLOWED_CORS_ORIGINS, SensitiveDataFilter, localhost_only
 from .attention.bridge import CompanionCoordinator, start_pump_loop
 from .attention.engine import AttentionEngine, settings_from_config
-from .config import AppConfig, load_config
+from .config import AppConfig, load_config, save_config
 from .events import (
     EVENT_TYPES,
     LOCOMOTION_ACTIONS,
@@ -63,6 +70,7 @@ from .events import (
     make_frame,
 )
 from .langgraph_checkpoints import build_checkpointer
+from .motion.library import MotionLibrary
 from .paths import get_config_path
 from .runtime import remove_runtime_file, resolve_port, write_runtime_file
 from .secrets import KeyStore
@@ -175,12 +183,25 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             store=app.state.store,
             checkpointer=saver,
             config_path=get_config_path(),  # 工具白名单落盘目标（6.5）
+            skin_registry=app.state.skin_registry,
+            motion_library=app.state.motion_library,
         )
         logger.info(
             "配置就绪：default_profile=%s（Ollama %s）",
             config.model.default_profile,
             "已发现" if probe.available else "未发现",
         )
+    registry = app.state.registry
+    if (
+        registry is not None
+        and registry.config.character.active_skin == "seed-san"
+        and not app.state.skin_registry.has("seed-san")
+    ):
+        config = registry.config.model_copy(deep=True)
+        config.character.active_skin = "mochi-vrm"
+        save_config(app.state.config_path, config)
+        registry.update_config(config)
+        logger.info("已移除的 Seed-san 装扮已切换为 Mochi")
     # 端口发现（M1-S0）：uvicorn 的端口经 MOCHI_SIDECAR_PORT 约定，就绪即写。
     # 注：lifespan 先于 socket 监听执行，前端连接由重连机制兜住毫秒级窗口。
     write_runtime_file(resolve_port())
@@ -215,7 +236,7 @@ def create_app(
     app.add_middleware(
         CORSMiddleware,
         allow_origins=sorted(ALLOWED_CORS_ORIGINS),
-        allow_methods=["GET", "POST", "PUT", "DELETE"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
         allow_headers=["Content-Type"],
     )
     # 后加 → 最外层：先于 CORS 记录每个请求（含预检 OPTIONS）的 Origin
@@ -227,6 +248,7 @@ def create_app(
     # 皮肤注册表（M1-S1）：用户皮肤资源经 /user-skins 路由分发，base URL 带端口；
     # 同时作为 AgentFactory 的能力注入来源（G2 提示词按皮肤可演动作收窄）
     app.state.skin_registry = SkinRegistry(http_base_url=f"http://127.0.0.1:{resolve_port()}")
+    app.state.motion_library = MotionLibrary()
     app.state.registry = (
         AgentFactory(
             config,
@@ -234,6 +256,7 @@ def create_app(
             store=app.state.store,
             config_path=app.state.config_path,
             skin_registry=app.state.skin_registry,
+            motion_library=app.state.motion_library,
         )
         if config is not None
         else None
@@ -241,6 +264,7 @@ def create_app(
     app.include_router(config_router)
     app.include_router(session_router)
     app.include_router(skin_router)
+    app.include_router(motion_router)
     app.include_router(tts_router)
     app.include_router(memory_router)
     _install_log_filter()
@@ -279,7 +303,8 @@ def create_app(
                 manager,
                 ws.send_json,
                 store=app.state.store,
-                session_id=getattr(app.state, "attention_session_id", "default"),
+                session_id=ws.query_params.get("sessionId")
+                or getattr(app.state, "attention_session_id", "default"),
             )
             manager.attach_coordinator(coordinator)
             pump_task = asyncio.create_task(start_pump_loop(coordinator))
@@ -428,6 +453,8 @@ def create_app(
                 _DEV_WS_SENDERS.remove(ws.send_json)
             if pump_task is not None:
                 pump_task.cancel()
+                await asyncio.gather(pump_task, return_exceptions=True)
+            await manager.close()
 
     @app.post("/dev/cue", dependencies=[Depends(localhost_only)])
     async def dev_trigger_cue(request: Request) -> dict[str, Any]:

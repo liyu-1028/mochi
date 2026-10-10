@@ -396,3 +396,36 @@ class TestToolSignalSource:
         intents = [f for f in sender.frames if f["type"] == "companion.intent"]
         assert len(intents) == 1  # 两次失败合并为一次 ask
         assert intents[0]["data"]["kind"] == "tool_failed"
+
+
+@pytest.mark.parametrize("session_id", ["new-chat", None])
+def test_ws_attention_uses_selected_session(tmp_path, monkeypatch, session_id):
+    """主动陪伴也跟随所选会话；老客户端仍沿用 default。"""
+    from fastapi.testclient import TestClient
+
+    from mochi_server.config import load_config
+    from mochi_server.main import create_app
+
+    cfg = load_config(tmp_path / "config.toml")
+    cfg.agent.attention = "auto"
+    captured = []
+
+    def record_coordinator(*args, **kwargs):
+        captured.append(kwargs["session_id"])
+        return CompanionCoordinator(*args, **kwargs)
+
+    monkeypatch.setattr("mochi_server.main.CompanionCoordinator", record_coordinator)
+    app = create_app(config=cfg)
+    url = f"/ws?sessionId={session_id}" if session_id else "/ws"
+    with TestClient(app) as client, client.websocket_connect(url) as ws:
+        ws.send_json(
+            {
+                "v": "0.1",
+                "type": "hello",
+                "id": "1",
+                "ts": 0,
+                "data": {"versions": ["0.1"], "client": {"name": "t", "version": "0"}},
+            }
+        )
+        assert ws.receive_json()["type"] == "hello_ack"
+        assert captured == [session_id or "default"]

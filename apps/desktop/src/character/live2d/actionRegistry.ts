@@ -18,7 +18,7 @@ import type {
   ParamEnvelopeBinding,
   SkinAction,
   SkinSummary,
-} from "../api/skinsClient";
+} from "../../api/skinsClient";
 import type { ModelProfile } from "./stateMachine";
 import { DOZE_DURATION_MS } from "./stateMachine";
 

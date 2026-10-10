@@ -28,12 +28,18 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { SkinSummary } from "../api/skinsClient";
 import { useConversation } from "../store/conversation";
 import { CharacterBadge } from "./CharacterBadge";
-import { disposeStage, loadCharacterStage, type StageHandle } from "../live2d/core";
+import { disposeStage, loadCharacterStage, type StageHandle } from "../character/live2d/core";
 import * as PIXI from "pixi.js";
-import { createDriver, type CharacterDriver } from "../live2d/driver";
-import { lerpGaze, normalizeGaze, type GazeTarget, type StageRect } from "../live2d/gaze";
-import { MOUTH_CLOSED, onDelta, stepMouth, volumeToOpen, type MouthState } from "../live2d/mouth";
-import { ttsPlayer } from "../live2d/ttsPlayer";
+import { createDriver, type CharacterDriver } from "../character/live2d/driver";
+import { lerpGaze, normalizeGaze, type GazeTarget, type StageRect } from "../character/gaze";
+import {
+  MOUTH_CLOSED,
+  onDelta,
+  stepMouth,
+  volumeToOpen,
+  type MouthState,
+} from "../character/mouth";
+import { ttsPlayer } from "../character/ttsPlayer";
 import { useTTSState } from "../hooks/useTTS";
 import { getCursor, reportCursor } from "../passthrough/cursorTracker";
 import {
@@ -42,7 +48,7 @@ import {
   headPatEnvelope,
   HEAD_PAT_PARAMS,
   reactionFor,
-} from "../live2d/interactions";
+} from "../character/interactions";
 import { buildMaskFromCanvas, maskOpaqueAt, type AlphaMask } from "../passthrough/alphaMask";
 import {
   LOCOMOTION_STAY_MS,
@@ -50,7 +56,7 @@ import {
   locomotionPose,
   locomotionTransform,
   type LocomotionPose,
-} from "../live2d/locomotion";
+} from "../character/locomotion";
 
 /**
  * DEV 观测钩子（M-B B4/实测断言用）：挂到 window.__mochiDirector（仅 dev 构建），
@@ -73,7 +79,7 @@ import {
   FACE_REFLEX_PRESETS,
   type AnimationPlan,
   type ModelProfile,
-} from "../live2d/stateMachine";
+} from "../character/live2d/stateMachine";
 import { LOCOMOTION_ACTIONS, type Emotion, type LocomotionActionId } from "@mochi/protocol";
 import {
   createDirectorState,
@@ -83,7 +89,7 @@ import {
   type DirectorContext,
   type DirectorCue,
   type DirectorState,
-} from "../live2d/actionDirector";
+} from "../character/actionDirector";
 import {
   buildCue,
   isRepeatTap,
@@ -92,7 +98,7 @@ import {
   IDLE_ROTATION_INTERVAL_MS,
   TAP_WINDOW_MS,
   HOLD_THRESHOLD_MS,
-} from "../live2d/reflexRules";
+} from "../character/reflexRules";
 import {
   beginSpeech,
   createCueScheduler,
@@ -102,14 +108,14 @@ import {
   submitCue as scheduleReplyCue,
   type CueConverter,
 } from "../cue/cueScheduler";
-import { resolveAction } from "../live2d/actionRegistry";
+import { resolveAction } from "../character/live2d/actionRegistry";
 import {
   createSampleWindow,
   decorationsPaused,
   effectiveFps,
   nextFpsLevel,
   type FpsLevel,
-} from "../live2d/powerGuard";
+} from "../character/powerGuard";
 import { useSettings } from "../store/settings";
 
 /** §8 基线测量钩子：每秒刷新（fps 由窗口均帧耗推得 + 实测帧计数）。 */

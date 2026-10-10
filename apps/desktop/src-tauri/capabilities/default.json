@@ -9,6 +9,7 @@
     "core:window:allow-start-dragging",
     "core:window:allow-set-ignore-cursor-events",
     "core:window:allow-set-size",
+    "core:window:allow-center",
     "core:window:allow-set-position",
     "core:webview:allow-create-webview-window",
     "core:window:allow-close",

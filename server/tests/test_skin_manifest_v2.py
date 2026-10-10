@@ -92,18 +92,20 @@ def test_unknown_channel_rejected() -> None:
     assert "未知通道" in str(exc.value)
 
 
-def test_missing_binding_rejected() -> None:
-    """live2d 实现绑定必填（static 绑定已随静态类型下线）。"""
-    with pytest.raises(ValidationError) as exc:
-        SkinAction.model_validate({"id": "wave", "channels": ["body"]})
-    assert "live2d" in str(exc.value)
+def test_missing_binding_accepted_since_vrm() -> None:
+    """live2d 绑定自 VRM 皮肤起可选（ADR-0011）：无绑定的动作条目合法，
+    由前端内置动作集兜底解析；static 绑定字段仍被拒绝（额外字段）。"""
+    action = SkinAction.model_validate({"id": "wave", "channels": ["body"]})
+    assert action.live2d is None
 
 
-def test_static_binding_rejected() -> None:
-    with pytest.raises(ValidationError):
-        SkinAction.model_validate(
-            {"id": "wave", "channels": ["body"], "static": {"animation": "wave"}}
-        )
+def test_static_binding_ignored() -> None:
+    """static 绑定已随静态类型下线：额外字段被忽略，不产生任何绑定。"""
+    action = SkinAction.model_validate(
+        {"id": "wave", "channels": ["body"], "static": {"animation": "wave"}}
+    )
+    assert action.live2d is None
+    assert not hasattr(action, "static")
 
 
 def test_fallback_to_undefined_action_rejected() -> None:

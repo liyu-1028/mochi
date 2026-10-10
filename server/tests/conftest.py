@@ -22,6 +22,7 @@ def isolated_keyring():
 def isolated_data_dir(tmp_path, monkeypatch):
     """全部测试的数据目录指向临时目录。"""
     monkeypatch.setenv(paths.DATA_DIR_ENV, str(tmp_path / "mochi-data"))
+    monkeypatch.setenv("MOCHI_BUILTIN_MOTIONS_DIR", str(tmp_path / "no-default-motions"))
 
 
 @pytest.fixture(autouse=True)

@@ -10,7 +10,7 @@ import {
   toolReflexCues,
   type ToolReflexStatus,
 } from "./reflexRules";
-import { DEFAULT_LIVE2D_ACTIONS } from "./actionRegistry";
+import { DEFAULT_LIVE2D_ACTIONS } from "./live2d/actionRegistry";
 
 const NOW = 1_000_000;
 

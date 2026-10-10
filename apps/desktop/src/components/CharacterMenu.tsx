@@ -22,7 +22,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../i18n";
 
-export type MenuItemId = "history" | "memory" | "skins" | "settings";
+export type MenuItemId = "history" | "memory" | "skins" | "motions" | "settings";
 
 type MenuEntry = {
   id: MenuItemId | "devtools";
@@ -37,6 +37,7 @@ const MENU_ITEMS: MenuEntry[] = [
   { id: "history", icon: "💬", labelKey: "menu.history" },
   { id: "memory", icon: "🧠", labelKey: "menu.memory" },
   { id: "skins", icon: "👗", labelKey: "menu.skins" },
+  { id: "motions", icon: "🤸", labelKey: "menu.motions" },
   { id: "settings", icon: "⚙️", labelKey: "menu.settings" },
 ];
 

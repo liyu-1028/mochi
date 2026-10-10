@@ -2,15 +2,14 @@
  * HistoryPanel —— 聊天回忆面板（M1-CTX，功能清单 4.3 回看面）。
  *
  * 会话列表（最近活跃倒序）→ 点选回看消息（user/assistant 气泡，assistant
- * 走 MarkdownBody）→ 内联二次确认删除。只读回看，不切换实时上下文。
+ * 走 MarkdownBody）→ 继续旧会话 / 新建会话 / 内联二次确认删除。
  * 复用 S1 的 sessionApi 与 settings.css 模态样式。
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { emit } from "@tauri-apps/api/event";
 import { sessionApi, type HistoryMessage, type SessionSummary } from "../api/configClient";
-import { DEFAULT_SESSION_ID } from "../hooks/useMochiConnection";
 import { useI18n } from "../i18n";
-import { EVENT_ACTIVE_SESSION_DELETED } from "../panelWindow";
+import { EVENT_SESSION_CHANGED } from "../panelWindow";
 import { useConversation } from "../store/conversation";
 import { MarkdownBody } from "./MarkdownBody";
 
@@ -40,6 +39,26 @@ export function HistoryPanel({ onClose }: HistoryPanelProps) {
   const [messages, setMessages] = useState<HistoryMessage[]>([]);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const activeSessionId = useConversation((s) => s.activeSessionId);
+  const messageRequest = useRef(0);
+  const visibleSessions = sessions.some((s) => s.id === activeSessionId)
+    ? sessions
+    : [
+        { id: activeSessionId, title: t("history.newTitle"), createdAt: 0, updatedAt: 0 },
+        ...sessions,
+      ];
+
+  async function activateSession(id: string) {
+    try {
+      if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
+        await emit(EVENT_SESSION_CHANGED, { sessionId: id });
+      }
+      useConversation.getState().activateSession(id);
+      onClose();
+    } catch {
+      setError(t("settings.feedbackUnreachable"));
+    }
+  }
 
   const loadSessions = useCallback(async () => {
     try {
@@ -55,12 +74,16 @@ export function HistoryPanel({ onClose }: HistoryPanelProps) {
   }, [loadSessions]);
 
   async function openSession(id: string) {
+    setError(null);
+    const request = ++messageRequest.current;
     setSelectedId(id);
     setConfirmDeleteId(null);
+    setMessages([]);
     try {
-      setMessages(await sessionApi.getMessages(id));
+      const history = await sessionApi.getMessages(id);
+      if (request === messageRequest.current) setMessages(history);
     } catch {
-      setMessages([]);
+      if (request === messageRequest.current) setError(t("settings.feedbackUnreachable"));
     }
   }
 
@@ -68,32 +91,22 @@ export function HistoryPanel({ onClose }: HistoryPanelProps) {
     try {
       await sessionApi.deleteSession(id);
     } catch {
-      // 删除失败不阻断：刷新列表即可看到真实状态
+      setError(t("settings.feedbackUnreachable"));
+      return;
     }
     setConfirmDeleteId(null);
     if (selectedId === id) {
       setSelectedId(null);
       setMessages([]);
     }
-    // 删除的是主界面活跃会话 → 同步清空内存消息，避免"后端已删、
-    // 前端残留"的状态脱节（测试报告 2026-08-06 问题 2）。
-    // 桌面端回忆面板在独立窗口（zustand 每窗口独立上下文）：直接 reset 只
-    // 清本窗口 store，主角色窗口须经事件通知清空——与 language-changed 同模式。
-    // Web 内联降级同窗口，直接 reset 即生效。
-    if (id === DEFAULT_SESSION_ID) {
-      useConversation.getState().resetMessages();
-      if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
-        emit(EVENT_ACTIVE_SESSION_DELETED, { sessionId: id }).catch(() => {
-          /* 广播失败不阻断删除流程 */
-        });
-      }
-    }
+    // 删除当前会话后进入新的空白会话，其他会话及长期记忆保持独立。
+    if (id === activeSessionId) await activateSession(crypto.randomUUID());
     await loadSessions();
   }
 
   return (
-    <div className="settings-overlay" onClick={onClose}>
-      <div className="settings" onClick={(e) => e.stopPropagation()}>
+    <div className="settings-overlay settings-overlay--history" onClick={onClose}>
+      <div className="settings settings--history" onClick={(e) => e.stopPropagation()}>
         {/* data-tauri-drag-region：无边框面板窗口以头部为拖拽区（button 子元素自动豁免） */}
         <header className="settings__header" data-tauri-drag-region>
           <h2>
@@ -109,50 +122,76 @@ export function HistoryPanel({ onClose }: HistoryPanelProps) {
           </button>
         </header>
 
+        <div className="history__toolbar">
+          <p className="settings__item-sub">{t("history.sessionHint")}</p>
+          <button className="btn" onClick={() => void activateSession(crypto.randomUUID())}>
+            {t("history.newSession")}
+          </button>
+        </div>
+        <details className="history__guide">
+          <summary>{t("history.whenToStart")}</summary>
+          <p className="settings__item-sub">{t("history.sessionGuide")}</p>
+        </details>
+
+        {selectedId ? (
+          <div className="history__toolbar">
+            <span className="settings__item-sub">
+              {t("history.messageCount", { count: messages.length })}
+            </span>
+            <button className="btn btn--ghost" onClick={() => void activateSession(selectedId)}>
+              {t("history.continue")}
+            </button>
+          </div>
+        ) : null}
+        {selectedId && messages.length > 20 ? (
+          <p className="settings__item-sub">{t("history.longSession")}</p>
+        ) : null}
+
         {error ? <p className="settings__error">{error}</p> : null}
 
         {selectedId === null ? (
-          sessions.length === 0 ? (
-            <p className="settings__item-sub history__empty">{t("history.empty")}</p>
-          ) : (
-            <ul className="settings__list">
-              {sessions.map((s) => (
-                <li key={s.id} className="settings__item">
-                  <button
-                    type="button"
-                    className="settings__item-main history__session"
-                    onClick={() => openSession(s.id)}
-                  >
-                    <strong>{s.title ?? s.id}</strong>
-                    <span className="settings__item-sub">{formatTs(s.updatedAt, locale)}</span>
-                  </button>
-                  <div className="settings__item-actions">
-                    {confirmDeleteId === s.id ? (
-                      <>
-                        <button
-                          className="btn btn--ghost settings__danger"
-                          onClick={() => handleDelete(s.id)}
-                        >
-                          {t("common.delete")}
-                        </button>
-                        <button className="btn btn--ghost" onClick={() => setConfirmDeleteId(null)}>
-                          {t("common.cancel")}
-                        </button>
-                      </>
-                    ) : (
+          <ul className="settings__list">
+            {visibleSessions.map((s) => (
+              <li key={s.id} className="settings__item">
+                <button
+                  type="button"
+                  className="settings__item-main history__session"
+                  onClick={() => openSession(s.id)}
+                >
+                  <strong>{s.title ?? t("history.newTitle")}</strong>
+                  <span className="settings__item-sub">
+                    {s.updatedAt ? formatTs(s.updatedAt, locale) : t("history.notStarted")}
+                  </span>
+                </button>
+                <div className="settings__item-actions">
+                  {s.id === activeSessionId ? (
+                    <span className="settings__tag">{t("history.current")}</span>
+                  ) : null}
+                  {confirmDeleteId === s.id ? (
+                    <>
                       <button
                         className="btn btn--ghost settings__danger"
-                        onClick={() => setConfirmDeleteId(s.id)}
-                        aria-label={t("common.delete")}
+                        onClick={() => handleDelete(s.id)}
                       >
-                        🗑
+                        {t("common.delete")}
                       </button>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )
+                      <button className="btn btn--ghost" onClick={() => setConfirmDeleteId(null)}>
+                        {t("common.cancel")}
+                      </button>
+                    </>
+                  ) : s.updatedAt ? (
+                    <button
+                      className="btn btn--ghost settings__danger"
+                      onClick={() => setConfirmDeleteId(s.id)}
+                      aria-label={t("common.delete")}
+                    >
+                      🗑
+                    </button>
+                  ) : null}
+                </div>
+              </li>
+            ))}
+          </ul>
         ) : messages.length === 0 ? (
           <p className="settings__item-sub history__empty">{t("history.messagesEmpty")}</p>
         ) : (

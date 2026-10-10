@@ -10,6 +10,8 @@
 #   实测 spawn→/health <1s，满足 1.1 冷启动 ≤5s 验收
 # - console=False：用户全程不接触终端（1.2 验收）；终端手动运行时 stderr 仍可见
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from pathlib import Path
+import os
 
 # uvicorn 用 importlib 动态挑选 loop/http/websocket/lifespan 实现，静态分析追踪不到；
 # 显式声明后 PyInstaller 会分析这些模块并连带收集 uvloop/httptools/websockets。
@@ -36,6 +38,10 @@ hiddenimports += collect_submodules("langchain_core", filter=lambda name: "seria
 
 datas = collect_data_files("keyring")  # backends.toml 等优先级配置
 datas += collect_data_files("certifi")  # cacert.pem
+# 本机私有素材包不进入 Git；本地构建保留用户提供的 VRMA 和作者署名。
+local_motions = Path(SPECPATH).parents[1] / "assets/local-motions/mochi-vrm-defaults"
+if local_motions.is_dir() and os.environ.get("MOCHI_RELEASE_BUILD") != "1":
+    datas += [(str(local_motions), "mochi_server/motion/defaults/mochi-vrm")]
 
 a = Analysis(
     ["entry.py"],

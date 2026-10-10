@@ -254,3 +254,17 @@ async def test_has_active_runs_lifecycle() -> None:
     assert manager.has_active_runs is True
     await _wait_idle(manager)
     assert manager.has_active_runs is False
+
+
+@pytest.mark.asyncio
+async def test_close_cancels_active_generation_and_background_tasks() -> None:
+    recorder = FrameRecorder()
+    manager = RunManager(EchoAgentService(thinking_delay=60), recorder)
+    await manager.start_run(_send_data())
+    await asyncio.sleep(0)
+    manager._schedule_error_recovery()
+    recovery = manager._error_recovery_task
+    await manager.close()
+    assert not manager.has_active_runs
+    assert recovery is not None and recovery.cancelled()
+    assert recorder.frames[-1]["data"]["reason"] == "cancelled"

@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Mochi",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "identifier": "app.mochi.desktop",
   "build": {
     "beforeDevCommand": "pnpm dev:web",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "node ../../scripts/download-live2d-core.mjs && bash ../../scripts/package-sidecar.sh && pnpm --filter @mochi/desktop exec tsc --noEmit && pnpm --filter @mochi/desktop exec vite build",
+    "beforeBuildCommand": "node ../../scripts/download-live2d-core.mjs && node ../../scripts/download-vrm-assets.mjs && bash ../../scripts/package-sidecar.sh && pnpm --filter @mochi/desktop exec tsc --noEmit && pnpm --filter @mochi/desktop exec vite build",
     "frontendDist": "../dist"
   },
   "app": {

@@ -24,11 +24,14 @@ from ..config import (
     load_config,
     save_config,
 )
+from ..events import SEMANTIC_ACTIONS
 from ..memory import MemoryManager
 from ..model_runtime import ModelRuntime
+from ..motion.library import MotionLibrary
 from ..persona import build_system_prompt
 from ..secrets import KeyStore
 from ..skin.registry import SkinRegistry
+from ..skin_manifest import SkinAction, SkinManifest
 from ..store import SessionStore
 from .echo_agent import EchoAgentService
 from .errors import AgentError
@@ -51,6 +54,7 @@ class AgentFactory:
         checkpointer: BaseCheckpointSaver | None = None,
         config_path: Path | None = None,
         skin_registry: SkinRegistry | None = None,
+        motion_library: MotionLibrary | None = None,
     ) -> None:
         self._config = config
         self._key_store = key_store or KeyStore()
@@ -70,6 +74,7 @@ class AgentFactory:
         self._config_path = config_path
         # 皮肤注册表（G2）：提示词能力注入的清单来源；None → 静态全词表（零回归）
         self._skin_registry = skin_registry
+        self._motion_library = motion_library
         # registry 级单例：load 闭包读 self._config，配置热切换后自动读到新值
         self._tool_policy = ToolPolicy(
             load=lambda: list(self._config.tools.allowed),
@@ -140,6 +145,27 @@ class AgentFactory:
         self._agent_cache = (self._version, profile_id, agent)
         return agent
 
+    def _performance_skin(self) -> SkinManifest | None:
+        if self._skin_registry is None:
+            return None
+        skin = self._skin_registry.get(self._config.character.active_skin)
+        if skin is None or skin.resource_type != "vrm":
+            return skin
+        entries = self._motion_library.list_all(skin.id) if self._motion_library is not None else []
+        actions = [
+            SkinAction(
+                id=entry.id,
+                kind=entry.kind,
+                channels=["body"],
+                priority=entry.priority,
+                cooldownMs=entry.cooldown_ms,
+                agentSelectable=entry.agent_selectable,
+            )
+            for entry in entries
+            if entry.id in SEMANTIC_ACTIONS
+        ]
+        return skin.model_copy(update={"actions": actions})
+
     def _build_agent(self, profile_id: str, cfg: ModelProfileConfig) -> AgentService:
         # 缺 Key 等构造期问题在工厂内抛 AgentError，由 RunManager 转为 run.error
         adapter = self._model_runtime.adapter_for(profile_id)
@@ -147,11 +173,7 @@ class AgentFactory:
         # 全空回退 DEFAULT_SYSTEM_PROMPT；配置更新经 update_config 缓存失效后重建生效。
         system_prompt = build_system_prompt(self._config.character.persona)
         # 皮肤能力提供者（G2）：闭包读活动配置 + 注册表，换肤即时生效（无需重建 agent）
-        skin_provider = (
-            (lambda: self._skin_registry.get(self._config.character.active_skin))
-            if self._skin_registry is not None
-            else None
-        )
+        skin_provider = self._performance_skin if self._skin_registry is not None else None
         return LLMAgentService(
             adapter,
             system_prompt=system_prompt,

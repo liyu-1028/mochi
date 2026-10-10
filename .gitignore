@@ -41,5 +41,24 @@ apps/desktop/src-tauri/binaries/
 docs/internal/
 docs/test-reports/
 
+# 本地舞蹈评估资源：按固定来源下载，开发服务器专用，不进产品包
+assets/prototypes/vrm-dance/*.vrm
+assets/prototypes/vrm-dance/*.fbx
+
+# 内置 VRM 角色模型：postinstall 经 scripts/download-vrm-assets.mjs 下载
+assets/skins/mochi-vrm/model.vrm
+assets/skins/seed-san/model.vrm
+
+# VRoid 官方动作包：许可不允许分发可提取的原版/改版，仅本地导入
+assets/VRMA_MotionPack.zip
+assets/VRMA_MotionPack/vrma/
+assets/local-motions/
+
 # 录屏原始素材（体积大，仅本地留存，见 docs/images/demo1.gif）
 docs/images/*.mov
+
+# 用户下载的原始动作素材和本地聊天导出，不随源码公开
+assets/愛包ダンスホール/
+assets/愛包ダンスホール.zip
+assets/VRMA_MotionPack/Readme*.txt
+server/*-local-command-*.txt

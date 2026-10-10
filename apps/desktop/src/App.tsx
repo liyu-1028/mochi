@@ -17,9 +17,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { listen } from "@tauri-apps/api/event";
 import { configApi } from "./api/configClient";
 import { skinsApi, type SkinSummary } from "./api/skinsClient";
-import { initRuntimePortListener, subscribeRuntimePort } from "./api/sidecarRuntime";
+import { subscribeRuntimePort } from "./api/sidecarRuntime";
 import { CharacterMenu, type MenuItemId } from "./components/CharacterMenu";
 import { CharacterStage } from "./components/CharacterStage";
+import { VrmStage } from "./components/VrmStage";
 import { ChatToggle } from "./components/ChatToggle";
 import { HistoryPanel } from "./components/HistoryPanel";
 import { MemoryPanel } from "./components/MemoryPanel";
@@ -28,20 +29,21 @@ import { SettingsPanel } from "./components/SettingsPanel";
 import { SkinsPanel } from "./components/SkinsPanel";
 import { SpeechBubbleArea } from "./components/SpeechBubbleArea";
 import { ToolActivity } from "./components/ToolActivity";
-import { DEFAULT_SESSION_ID, resolveWsUrl, useMochiConnection } from "./hooks/useMochiConnection";
+import { resolveWsUrl, useMochiConnection } from "./hooks/useMochiConnection";
 import { useSettingsHydration } from "./hooks/useSettingsHydration";
 import { useSidecarStatus } from "./hooks/useSidecarStatus";
 import { useTTS } from "./hooks/useTTS";
-import { ttsPlayer } from "./live2d/ttsPlayer";
+import { ttsPlayer } from "./character/ttsPlayer";
 import { useI18n } from "./i18n";
 import { applyCharacterLayout } from "./layout/applyWindowLayout";
 import {
   FALLBACK_LAYOUT,
+  VRM_TOP_HEADROOM_RATIO,
   computeCharacterLayout,
   type CharacterLayout,
 } from "./layout/characterLayout";
 import {
-  EVENT_ACTIVE_SESSION_DELETED,
+  EVENT_SESSION_CHANGED,
   EVENT_ONBOARDING_DONE,
   EVENT_PROVIDERS_CHANGED,
   EVENT_SKIN_CHANGED,
@@ -61,7 +63,6 @@ export default function App() {
   // 桌面壳 emit 就绪事件 → 重新解析 url → useMochiConnection 依 url 变化重连
   const [wsUrl, setWsUrl] = useState(resolveWsUrl);
   useEffect(() => {
-    initRuntimePortListener();
     return subscribeRuntimePort(() => setWsUrl(resolveWsUrl()));
   }, []);
   const { sendText, cancelRun, confirmTool, respondIntent } = useMochiConnection(wsUrl);
@@ -88,6 +89,11 @@ export default function App() {
     [],
   );
   const handleStageFallback = useCallback(() => setLayout(FALLBACK_LAYOUT), []);
+  const handleVrmModelReady = useCallback(
+    (modelWidth: number, modelHeight: number) =>
+      setLayout(computeCharacterLayout(modelWidth, modelHeight, undefined, VRM_TOP_HEADROOM_RATIO)),
+    [],
+  );
   useEffect(() => {
     void applyCharacterLayout(layout);
   }, [layout]);
@@ -139,8 +145,11 @@ export default function App() {
       unlisten.then((fn) => fn());
     };
   }, []);
+  // 默认角色回落（ADR-0011 D6 修订）：active_skin 未设置/失配时取首个内置
+  // VRM 角色——fresh install 即有两个默认角色可切换，应用永不「无角色」
   const activeSkin = useMemo(
-    () => skins.find((s) => s.id === activeSkinId) ?? null,
+    () =>
+      skins.find((s) => s.id === activeSkinId) ?? skins.find((s) => s.source === "builtin") ?? null,
     [skins, activeSkinId],
   );
 
@@ -185,15 +194,11 @@ export default function App() {
     };
   }, []);
 
-  // 回忆面板（独立窗口）删除活跃会话 → 清空主界面内存消息。
-  // zustand 每窗口独立上下文，面板窗口的 resetMessages 到不了本窗口，
-  // 须经事件同步；Web 内联降级同窗口直接生效，无需此监听。
+  // 会话选择跨窗口同步；连接 hook 根据会话 id 重建连接并读取所选历史。
   useEffect(() => {
     if (!IS_TAURI) return;
-    const unlisten = listen<{ sessionId?: string }>(EVENT_ACTIVE_SESSION_DELETED, (e) => {
-      if (!e.payload?.sessionId || e.payload.sessionId === DEFAULT_SESSION_ID) {
-        useConversation.getState().resetMessages();
-      }
+    const unlisten = listen<{ sessionId: string }>(EVENT_SESSION_CHANGED, (e) => {
+      useConversation.getState().activateSession(e.payload.sessionId);
     });
     return () => {
       unlisten.then((fn) => fn());
@@ -270,14 +275,25 @@ export default function App() {
           透明区域不再拖窗/唤起；窗口层透明区鼠标穿透见 useCursorPassthrough）。
           气泡区放在拖拽区外，避免点击气泡误触发拖动 */}
       <div className="app__stage">
-        <CharacterStage
-          skin={activeSkin}
-          onActivate={() => setChatOpen(true)}
-          onContextMenu={(x, y) => setMenu({ x, y })}
-          onModelReady={handleModelReady}
-          onFallback={handleStageFallback}
-          onHitTestReady={handleHitTestReady}
-        />
+        {activeSkin?.resourceType === "vrm" ? (
+          <VrmStage
+            skin={activeSkin}
+            onActivate={() => setChatOpen(true)}
+            onContextMenu={(x, y) => setMenu({ x, y })}
+            onModelReady={handleVrmModelReady}
+            onFallback={handleStageFallback}
+            onHitTestReady={handleHitTestReady}
+          />
+        ) : (
+          <CharacterStage
+            skin={activeSkin}
+            onActivate={() => setChatOpen(true)}
+            onContextMenu={(x, y) => setMenu({ x, y })}
+            onModelReady={handleModelReady}
+            onFallback={handleStageFallback}
+            onHitTestReady={handleHitTestReady}
+          />
+        )}
       </div>
       <SpeechBubbleArea onRespondIntent={respondIntent} />
       <ToolActivity confirmTool={confirmTool} onStop={cancelRun} />

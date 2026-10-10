@@ -7,7 +7,7 @@
  */
 import * as PIXI from "pixi.js";
 import type { Live2DModel } from "pixi-live2d-display/cubism4";
-import { computeCharacterLayout } from "../layout/characterLayout";
+import { computeCharacterLayout } from "../../layout/characterLayout";
 
 export type { Live2DModel };
 
@@ -100,8 +100,8 @@ export async function loadCharacterStage(
 
 /** 以外部推导的 scale 放置模型：水平居中、底边对齐。
  * scale 由 characterLayout 按角色目标像素尺寸纯函数推导（不依赖 canvas）；
- * 窗口/canvas 围绕模型包围盒构建，头顶 BUBBLE_HEADROOM 留给气泡叠层区
- * （气泡在画布图层之上、按屏幕位置选边侧向贴头，styles.css .bubbles）。 */
+ * 窗口/canvas 围绕模型包围盒构建，不预留额外头顶高度。
+ * 气泡在画布图层之上、按屏幕位置选边侧向贴头（styles.css .bubbles）。 */
 function placeModel(model: Live2DModel, app: PIXI.Application, scale: number): void {
   const { width, height } = app.screen;
   model.scale.set(scale);

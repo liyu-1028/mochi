@@ -6,7 +6,7 @@
  * 静态皮肤路径已随静态皮肤类型下线移除（2026-09-28），相关用例删除。
  */
 import { describe, expect, it } from "vitest";
-import type { SkinAction, SkinSummary } from "../api/skinsClient";
+import type { SkinAction, SkinSummary } from "../../api/skinsClient";
 import {
   builtinFallbackPlan,
   resolveAction,

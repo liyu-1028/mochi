@@ -79,9 +79,12 @@ jobs:
         with:
           workspaces: "apps/desktop/src-tauri -> target"
 
-      # beforeBuildCommand 会依次执行：Live2D Core 下载 → sidecar PyInstaller
+      # beforeBuildCommand 会依次执行：Live2D Core + VRM 模型下载 → sidecar PyInstaller
       # 打包 → tsc → vite build，随后 cargo release + 打 ${{ matrix.bundles }}
       - name: 构建安装包
+        env:
+          # 公开包不包含本机下载的动作素材；用户在动作管理中自行导入。
+          MOCHI_RELEASE_BUILD: "1"
         run: pnpm --filter @mochi/desktop exec tauri build --bundles ${{ matrix.bundles }}
 
       # 便携版 zip（仅 Windows）：从 NSIS 安装包解出完整运行时布局

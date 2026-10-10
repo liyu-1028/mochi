@@ -1,7 +1,7 @@
 """GET/PUT /config/character 端点测试（M1-S1，3.3 换肤持久化）。
 
-内置静态皮肤下线后：默认 activeSkin=""（未设置）；
-PUT 仍要求皮肤已导入（422 防拼写错误），空串用于清空选择。
+默认 activeSkin="mochi-vrm"（内置女性 VRM）；
+PUT 要求皮肤已注册（422 防拼写错误），空串用于清空选择。
 """
 
 from __future__ import annotations
@@ -38,7 +38,10 @@ def _write_user_skin(skin_id: str) -> None:
 def test_get_character_default(client):
     resp = client.get("/config/character")
     assert resp.status_code == 200
-    assert resp.json() == {"activeSkin": ""}
+    assert resp.json() == {"activeSkin": "mochi-vrm"}
+    skin = next(s for s in client.get("/skins").json() if s["id"] == "mochi-vrm")
+    assert skin["resourceType"] == "vrm"
+    assert skin["source"] == "builtin"
 
 
 def test_put_character_persists(client):
@@ -73,4 +76,4 @@ def test_put_character_empty_clears(client):
 def test_put_character_empty_body_noop(client):
     resp = client.put("/config/character", json={})
     assert resp.status_code == 200
-    assert resp.json() == {"activeSkin": ""}
+    assert resp.json() == {"activeSkin": "mochi-vrm"}

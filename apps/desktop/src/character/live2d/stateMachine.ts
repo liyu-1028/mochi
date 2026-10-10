@@ -8,6 +8,9 @@
  * Hiyori 无 exp3 → 参数预设（数值为归一化 [-1, 1]，组件层按模型实际范围写参）。
  */
 import type { CharacterState, Emotion } from "@mochi/protocol";
+import { DOZE_DURATION_MS, WINK_DURATION_MS } from "../actionTimings";
+
+export { DOZE_DURATION_MS, WINK_DURATION_MS };
 
 /** 动作优先级（组件层映射到 pixi-live2d-display 的 MotionPriority） */
 export type MotionPriorityLevel = "idle" | "normal" | "force";
@@ -85,9 +88,6 @@ export interface BodyActionEnvelope {
 }
 
 /** wink（眨眨眼，M-F）：单眼闭合三角包络 + 眼角笑 + 头微偏，~700ms */
-export const WINK_DURATION_MS = 700;
-/** doze 包络时长（G1）：打哈欠/犯困点头 ~1600ms */
-export const DOZE_DURATION_MS = 1600;
 export const WINK_ENVELOPE: BodyActionEnvelope = {
   durationMs: WINK_DURATION_MS,
   params: (elapsedMs) => {

@@ -1,13 +1,13 @@
 /**
  * skinsClient —— 皮肤系统 REST 封装（M1-S1，功能清单 3.x）。
  *
- * 皮肤是内容不是协议（persona 先例，ADR-0005 D1）：类型就地定义，
+ * 角色是内容不是协议（persona 先例，ADR-0005 D1）：类型就地定义，
  * 不进 packages/protocol。列表的 resourceBaseUrl 为用户皮肤的 sidecar
  * 绝对 URL（内置静态皮肤已随静态类型下线移除，2026-09-28）。
  */
 import { resolveHttpBaseUrl } from "./configClient";
 
-export type ResourceTypeId = "live2d";
+export type ResourceTypeId = "live2d" | "vrm";
 export type SkinSource = "builtin" | "user";
 
 /** 包络关键帧点：[t(ms), value]（skin.json v3，G3）。 */
@@ -99,7 +99,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const skinsApi = {
   listSkins: (): Promise<SkinSummary[]> => request("/skins"),
 
-  /** 导入皮肤（zip 皮肤包）；不设 Content-Type 由浏览器定 boundary。 */
+  /** 导入 .vrm 角色文件或 zip 皮肤包；不设 Content-Type 由浏览器定 boundary。 */
   importSkin: (file: File): Promise<SkinSummary> => {
     const formData = new FormData();
     formData.append("file", file);

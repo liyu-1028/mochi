@@ -1,9 +1,9 @@
 /**
  * SkinsPanel —— Mochi 的衣橱（M1-S1，功能清单 3.2/3.3/3.5）。
  *
- * 列表（用户导入的 Live2D 皮肤）→ 一键激活（PUT /config/character 落盘
+ * 列表（Mochi 与用户导入的 VRM / Live2D 角色）→ 一键激活（PUT /config/character 落盘
  * 持久化）→ 跨窗口经 EVENT_SKIN_CHANGED 通知主窗口重建舞台；浏览器内联
- * 降级同窗口经 onSkinActivated 回调。导入 zip 皮肤包（服务端校验，错误
+ * 降级同窗口经 onSkinActivated 回调。导入 VRM 文件或 zip 皮肤包（服务端校验，错误
  * 可读）；用户皮肤可删（confirm 二次确认）。致谢区跟随当前皮肤。
  * PNG「图片即皮肤」导入已随静态皮肤类型下线移除（2026-09-28）。
  */
@@ -13,6 +13,7 @@ import { configApi } from "../api/configClient";
 import { skinsApi, type SkinSummary } from "../api/skinsClient";
 import { useI18n } from "../i18n";
 import { EVENT_SKIN_CHANGED } from "../panelWindow";
+import { openExternal } from "../openExternal";
 
 interface SkinsPanelProps {
   onClose: () => void;
@@ -121,7 +122,7 @@ export function SkinsPanel({ onClose, onSkinActivated }: SkinsPanelProps) {
 
   return (
     <div className="settings-overlay" onClick={onClose}>
-      <div className="settings" onClick={(e) => e.stopPropagation()}>
+      <div className="settings skins" onClick={(e) => e.stopPropagation()}>
         {/* data-tauri-drag-region：无边框面板窗口以头部为拖拽区（button 子元素自动豁免） */}
         <header className="settings__header" data-tauri-drag-region>
           <h2>{t("skins.title")}</h2>
@@ -129,6 +130,7 @@ export function SkinsPanel({ onClose, onSkinActivated }: SkinsPanelProps) {
             ×
           </button>
         </header>
+        <p className="skins__hint">{t("skins.intro")}</p>
 
         <div className="skins__list">
           {skins.map((skin) => {
@@ -138,7 +140,8 @@ export function SkinsPanel({ onClose, onSkinActivated }: SkinsPanelProps) {
                 <div className="settings__item-main">
                   <strong>{skin.name}</strong>
                   <span className="settings__item-sub">
-                    {skin.resourceType} · {t("skins.user")}
+                    {skin.resourceType.toUpperCase()} ·{" "}
+                    {t(skin.source === "builtin" ? "skins.builtin" : "skins.user")}
                   </span>
                 </div>
                 <div className="settings__item-actions">
@@ -211,24 +214,75 @@ export function SkinsPanel({ onClose, onSkinActivated }: SkinsPanelProps) {
             {importing ? t("skins.importing") : t("skins.import")}
             <input
               type="file"
-              accept=".zip"
+              accept=".vrm,.zip"
+              aria-label={t("skins.importFile")}
               hidden
               disabled={importing}
               onChange={(e) => void handleImport(e)}
             />
           </label>
-          <label className="btn btn--ghost">
-            {importingPack ? t("skins.importingPack") : t("skins.importPack")}
-            <input
-              type="file"
-              accept=".zip"
-              hidden
-              disabled={importingPack}
-              onChange={(e) => void handleImportPack(e)}
-            />
-          </label>
+          {activeSkin?.resourceType === "live2d" ? (
+            <label className="btn btn--ghost">
+              {importingPack ? t("skins.importingPack") : t("skins.importPack")}
+              <input
+                type="file"
+                accept=".zip"
+                hidden
+                disabled={importingPack}
+                onChange={(e) => void handleImportPack(e)}
+              />
+            </label>
+          ) : null}
         </div>
-        <p className="skins__hint">{t("skins.transparencyHint")}</p>
+        <p className="skins__hint">{t("skins.importHint")}</p>
+        <section className="skins__guide" aria-label={t("skins.getCharacters")}>
+          <h3>{t("skins.getCharacters")}</h3>
+          <div className="skins__guide-card">
+            <strong>{t("skins.downloadTitle")}</strong>
+            <p className="skins__hint">{t("skins.downloadHint")}</p>
+            <div className="skins__links">
+              <a
+                href="https://hub.vroid.com/"
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => {
+                  e.preventDefault();
+                  void openExternal(e.currentTarget.href);
+                }}
+              >
+                VRoid Hub ↗
+              </a>
+              <a
+                href="https://booth.pm/en/search/VRM"
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => {
+                  e.preventDefault();
+                  void openExternal(e.currentTarget.href);
+                }}
+              >
+                BOOTH ↗
+              </a>
+            </div>
+          </div>
+          <div className="skins__guide-card">
+            <strong>{t("skins.createTitle")}</strong>
+            <p className="skins__hint">{t("skins.createHint")}</p>
+            <div className="skins__links">
+              <a
+                href="https://vroid.com/en/studio"
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => {
+                  e.preventDefault();
+                  void openExternal(e.currentTarget.href);
+                }}
+              >
+                VRoid Studio ↗
+              </a>
+            </div>
+          </div>
+        </section>
       </div>
     </div>
   );

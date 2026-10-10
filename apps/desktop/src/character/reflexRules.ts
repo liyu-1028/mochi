@@ -20,7 +20,7 @@
 
 import type { SkinAction } from "../api/skinsClient";
 import type { CueSource, DirectorChannel, DirectorCue } from "./actionDirector";
-import { DOZE_DURATION_MS, WINK_DURATION_MS } from "./stateMachine";
+import { DOZE_DURATION_MS, WINK_DURATION_MS } from "./actionTimings";
 
 /** 连续轻戳判定窗口（ms） */
 export const TAP_WINDOW_MS = 2000;

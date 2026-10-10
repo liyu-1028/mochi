@@ -41,6 +41,7 @@ const zhCN: StringTable = {
   "menu.history": "聊天回忆",
   "menu.memory": "记忆",
   "menu.skins": "换个装扮",
+  "menu.motions": "动作管理",
   "menu.settings": "设置",
   "menu.devtools": "开发者工具",
 
@@ -175,6 +176,18 @@ const zhCN: StringTable = {
   "history.empty": "还没有对话记录，去和 Mochi 聊聊吧",
   "history.messagesEmpty": "这段对话还没有消息",
   "history.deleteConfirm": "删除这段对话？",
+  "history.newSession": "＋ 新建会话",
+  "history.newTitle": "新的对话",
+  "history.current": "当前会话",
+  "history.notStarted": "发送第一条消息后保存",
+  "history.continue": "继续这段对话",
+  "history.messageCount": "共 {count} 条消息",
+  "history.sessionHint": "按话题分开聊；新会话仍记得已保存的个人偏好和事实。",
+  "history.whenToStart": "什么时候适合新建会话？",
+  "history.sessionGuide":
+    "换了话题、上一件事已完成，或旧内容干扰回答时，可以新建。会话没有固定的结束长度，也不会自动分开；模型优先参考最近的对话，完整记录仍保留在这里。新建会结束当前生成和播报，第一条消息会成为会话标题。",
+  "history.longSession":
+    "这段对话较长，模型最多参考最近 20 条消息，较早内容可能不在本轮上下文中。继续同一话题可以接着聊；准备换话题时建议新建。",
 
   // 认知行为（2026-09-28：回复长度上限）
   "agent.maxReplyChars": "单次回复上限（字符）",
@@ -182,11 +195,22 @@ const zhCN: StringTable = {
   "agent.maxReplyCharsInvalid": "请输入 50–4000 之间的整数",
 
   // 衣橱（M1-S1：换肤/导入/删除）
-  "skins.title": "Mochi 的衣橱",
+  "skins.title": "装扮管理",
+  "skins.intro": "Mochi 是默认角色，你也可以导入自己喜欢的 VRM 角色。",
+  "skins.builtin": "内置角色",
   "skins.user": "用户",
   "skins.activate": "穿上",
   "skins.switching": "换装中…",
-  "skins.import": "导入皮肤（zip 皮肤包）",
+  "skins.import": "＋ 导入角色",
+  "skins.importFile": "角色文件",
+  "skins.importHint": "支持 .vrm 文件和 ZIP 皮肤包，导入后自动切换为新角色。",
+  "skins.getCharacters": "获取更多角色",
+  "skins.downloadTitle": "下载喜欢的角色",
+  "skins.downloadHint":
+    "到 VRoid Hub 或 BOOTH 寻找允许下载的 VRM 角色。下载后解压，在这里选择 .vrm 文件导入，并遵循作者的使用说明。",
+  "skins.createTitle": "制作自己的角色",
+  "skins.createHint":
+    "使用 VRoid Studio 设计外貌与服装，完成后选择「导出为 VRM」，再回到这里导入 .vrm 文件。.vroid 工程文件需要先导出。",
   "skins.importing": "导入中…",
   "skins.importPack": "导入动作扩展包（给当前皮肤加动作）",
   "skins.importingPack": "导入扩展包中…",
@@ -274,6 +298,7 @@ const en: StringTable = {
   "menu.history": "Chat Memories",
   "menu.memory": "Memories",
   "menu.skins": "Change Outfit",
+  "menu.motions": "Motions",
   "menu.settings": "Settings",
   "menu.devtools": "DevTools",
 
@@ -413,6 +438,18 @@ const en: StringTable = {
   "history.empty": "No chats yet — go talk to Mochi!",
   "history.messagesEmpty": "No messages in this conversation",
   "history.deleteConfirm": "Delete this conversation?",
+  "history.newSession": "+ New chat",
+  "history.newTitle": "New conversation",
+  "history.current": "Current chat",
+  "history.notStarted": "Saved after your first message",
+  "history.continue": "Continue this chat",
+  "history.messageCount": "{count} messages",
+  "history.sessionHint": "Keep topics separate. Saved personal facts and preferences carry over.",
+  "history.whenToStart": "When should I start a new chat?",
+  "history.sessionGuide":
+    "Start a new chat when changing topics, finishing a task, or when earlier discussion affects replies. There is no fixed chat length or automatic split. The model uses recent conversation, while the full history stays here. Starting a chat ends current generation and speech; your first message becomes its title.",
+  "history.longSession":
+    "This chat is long. The model considers at most the latest 20 messages, so earlier discussion may be outside its current context. Continue for the same topic, or start a new chat for a different one.",
 
   // Agent behavior (2026-09-28: reply length cap)
   "agent.maxReplyChars": "Max reply length (chars)",
@@ -421,11 +458,24 @@ const en: StringTable = {
   "agent.maxReplyCharsInvalid": "Enter an integer between 50 and 4000",
 
   // Wardrobe (M1-S1: switch/import/delete)
-  "skins.title": "Mochi's Wardrobe",
+  "skins.title": "Wardrobe",
+  "skins.intro":
+    "Mochi is the default character. Import a VRM character you love to make it your own.",
+  "skins.builtin": "Built-in character",
   "skins.user": "User",
   "skins.activate": "Wear",
   "skins.switching": "Switching…",
-  "skins.import": "Import skin (zip package)",
+  "skins.import": "+ Import character",
+  "skins.importFile": "Character file",
+  "skins.importHint":
+    "Supports .vrm files and ZIP skin packages. Your character is activated after import.",
+  "skins.getCharacters": "Find more characters",
+  "skins.downloadTitle": "Download a character",
+  "skins.downloadHint":
+    "Find downloadable VRM characters on VRoid Hub or BOOTH. Unzip the download, import the .vrm file here, and follow the creator's terms of use.",
+  "skins.createTitle": "Create your own character",
+  "skins.createHint":
+    "Design a character in VRoid Studio, choose Export as VRM, then import the .vrm file here. Export .vroid project files to VRM first.",
   "skins.importing": "Importing…",
   "skins.importPack": "Import motion pack (add actions to a skin)",
   "skins.importingPack": "Importing motion pack…",

@@ -38,6 +38,7 @@ pub fn run() {
         )
         .manage(SidecarState::new())
         .invoke_handler(tauri::generate_handler![
+            runtime::get_sidecar_port,
             diagnostics::export_diagnostics,
             diagnostics::write_text_file,
             diagnostics::read_text_file,

@@ -14,6 +14,17 @@ import {
 import { create } from "zustand";
 import type { ConnectionStatus } from "../ws/WebSocketClient";
 
+const ACTIVE_SESSION_KEY = "mochi.activeSessionId";
+
+/** 沿用已有 default 历史；之后只持久化当前会话选择，不持久化流式状态。 */
+function readActiveSessionId(): string {
+  try {
+    return window.localStorage.getItem(ACTIVE_SESSION_KEY) || "default";
+  } catch {
+    return "default";
+  }
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
@@ -104,6 +115,8 @@ export function historyToMessages(
 }
 
 export interface ConversationState {
+  activeSessionId: string;
+  activateSession: (sessionId: string) => void;
   status: ConnectionStatus;
   characterState: CharacterState;
   emotion: Emotion | null;
@@ -147,6 +160,35 @@ export interface ConversationState {
 }
 
 export const useConversation = create<ConversationState>()((set, get) => ({
+  activeSessionId: readActiveSessionId(),
+  activateSession: (sessionId) => {
+    if (sessionId === get().activeSessionId) return;
+    try {
+      window.localStorage.setItem(ACTIVE_SESSION_KEY, sessionId);
+    } catch {
+      // 存储不可用时仍可在本次运行切换会话。
+    }
+    get().clearPendingIntent();
+    set({
+      activeSessionId: sessionId,
+      status: "connecting",
+      messages: [],
+      characterState: "idle",
+      emotion: null,
+      activeRunId: null,
+      toolCalls: [],
+      pendingConfirm: null,
+      notice: null,
+      isSpeaking: false,
+      lastTextDeltaAt: 0,
+      lastTextDelta: "",
+      lastSpokenText: null,
+      lastTextEndAt: 0,
+      lastFinishReason: null,
+      pendingCues: [],
+      cueRunIds: [],
+    });
+  },
   status: "disconnected",
   characterState: "idle",
   emotion: null,

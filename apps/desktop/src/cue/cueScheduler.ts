@@ -18,7 +18,7 @@
  */
 
 import type { CharacterCueData } from "@mochi/protocol";
-import type { DirectorCue } from "../live2d/actionDirector";
+import type { DirectorCue } from "../character/actionDirector";
 import { sentenceStartTimes } from "./sentences";
 
 export type SubmitVerdict = "accepted" | "expired";

@@ -11,7 +11,7 @@ import { create } from "zustand";
 import { configApi } from "../api/configClient";
 import { ttsApi } from "../api/ttsClient";
 import { sanitizeSpeechText } from "../cue/speechText";
-import { ttsPlayer } from "../live2d/ttsPlayer";
+import { ttsPlayer } from "../character/ttsPlayer";
 import { useConversation } from "../store/conversation";
 import { voiceEvents } from "../store/voiceEvents";
 
@@ -84,10 +84,14 @@ export async function speakText(rawText: string): Promise<void> {
 }
 
 export function useTTS(): void {
+  const activeSessionId = useConversation((s) => s.activeSessionId);
   const lastTextEndAt = useConversation((s) => s.lastTextEndAt);
   const lastSpokenText = useConversation((s) => s.lastSpokenText);
   const isSpeaking = useConversation((s) => s.isSpeaking);
   const lastFinishReason = useConversation((s) => s.lastFinishReason);
+
+  // 切换会话使在途合成失效，旧对话的语音和表演不进入新会话。
+  useEffect(() => stopSpeaking(), [activeSessionId]);
 
   // 回合全文定型 → 播报
   useEffect(() => {

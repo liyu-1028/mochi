@@ -169,6 +169,21 @@ class RunManager:
         if task and not task.done():
             task.cancel()
 
+    async def close(self) -> None:
+        """连接关闭后终止生成与后台任务，不让旧会话继续占用模型。"""
+        self._coordinator = None
+        tasks = set(self._runs.values()) | self._attention_tasks
+        if self._error_recovery_task is not None:
+            tasks.add(self._error_recovery_task)
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._runs.clear()
+        self._attention_tasks.clear()
+        self._interrupted.clear()
+        self._cancel_error_recovery()
+
     async def interrupt_run(self, run_id: str) -> None:
         """打断播报（协议 §4）：回合以 reason="interrupted" 结束，已生成内容保留。
 

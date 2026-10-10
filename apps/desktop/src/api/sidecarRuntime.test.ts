@@ -15,6 +15,7 @@ describe("extractReadyPort", () => {
   it("提取合法端口", () => {
     expect(extractReadyPort({ port: 8199 })).toBe(8199);
     expect(extractReadyPort({ port: 9321 })).toBe(9321);
+    expect(extractReadyPort({ port: 65535 })).toBe(65535);
   });
 
   it("拒绝非法负载", () => {
@@ -26,6 +27,7 @@ describe("extractReadyPort", () => {
     expect(extractReadyPort({ port: -1 })).toBeNull();
     expect(extractReadyPort({ port: 0 })).toBeNull();
     expect(extractReadyPort({ port: 81.99 })).toBeNull();
+    expect(extractReadyPort({ port: 65536 })).toBeNull();
   });
 });
 

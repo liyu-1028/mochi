@@ -11,33 +11,34 @@
 
 团子 Mochi 是一个会成长的桌面智能伙伴：把冰冷的命令行和对话框，
 升级为有温度、有形象、可陪伴的桌面存在。
-前端是灵动鲜活的 Live2D 角色，后端是 LangGraph 驱动的强大认知核心。
+前端以 VRM + Three.js 渲染 3D 角色，后端是 LangGraph 驱动的强大认知核心。
 
 [快速开始](#-快速开始) · [功能演示](#%EF%B8%8F-功能演示) · [安装使用](#️-安装与使用发行版) · [参与贡献](#-参与贡献)
 
 </div>
 
-> 🚧 当前阶段：M1 Beta（v0.10.0）——P0 功能全绿收口。
+> 🚧 当前阶段：Beta（v0.15.0）——VRM 角色与可扩展动作已上线。
 > 产品全貌见 [docs/feature-list.md](docs/feature-list.md)。
 
 ## ✨ 功能特性
 
 ### 🍡 会呼吸的桌面角色
 
-- **Live2D 灵动渲染** —— 待机 / 说话 / 思考 / 执行任务 / 出错 / 休眠 6 态动画，与 Agent 状态实时联动
+- **VRM + Three.js 渲染** —— 默认角色改为 3D VRM，支持自然站姿、眨眼、视线与口型；角色状态与 Agent 实时联动
 - **情绪表情反馈** —— 回复自动携带情绪标签，7 类情绪（开心 / 难过 / 困惑 / 惊讶 / 不好意思…）映射到角色表情
 - **触摸互动** —— 视线跟随光标，摸头眼笑、戳身摆动，分区差异化反应
 - **性能护栏** —— 高负载自动降帧 + 省电模式，常驻不拖慢你的电脑
 
 ### 🎨 捏出你的专属伙伴
 
-- **Live2D 自由导入** —— 拖入 zip 皮肤包即可换装，热更新无需重启，
-  情绪-动作映射表自由定制
+- **角色自由导入** —— 在装扮管理中导入 `.vrm`，支持 VRM 0.x / 1.0，换装无需重启；旧 Live2D 皮肤包保留兼容
+- **VRMA 动作扩展** —— 下载 `.vrma` 后在动作管理中导入，绑定用途、记录作者署名，按需启用待机播放或 AI 使用
+- **可旋转的动作预览** —— 拖动切换视角、滚轮缩放，确认效果后再使用
 
 ### 💬 有温度的对话
 
 - **流式对话** —— 气泡流式输出，Markdown / 代码块渲染，随时打断
-- **会话记忆** —— 短期 + 长期记忆本地沉淀，自动记住你的偏好与关键事实，隐私可控
+- **会话与长期记忆** —— 在聊天回忆中新建或继续会话；已保存的偏好与关键事实跨会话召回，支持手动管理
 - **语音开口** —— TTS 默认引擎**无需任何 Key**，音色 / 语速 / 音量可调，音量驱动精细口型
 
 ### 🧠 强大的 Agent 内核
@@ -49,53 +50,71 @@
 
 ## 🖼️ 功能演示
 
-<h3 align="center">桌面角色 · 悬浮陪伴</h3>
+<h3 align="center">Mochi · VRM 角色跳舞</h3>
 <div align="center">
-<img src="docs/images/demo1.gif" width="360" alt="桌面角色动态演示"/>
+<img src="docs/images/mochi-dance.gif" width="360" alt="Mochi 播放导入的 VRMA 舞蹈动作"/>
 </div>
 
-<h3 align="center">对话交互 · 流式输出</h3>
+演示为应用真实播放的短片段，无配乐。动作「愛包ダンスホール」来自
+**八ツ橋まろん（Maron Yatsuhashi）**，通过 VRMA 导入；演示素材不随公开安装包分发。
+
 <div align="center">
-<img src="docs/images/image2.png" width="600" alt="对话交互"/>
+<img src="docs/images/desktop-vrm.png" width="360" alt="当前默认 VRM 桌面角色 Mochi"/>
 </div>
 
 <div align="center">
 <table>
 <tr>
-<td align="center"><img src="docs/images/image3.png" width="360" alt="演示 3"/></td>
-<td align="center"><img src="docs/images/image4.png" width="360" alt="演示 4"/></td>
+<td align="center"><img src="docs/images/wardrobe-vrm.png" width="360" alt="装扮管理与 VRM 导入指引"/></td>
+<td align="center"><img src="docs/images/motion-management.png" width="540" alt="VRMA 动作管理、用途设置与三维预览"/></td>
 </tr>
 <tr>
-<td align="center">表情与交互</td>
-<td align="center">皮肤系统</td>
-</tr>
-<tr>
-<td align="center"><img src="docs/images/image5.png" width="360" alt="演示 5"/></td>
-<td align="center"><img src="docs/images/image6.png" width="360" alt="演示 6"/></td>
-</tr>
-<tr>
-<td align="center">语音与记忆</td>
-<td align="center">模型设置</td>
-</tr>
-<tr>
-<td align="center"><img src="docs/images/image7.png" width="360" alt="演示 7"/></td>
-<td align="center"><img src="docs/images/image8.png" width="360" alt="演示 8"/></td>
-</tr>
-<tr>
-<td align="center">工具调用确认</td>
-<td align="center">诊断与设置</td>
+<td align="center">装扮管理：下载模型或自行制作后导入</td>
+<td align="center">动作管理：导入、预览、设置与署名</td>
 </tr>
 </table>
 </div>
 
-<div align="center">
-<img src="docs/images/image9.png" width="600" alt="演示 9"/>
-</div>
+截图中的动作来自本机导入，首次安装时请根据下方指引添加自己喜欢的素材。
+
+## 🎭 换一个你喜欢的角色
+
+作者不是“二次猿”，对二次元文化和角色设定了解不多，所以目前只内置了一个
+风格比较干净、温柔的 **Mochi**。角色采用 pixiv 官方 VRM 示例模型，并非作者原创。
+如果它不合你的口味，你们可以选择自己满意的模型：
+
+1. 在 [VRoid Hub 官方平台](https://hub.vroid.com/en) 找到作者允许下载的角色，
+   下载并解压得到 `.vrm` 文件。不是所有展示的角色都开放下载，请查看各自的使用条件。
+2. 右键 Mochi → **换个装扮（装扮管理）** → **导入角色**，选择 `.vrm`。
+3. 也可以使用 [VRoid Studio 官网](https://vroid.com/en/studio) 提供的软件自行制作，
+   **导出为 VRM** 后再导入 Mochi；`.vroid` 是工程文件，不能直接作为角色导入。
+
+社区创作者也会在 [BOOTH](https://booth.pm/) 发布角色模型。下载、使用或分享时，
+请遵循对应作者的模型许可与署名要求。
+
+## 💃 添加自己的动作
+
+角色文件 `.vrm` 和动作文件 `.vrma` 分别导入。公开发行版不预装外部动作包，
+也不再用程序生成的僵硬肢体动作代替素材；没有导入动作时，角色保持自然站姿，
+眨眼、视线、表情和口型照常工作。
+
+1. 从 [VRoid 官方 VRMA 动作包](https://booth.pm/ja/items/5512385) 或创作者页面
+   下载动作，解压取得 `.vrma`。
+2. 右键角色 → **动作管理** → **导入动作**，填写动作名称和作者要求的署名。
+3. 按实际内容选择用途：问候可以绑定“挥手”，舞蹈可以绑定“跳舞”，无法对应的
+   动作选“自定义动作”。选成某个用途不会把原动作转换为另一种动作。
+4. 点击 **预览**，拖动旋转视角、滚轮缩放；确认效果后再按需开启待机随机播放
+   或“允许 AI 使用所选用途”。
+
+“角色内置”表示你为当前角色配置的默认动作，“用户扩展”用于额外收藏。
+同一用途只能绑定一个文件；替换自己的动作时，先删除旧条目再导入。
+详细说明见 [VRMA 导入指南](docs/specs/vrma-import-workflow.md) 和
+[官方七动作包中文说明](assets/VRMA_MotionPack/README.md)。素材不属于项目 MIT 许可。
 
 ## 🚀 快速开始
 
 ```bash
-pnpm install                 # JS 依赖 + husky 钩子（postinstall 自动下载 Live2D Core）
+pnpm install                 # JS 依赖 + husky 钩子（postinstall 自动下载默认 VRM 模型与 Live2D Core）
 cd server && uv sync && cd .. # Python 依赖
 
 ./scripts/start.sh            # 一键启动桌面端：Tauri 窗口 + vite + sidecar
@@ -103,8 +122,9 @@ cd server && uv sync && cd .. # Python 依赖
 ./scripts/start.sh --web-only # 仅启动浏览器侧：vite（1420）+ sidecar（不开窗口）
 ```
 
-> Live2D Cubism Core 为专有代码不入库，由 `scripts/download-live2d-core.mjs`
-> 下载（SHA256 校验）。缺失时角色降级为 emoji 占位，不影响对话功能。
+> 默认 VRM 模型由 `scripts/download-vrm-assets.mjs` 按固定来源下载并校验 SHA256。
+> Live2D 兼容路径的 Cubism Core 由独立脚本获取；两者的许可见
+> [角色资产声明](LICENSE-Live2D.md)。
 
 或按需单独启动：
 
@@ -122,6 +142,7 @@ pnpm dev                     # Tauri 桌面应用（开发模式，需 Rust 环�
 | ---------- | -------------------------------------------------------------------- |
 | 桌面壳     | Tauri v2（Rust）                                                     |
 | 前端       | React 19 + TypeScript + Vite                                         |
+| 角色渲染   | Three.js + @pixiv/three-vrm · VRM 模型与 VRMA 动作                   |
 | Agent 后端 | Python sidecar（FastAPI + LangGraph）                                |
 | 前后端通信 | 本地 WebSocket · [事件协议 v0.1](docs/protocol/agent-events-v0.1.md) |
 
@@ -227,7 +248,7 @@ pnpm --filter @mochi/desktop build      # tsc + tauri build，自动打包 sidec
 
 - **源代码**：[MIT](LICENSE)
 - **角色资产**（`assets/`）：独立许可，见 [LICENSE-Live2D.md](LICENSE-Live2D.md) ——
-  Live2D 相关资产遵循 Live2D Inc. 的授权条款，不在 MIT 覆盖范围内。
+  默认 VRM 模型、用户下载的角色/动作与 Live2D 兼容资源分别遵循各自许可，不在项目 MIT 覆盖范围内。
 
 ---
 

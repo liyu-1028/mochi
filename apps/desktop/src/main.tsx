@@ -3,13 +3,21 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import { PanelShell } from "./components/PanelShell";
 import type { PanelId } from "./panelWindow";
+import { initRuntimePortListener } from "./api/sidecarRuntime";
 import "./styles.css";
 /* 面板/向导样式全局导入：桌面端由 PanelShell 窗口使用，浏览器 dev:web
    的内联降级（App.tsx IS_TAURI 分支）同样需要 */
 import "./styles/settings.css";
 
 /** 面板窗口视图白名单（与 panelWindow.PanelId 一致）。 */
-const PANEL_IDS: readonly string[] = ["settings", "history", "memory", "skins", "onboarding"];
+const PANEL_IDS: readonly string[] = [
+  "settings",
+  "history",
+  "memory",
+  "skins",
+  "motions",
+  "onboarding",
+];
 
 /**
  * 入口分流：面板独立窗口以 index.html?panel=xxx 打开，渲染 PanelShell；
@@ -23,10 +31,31 @@ function resolvePanelId(): PanelId | null {
 }
 
 const panelId = resolvePanelId();
+const isDancePrototype =
+  import.meta.env.DEV &&
+  new URLSearchParams(window.location.search).get("prototype") === "vrm-dance";
+const DancePrototype = import.meta.env.DEV
+  ? React.lazy(() => import("./components/prototypes/DancePrototype"))
+  : null;
 
-ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>{panelId ? <PanelShell initialPanel={panelId} /> : <App />}</React.StrictMode>,
-);
+function mountApp() {
+  ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+    <React.StrictMode>
+      {isDancePrototype && DancePrototype ? (
+        <React.Suspense fallback={<p>正在准备舞蹈舞台…</p>}>
+          <DancePrototype />
+        </React.Suspense>
+      ) : panelId ? (
+        <PanelShell initialPanel={panelId} />
+      ) : (
+        <App />
+      )}
+    </React.StrictMode>,
+  );
 
-// 启动里程碑打点（performance.now 相对页面 timeOrigin）：1.1 冷启动验收用
-console.info(`[mochi] app-mounted +${Math.round(performance.now())}ms`);
+  // 启动里程碑打点（performance.now 相对页面 timeOrigin）：1.1 冷启动验收用
+  console.info(`[mochi] app-mounted +${Math.round(performance.now())}ms`);
+}
+
+// 主窗口与面板各自有独立 JS 上下文；首次请求必须等待本窗口端口握手。
+void initRuntimePortListener().then(mountApp);

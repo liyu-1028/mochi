@@ -7,7 +7,7 @@
  */
 import type { StageHandle } from "./core";
 import * as PIXI from "pixi.js";
-import type { ParamEnvelopeBinding } from "../api/skinsClient";
+import type { ParamEnvelopeBinding } from "../../api/skinsClient";
 import { compileParamEnvelope } from "./paramEnvelope";
 import {
   BODY_ACTION_ENVELOPES,

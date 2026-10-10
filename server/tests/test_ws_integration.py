@@ -250,3 +250,31 @@ def test_ping_does_not_reset_idle_timer() -> None:
                 slept = True
                 break
         assert slept, "持续 ping 心跳下未能进入 sleeping（心跳错误地重置了活跃度）"
+
+
+def test_disconnect_stops_old_session_generation() -> None:
+    """新建/切换会话关闭旧连接后，旧模型任务应立即终止。"""
+    import asyncio
+    import threading
+
+    from mochi_server.agent import AgentService
+    from mochi_server.events import StateChangeData
+
+    cancelled = threading.Event()
+
+    class WaitingAgent(AgentService):
+        async def run(self, ctx):
+            try:
+                yield "state.change", StateChangeData(state="thinking")
+                await asyncio.sleep(60)
+            finally:
+                cancelled.set()
+
+    with TestClient(create_app(WaitingAgent())) as client:
+        with client.websocket_connect("/ws?sessionId=old-session") as ws:
+            ws.send_json(_hello())
+            assert ws.receive_json()["type"] == "hello_ack"
+            ws.send_json(_chat_send())
+            assert ws.receive_json()["type"] == "run.started"
+            assert ws.receive_json()["type"] == "state.change"
+        assert cancelled.wait(1), "旧连接已关闭，生成任务却仍在运行"

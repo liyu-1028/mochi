@@ -38,6 +38,10 @@ export function ChatToggle({ open, onOpenChange, onSend, onCancel }: ChatToggleP
   // 关闭动画定时器引用：用于卸载 / 重新打开时取消挂起的 onOpenChange
   const closeTimerRef = useRef<number | null>(null);
   const status = useConversation((s) => s.status);
+  const activeSessionId = useConversation((s) => s.activeSessionId);
+  useEffect(() => {
+    setText("");
+  }, [activeSessionId]);
   const activeRunId = useConversation((s) => s.activeRunId);
   const isStreaming = activeRunId !== null;
 
@@ -118,7 +122,7 @@ export function ChatToggle({ open, onOpenChange, onSend, onCancel }: ChatToggleP
 
   const submit = () => {
     const value = text.trim();
-    if (!value || isStreaming) return;
+    if (!value || isStreaming || status !== "connected") return;
     onSend(value);
     setText("");
     // 发送后保持展开（用户可连续对话），idle 计时器由 hasPendingInput / hasActiveRun 暂停

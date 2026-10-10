@@ -25,21 +25,32 @@ import { WebSocketClient } from "../ws/WebSocketClient";
 
 const APP_CLIENT_INFO = { name: "mochi-desktop", version: "0.1.0" };
 
-/** 默认会话 id：M1-S1 单会话多轮（多会话为后续迭代）。 */
-export const DEFAULT_SESSION_ID = "default";
-
 export function useMochiConnection(url: string) {
   const clientRef = useRef<WebSocketClient | null>(null);
-  // 历史回显只做一次（重连不重复拉），用 ref 而非 state 避免多余渲染
-  const hydratedRef = useRef(false);
   const status = useConversation((s) => s.status);
+  const activeSessionId = useConversation((s) => s.activeSessionId);
 
   useEffect(() => {
+    const connectionUrl = new URL(url);
+    connectionUrl.searchParams.set("sessionId", activeSessionId);
     const client = new WebSocketClient({
-      url,
+      url: connectionUrl.toString(),
       clientInfo: APP_CLIENT_INFO,
-      onEvent: (event) => useConversation.getState().applyEvent(event),
-      onStatusChange: (status) => useConversation.getState().setStatus(status),
+      onEvent: (event) => {
+        if (
+          clientRef.current === client &&
+          useConversation.getState().activeSessionId === activeSessionId
+        ) {
+          useConversation.getState().applyEvent(event);
+        }
+      },
+      onStatusChange: (status) => {
+        if (
+          clientRef.current === client &&
+          useConversation.getState().activeSessionId === activeSessionId
+        )
+          useConversation.getState().setStatus(status);
+      },
     });
     clientRef.current = client;
     client.connect();
@@ -47,29 +58,36 @@ export function useMochiConnection(url: string) {
       client.close();
       clientRef.current = null;
     };
-  }, [url]);
+  }, [url, activeSessionId]);
 
   // 连接就绪后回显历史（4.3）：重启应用能看到上一轮对话。
-  // 失败静默（REST 未就绪/无历史）——不影响对话主链路。
+  // 切换后旧历史请求作废；hydrateHistory 不覆盖本轮已发出的新消息。
   useEffect(() => {
-    if (status !== "connected" || hydratedRef.current) return;
-    hydratedRef.current = true;
+    if (status !== "connected") return;
+    let cancelled = false;
     sessionApi
-      .getMessages(DEFAULT_SESSION_ID)
+      .getMessages(activeSessionId)
       .then((history) => {
-        if (history.length > 0) {
+        if (
+          !cancelled &&
+          history.length > 0 &&
+          useConversation.getState().activeSessionId === activeSessionId
+        ) {
           useConversation.getState().hydrateHistory(historyToMessages(history));
         }
       })
       .catch(() => undefined);
-  }, [status]);
+    return () => {
+      cancelled = true;
+    };
+  }, [status, activeSessionId]);
 
   const sendText = useCallback((text: string): void => {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed || useConversation.getState().status !== "connected") return;
     const data: ChatSendData = {
       runId: crypto.randomUUID(),
-      sessionId: DEFAULT_SESSION_ID,
+      sessionId: useConversation.getState().activeSessionId,
       text: trimmed,
     };
     useConversation.getState().addUserMessage(trimmed);

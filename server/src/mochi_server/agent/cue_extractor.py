@@ -301,11 +301,13 @@ def _static_action_words() -> str:
 
 def _performable_actions(skin: SkinManifest | None) -> list[str] | None:
     """皮肤可演动作 id 列表（∩ 语义词表）；None = 无有效能力清单（回落静态）。"""
-    if skin is None or not skin.actions:
+    if skin is None:
         return None
+    if not skin.actions:
+        return [] if skin.resource_type == "vrm" else None
     ids = [a.id for a in skin.actions if a.agent_selectable]
     performable = [i for i in ids if i in _AGENT_SELECTABLE]
-    return performable or None
+    return performable if skin.resource_type == "vrm" else performable or None
 
 
 def cue_prompt_section(skin: SkinManifest | None = None) -> str:
@@ -313,13 +315,21 @@ def cue_prompt_section(skin: SkinManifest | None = None) -> str:
 
     G2 能力注入：传入当前皮肤清单时，只教模型该皮肤真实可演的动作
     （借鉴 Open-LLM-VTuber 用 emo_str 动态替换表情清单的同构设计）；
-    skin 为 None / 无 actions / 无可演动作 → 回落静态全词表（零回归）。
+    VRM 只教已导入且允许 AI 使用的动作；空库只允许表情标记。
+    无皮肤清单或旧 Live2D 空清单沿用静态词表。
     白名单校验（_AGENT_SELECTABLE）不变：动态注入只收窄可选集，不放宽。
     """
     # 函数级 import：stage_directions 反向依赖本模块常量，顶层互引会循环
     from .stage_directions import action_example_words
 
     performable = _performable_actions(skin)
+    if performable == []:
+        return (
+            "\n\n# 表演标记（可选）\n"
+            f"当前角色「{skin.name}」尚未导入允许 AI 使用的 VRMA 动作。\n"
+            "不要使用动作标记或描写未配置的角色动作。可以使用表情标记 "
+            f"[[cue:emotion]]，emotion 可选：{', '.join(sorted(_FACE_EMOTIONS))}。\n"
+        )
     dynamic = performable is not None
     if dynamic:
         body_line = "- 动作标记：[[cue:id]]，id 可选：{}\n".format(

@@ -11,13 +11,14 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 
 from ..config import AppConfig
 from ..paths import get_skins_dir
-from ..skin.importer import ZIP_MAGIC, import_zip_skin
+from ..skin.importer import ZIP_MAGIC, import_vrm_skin, import_zip_skin
 from ..skin.motion_pack import import_motion_pack
 from ..skin.registry import SkinRegistry
 from ..skin_manifest import manifest_to_summary
@@ -38,7 +39,7 @@ def _skin_registry(request: Request) -> SkinRegistry:
 
 @router.get("/skins")
 async def list_skins(request: Request) -> list[dict]:
-    """皮肤列表：用户导入的皮肤（内置静态皮肤已下线）。"""
+    """Mochi 内置角色与用户导入的角色。"""
     registry = _skin_registry(request)
     return [s.model_dump(by_alias=True, exclude_none=True) for s in registry.list_all()]
 
@@ -49,16 +50,21 @@ async def import_skin(
     file: UploadFile,
     skin_id: str | None = Form(default=None),
 ) -> dict:
-    """导入皮肤（3.5）：仅接受 zip 皮肤包，校验失败给可读原因。"""
+    """导入 .vrm 角色或 zip 皮肤包；角色文件中自动读取作者和名称。"""
     skin_registry = _skin_registry(request)
     content = await file.read()
 
-    if content[:4] != ZIP_MAGIC:
+    if Path(file.filename or "").suffix.lower() == ".vrm":
+        manifest = import_vrm_skin(
+            content, file.filename or "character.vrm", skin_id, skin_registry
+        )
+    elif content[:4] == ZIP_MAGIC:
+        manifest = import_zip_skin(content, skin_id, skin_registry)
+    else:
         raise HTTPException(
             status_code=422,
-            detail="不支持的文件格式（仅接受 zip 皮肤包；PNG 图片导入已随静态皮肤类型下线）",
+            detail="不支持的文件格式（请选择 .vrm 角色文件或 zip 皮肤包；PNG 图片导入已随静态皮肤类型下线）",
         )
-    manifest = import_zip_skin(content, skin_id, skin_registry)
     logger.info("导入皮肤：%s（%s）", manifest.id, manifest.resource_type)
     return manifest_to_summary(
         manifest, source="user", base_url=skin_registry.user_base_url(manifest.id)
@@ -85,6 +91,8 @@ async def import_motion_pack_route(request: Request, file: UploadFile) -> dict:
 async def delete_skin(skin_id: str, request: Request) -> None:
     """删除用户皮肤。若正是 active_skin → 清空选择（空 = 未设置）并落盘。"""
     skin_registry = _skin_registry(request)
+    if skin_registry.is_builtin(skin_id):
+        raise HTTPException(status_code=403, detail=f"内置皮肤 {skin_id} 不可删除")
     if not skin_registry.delete(skin_id):
         raise HTTPException(status_code=404, detail=f"皮肤 {skin_id} 不存在")
 

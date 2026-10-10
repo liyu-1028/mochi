@@ -51,6 +51,15 @@ def get_skins_dir(*, create: bool = True) -> Path:
     return path
 
 
+def get_motion_library_dir(*, create: bool = True) -> Path:
+    """用户动作库目录：<userData>/motion-library/（ADR-0011 P2.7，设置面板
+    增删改的动作文件与索引落盘处）。"""
+    path = get_data_dir(create=create) / "motion-library"
+    if create:
+        (path / "motions").mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def _platform_data_dir() -> str:
     # appauthor=False 避免 Windows 下出现 appname\appname 双层目录；
     # roaming=True 使 Windows 落在 %APPDATA%（与 Tauri app_data_dir 一致）。

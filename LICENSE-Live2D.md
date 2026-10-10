@@ -25,6 +25,8 @@ Live2D Cubism SDK 及其 Core 库为 Live2D Inc. 的**专有软件**，受
 | 资产目录 | 名称 | 作者 | 许可条款 | 备注 |
 | --- | --- | --- | --- | --- |
 | `assets/motion-packs/hiyori-greeting/` | Mochi 招手/鞠躬动作扩展包 | Mochi contributors | CC0 1.0 | 原创动作数据（不含模型）；目标皮肤 live2d-hiyori |
+| `assets/skins/mochi-vrm/` | VRM1_Constraint_Twist_Sample | pixiv Inc.（three-vrm 示例） | [VRM Public License 1.0](https://vrm.dev/licenses/1.0/) 与模型内许可设置 | VRM 1.0；Bone 型 LookAt；`scripts/download-vrm-assets.mjs` 固定 commit 下载 |
+| `assets/VRMA_MotionPack/` | 用户下载的 VRoid 官方七动作包 | pixiv Inc. / VRoid Project | 原始说明：允许本地使用与修改；禁止未经许可分发可提取的动作；商用须署名 | 公开发行版不预装；原文件不进入 Git 或公开安装包，由用户自行选择 VRMA 导入 |
 <!-- 2026-09-28：内置静态皮肤（pikachu/eevee/snorlax，pokesprite）已随静态皮肤类型下线移除。
 历史版本（≤ 2026-09-28 之前）曾包含上述三只精灵图皮肤，许可：© Nintendo / Creatures Inc. / GAME FREAK inc.
 （精灵图来源：<https://github.com/msikma/pokesprite>）。 -->
@@ -39,3 +41,15 @@ Live2D Cubism SDK 及其 Core 库为 Live2D Inc. 的**专有软件**，受
 
 角色资产按「现状」提供。资产引发的授权纠纷由资产提供者承担，
 Mochi 项目保留在接到有效权利通知后下架相关资产的权利。
+
+## 5. README 演示素材
+
+`docs/images/mochi-dance.gif` 为应用实际播放的短录制，无配乐。角色为上述
+pixiv VRM 示例；演示动作「愛包ダンスホール」作者为八ツ橋まろん
+（Maron Yatsuhashi）。原包 `Terms_of_service.txt` 允许视频与影像作品使用，
+禁止未授权再分发原始动作；GIF 仅包含渲染画面，公开安装包不含该 VRMA。
+作者说明：[动作使用指引](https://maron.fanbox.cc/posts/6813390)。
+
+默认角色的内嵌元数据声明允许再分发和修改后再分发，版权为
+(c) 2022 pixiv Inc.；保持原始模型及许可设置。three-vrm 渲染库的 MIT 许可
+与模型的 VRM 许可分别适用。角色目录的 README 同时随前端资产打包。

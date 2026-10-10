@@ -2,11 +2,11 @@
 
 核心验证目标：**手动添加的记忆在对话中能被正确召回注入 system prompt**。
 
-当前版本仅支持手动添加记忆（自动提取留后续版本）。测试聚焦召回链路：
+测试聚焦手动/自动记忆的持久化和召回链路：
 - MemoryManager + SessionStore 的关键词检索；
 - LLMAgentService + MemoryManager 的集成：记忆注入 system prompt；
 - 跨会话：不同 session_id 共享同一份记忆库；
-- 边界：空记忆、无关查询不召回。
+- 边界：空记忆、上下文预算、编辑与删除后即时生效。
 """
 
 from __future__ import annotations
@@ -109,6 +109,75 @@ async def test_preference_injected_into_system_prompt(store: SessionStore, mm: M
 
 
 @pytest.mark.asyncio
+async def test_manual_preference_recalled_without_repeating_its_keywords(
+    store: SessionStore, mm: MemoryManager
+):
+    """用户只问偏好，不能要求先说出偏好内容才能召回。"""
+    content = "我需要你的回答比较活泼和幽默。"
+    await _seed_memory(store, content, "preference")
+    agent, model = _recording_agent(store, mm)
+    await _collect_events(agent, _ctx(text="我的个人偏好是什么？", session_id="new-session"))
+
+    assert content in model.received[0][0].content
+
+
+@pytest.mark.asyncio
+async def test_preferences_apply_to_unrelated_requests(store: SessionStore, mm: MemoryManager):
+    await _seed_memory(store, "回答要活泼幽默", "preference", source="auto")
+    agent, model = _recording_agent(store, mm)
+    await _collect_events(agent, _ctx(text="explain quantum computing"))
+    assert "回答要活泼幽默" in model.received[0][0].content
+
+
+@pytest.mark.asyncio
+async def test_old_manual_preference_survives_newer_facts(store: SessionStore, mm: MemoryManager):
+    await _seed_memory(store, "回答要活泼幽默", "preference")
+    for i in range(25):
+        await _seed_memory(store, f"最近的项目编号 {i}", source="auto")
+    agent, model = _recording_agent(store, mm)
+    await _collect_events(agent, _ctx(text="说说我的偏好"))
+    assert "回答要活泼幽默" in model.received[0][0].content
+
+
+@pytest.mark.asyncio
+async def test_manual_memory_api_persists_and_is_used_after_restart():
+    from fastapi.testclient import TestClient
+
+    from mochi_server.config import AppConfig
+    from mochi_server.main import create_app
+
+    with TestClient(create_app(config=AppConfig())) as client:
+        preference = client.post(
+            "/memories", json={"category": "preference", "content": "回答要活泼幽默"}
+        ).json()
+        fact = client.post("/memories", json={"category": "fact", "content": "昵称是松子"}).json()
+
+    with TestClient(create_app(config=AppConfig())) as restarted:
+        assert {m["id"] for m in restarted.get("/memories").json()} == {
+            preference["id"],
+            fact["id"],
+        }
+        store = SessionStore()
+        try:
+            mm = MemoryManager(store, auto_extract=False)
+            agent, model = _recording_agent(store, mm)
+            await _collect_events(agent, _ctx(text="你知道我的哪些信息？"))
+            assert "回答要活泼幽默" in model.received[0][0].content
+            assert "昵称是松子" in model.received[0][0].content
+
+            restarted.put(f"/memories/{preference['id']}", json={"content": "回答要简洁严谨"})
+            restarted.delete(f"/memories/{fact['id']}")
+            recalled = await mm.recall_for_prompt("我的个人偏好是什么？")
+            assert "回答要简洁严谨" in recalled
+            assert "回答要活泼幽默" not in recalled
+            assert "昵称是松子" not in recalled
+            restarted.delete("/memories")
+            assert await mm.recall_for_prompt("我的个人偏好是什么？") == ""
+        finally:
+            await store.close()
+
+
+@pytest.mark.asyncio
 async def test_multiple_memories_injected(store: SessionStore, mm: MemoryManager):
     """多条相关记忆同时注入。"""
     await _seed_memory(store, "用户是前端工程师", "fact")
@@ -132,14 +201,16 @@ async def test_no_memory_no_injection(store: SessionStore, mm: MemoryManager):
 
 
 @pytest.mark.asyncio
-async def test_irrelevant_query_no_recall(store: SessionStore, mm: MemoryManager):
-    """用户输入与已有记忆无关时，不召回。"""
+async def test_user_facts_remain_available_without_keyword_overlap(
+    store: SessionStore, mm: MemoryManager
+):
+    """小规模用户背景不依赖问题字面匹配，模型可据内容自行判断相关性。"""
     await _seed_memory(store, "用户养了一只猫", "fact")
     agent, model = _recording_agent(store, mm)
     await _collect_events(agent, _ctx(text="explain quantum computing"))
 
     system_content = model.received[0][0].content
-    assert "猫" not in system_content
+    assert "用户养了一只猫" in system_content
 
 
 # ---------------------------------------------------------------------------
@@ -223,12 +294,54 @@ async def test_recall_returns_formatted_section(store: SessionStore, mm: MemoryM
 
 @pytest.mark.asyncio
 async def test_recall_respects_limit(store: SessionStore, mm: MemoryManager):
-    """召回不超过 _RECALL_LIMIT（5）条记忆。"""
-    for i in range(10):
+    """用户背景与关键词召回合并后仍限制条数，且不重复注入。"""
+    for i in range(30):
         await _seed_memory(store, f"用户事实{i}", "fact")
 
-    results = await store.search_memories("用户事实", limit=5)
-    assert len(results) <= 5
+    result = await mm.recall_for_prompt("用户事实")
+    lines = [line for line in result.splitlines() if line.startswith("- [")]
+    assert len(lines) == 20
+    assert len(set(lines)) == 20
+
+
+@pytest.mark.asyncio
+async def test_recall_character_budget_keeps_whole_memories(store: SessionStore, mm: MemoryManager):
+    for i in range(10):
+        await _seed_memory(store, f"偏好{i}：" + "简洁" * 40, "preference")
+    result = await mm.recall_for_prompt("我的个人偏好是什么？", max_chars=400)
+    assert result
+    assert len(result) <= 400
+    assert all(line.endswith("简洁" * 40) for line in result.splitlines() if line.startswith("- ["))
+    assert await mm.recall_for_prompt("我的个人偏好是什么？", max_chars=0) == ""
+
+
+@pytest.mark.asyncio
+async def test_related_older_fact_fits_alongside_user_profile(
+    store: SessionStore, mm: MemoryManager
+):
+    await _seed_memory(store, "项目的代号是 AmberCity", source="auto")
+    for i in range(25):
+        await _seed_memory(store, f"第{i}个回答偏好", "preference")
+    assert "项目的代号是 AmberCity" in await mm.recall_for_prompt("AmberCity")
+
+
+@pytest.mark.asyncio
+async def test_memory_obeys_small_model_context_window(store: SessionStore, mm: MemoryManager):
+    from mochi_server.agent.context import estimate_messages_tokens
+
+    for i in range(30):
+        await _seed_memory(store, f"用户偏好{i}：" + "简洁" * 200, "preference")
+    model = ScriptedChatModel(calls=[[AIMessageChunk(content="好")]])
+    agent = LLMAgentService(
+        make_test_adapter(model),
+        system_prompt="你是助手",
+        store=store,
+        memory_manager=MemoryManager(store, auto_extract=False),
+        context_window=512,
+    )
+    await _collect_events(agent, _ctx(text="我的个人偏好是什么？"))
+    messages = [{"role": "system", "content": m.content} for m in model.received[0]]
+    assert estimate_messages_tokens(messages) < 512
 
 
 # ---------------------------------------------------------------------------

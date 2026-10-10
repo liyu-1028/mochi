@@ -179,3 +179,98 @@ def test_import_unknown_format_422(client):
     resp = _post(client, b"\x00\x01\x02\x03garbage")
     assert resp.status_code == 422
     assert "zip 皮肤包" in resp.json()["detail"]
+
+
+def _vrm_file(*, version="1.0", meta=None, extensions=None, resources=None) -> bytes:
+    import struct
+
+    if extensions is None:
+        extension = (
+            {
+                "meta": meta
+                or {
+                    "name": "温柔角色",
+                    "authors": ["角色作者"],
+                    "licenseUrl": "https://example.com/license",
+                },
+                "humanoid": {"humanBones": {"hips": {"node": 0}}},
+            }
+            if version == "1.0"
+            else {
+                "meta": meta or {"title": "旧版角色", "author": "旧版作者", "licenseName": "CC_BY"},
+                "humanoid": {"humanBones": [{"bone": "hips", "node": 0}]},
+            }
+        )
+        extensions = {"VRMC_vrm" if version == "1.0" else "VRM": extension}
+    document = {
+        "asset": {"version": "2.0"},
+        "nodes": [{}],
+        "extensions": extensions,
+        **(resources or {}),
+    }
+    data = json.dumps(document, ensure_ascii=False).encode()
+    data += b" " * (-len(data) % 4)
+    return struct.pack("<4sIIII", b"glTF", 2, 20 + len(data), len(data), 0x4E4F534A) + data
+
+
+@pytest.mark.parametrize("version", ["1.0", "0.0"])
+def test_import_raw_vrm_preserves_bytes_and_embedded_credits(client, version):
+    from mochi_server.skin.registry import SkinRegistry
+
+    content = _vrm_file(version=version)
+    response = _post(client, content, filename="my-character.vrm")
+    assert response.status_code == 201
+    entry = response.json()
+    assert entry["resourceType"] == "vrm"
+    assert entry["source"] == "user"
+    assert entry["id"].startswith("vrm-")
+    assert entry["name"] == ("温柔角色" if version == "1.0" else "旧版角色")
+    assert entry["credits"]["model"] == ("角色作者" if version == "1.0" else "旧版作者")
+    assert entry["license"] == ("https://example.com/license" if version == "1.0" else "CC_BY")
+    assert client.get(f"/user-skins/{entry['id']}/model.vrm").content == content
+    assert SkinRegistry().get(entry["id"]).name == entry["name"]
+    assert client.put("/config/character", json={"activeSkin": entry["id"]}).status_code == 200
+    assert client.get("/config/character").json()["activeSkin"] == entry["id"]
+
+
+def test_reimport_vrm_uses_distinct_ids_and_does_not_replace_mochi(client):
+    first = _post(client, _vrm_file(), filename="same.vrm").json()
+    second = _post(client, _vrm_file(), filename="same.vrm").json()
+    assert first["id"] != second["id"]
+    assert _post(client, _vrm_file(), filename="same.vrm", skin_id="mochi-vrm").status_code == 409
+    assert [s["id"] for s in client.get("/skins").json() if s["source"] == "builtin"] == [
+        "mochi-vrm"
+    ]
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"not-a-vrm",
+        _vrm_file(extensions={}),
+        _vrm_file(extensions={"VRMC_vrm_animation": {}}),
+        _vrm_file()[:-1],
+    ],
+)
+def test_raw_vrm_rejects_invalid_or_non_character_files_without_creating_dirs(client, content):
+    response = _post(client, content, filename="renamed.vrm")
+    assert response.status_code == 422
+    assert "VRM 校验失败" in response.json()["detail"]
+    assert list(get_skins_dir().iterdir()) == []
+
+
+def test_vrm_rejects_external_resources(client):
+    response = _post(
+        client,
+        _vrm_file(resources={"images": [{"uri": "https://example.com/texture.png"}]}),
+        filename="external.vrm",
+    )
+    assert response.status_code == 422
+    assert "外部资源" in response.json()["detail"]
+
+
+def test_vrm_file_limit_is_checked_before_parsing(client, monkeypatch):
+    monkeypatch.setattr("mochi_server.skin.importer.MAX_VRM_SIZE", 10)
+    response = _post(client, _vrm_file(), filename="large.vrm")
+    assert response.status_code == 422
+    assert "文件过大" in response.json()["detail"]

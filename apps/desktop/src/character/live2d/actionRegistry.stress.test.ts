@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SEMANTIC_ACTIONS } from "@mochi/protocol";
-import type { SkinAction, SkinSummary } from "../api/skinsClient";
+import type { SkinAction, SkinSummary } from "../../api/skinsClient";
 import { resolveAction, TERMINAL_ACTION_ID, type Live2dActionPlan } from "./actionRegistry";
 import type { ModelProfile } from "./stateMachine";
 

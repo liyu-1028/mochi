@@ -40,9 +40,11 @@ def _write_user_skin(skin_id: str, filename: str = "m.model3.json") -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_list_skins_empty_by_default(client):
-    """fresh install 无装扮（内置皮肤已下线），导入后出现在列表。"""
-    assert client.get("/skins").json() == []
+def test_list_skins_builtin_by_default(client):
+    """fresh install 只含 Mochi 内置 VRM 角色（ADR-0011），导入后用户皮肤追加在列表。"""
+    skins = client.get("/skins").json()
+    assert [s["id"] for s in skins] == ["mochi-vrm"]
+    assert all(s["source"] == "builtin" for s in skins)
 
     _write_user_skin("mycat")
     skins = client.get("/skins").json()
@@ -100,3 +102,25 @@ def test_user_skin_path_traversal_blocked(client):
     # 解出 base 之外必须 404
     resp = client.get("/user-skins/trav/%2e%2e/%2e%2e/config.toml")
     assert resp.status_code == 404
+
+
+def test_removed_builtin_is_unavailable_and_mochi_is_protected(client):
+    assert client.put("/config/character", json={"activeSkin": "seed-san"}).status_code == 422
+    assert client.delete("/skins/mochi-vrm").status_code == 403
+    assert client.get("/config/character").json()["activeSkin"] == "mochi-vrm"
+
+
+def test_removed_active_builtin_is_migrated_to_mochi():
+    config = AppConfig()
+    config.character.active_skin = "seed-san"
+    with TestClient(create_app(config=config)) as client:
+        assert client.get("/config/character").json()["activeSkin"] == "mochi-vrm"
+        assert [s["id"] for s in client.get("/skins").json()] == ["mochi-vrm"]
+
+
+def test_user_role_with_same_old_builtin_id_is_preserved():
+    _write_user_skin("seed-san")
+    config = AppConfig()
+    config.character.active_skin = "seed-san"
+    with TestClient(create_app(config=config)) as client:
+        assert client.get("/config/character").json()["activeSkin"] == "seed-san"

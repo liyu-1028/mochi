@@ -13,6 +13,7 @@ import { EVENT_ONBOARDING_DONE, EVENT_PANEL_NAVIGATE, type PanelId } from "../pa
 /* settings.css 由 main.tsx 全局导入（App 内联降级与 PanelShell 共用） */
 import { HistoryPanel } from "./HistoryPanel";
 import { MemoryPanel } from "./MemoryPanel";
+import { MotionsPanel } from "./MotionsPanel";
 import { OnboardingWizard } from "./OnboardingWizard";
 import { SettingsPanel } from "./SettingsPanel";
 import { SkinsPanel } from "./SkinsPanel";
@@ -28,6 +29,7 @@ export function PanelShell({ initialPanel }: PanelShellProps) {
 
   // 角色窗口菜单再次选择时切换本窗口视图（见 panelWindow.openPanelWindow）
   useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
     const unlisten = listen<{ panelId: PanelId }>(EVENT_PANEL_NAVIGATE, (e) => {
       setPanel(e.payload.panelId);
     });
@@ -45,6 +47,7 @@ export function PanelShell({ initialPanel }: PanelShellProps) {
       {panel === "settings" ? <SettingsPanel onClose={closeWindow} /> : null}
       {panel === "history" ? <HistoryPanel onClose={closeWindow} /> : null}
       {panel === "memory" ? <MemoryPanel onClose={closeWindow} /> : null}
+      {panel === "motions" ? <MotionsPanel onClose={closeWindow} /> : null}
       {panel === "skins" ? <SkinsPanel onClose={closeWindow} /> : null}
       {panel === "onboarding" ? (
         <OnboardingWizard

@@ -6,7 +6,7 @@
  * OS 窗口经 applyWindowLayout 同步，真正「只有角色那么大」。
  *
  * 窗口纵向结构（与 styles.css 一一对应，见 CHROME_HEIGHT）：
- *   PAD(顶) + 头顶留白区 + 角色高 + gap + dock + PAD(底)
+ *   PAD(顶) + 角色高 + gap + dock + PAD(底)
  * 气泡渲染在角色图层之上、头部高度侧向贴近（headGap ≈ 头半宽），
  * 出现/消失不改变窗口尺寸。
  */
@@ -26,8 +26,10 @@ export const MAX_STATIC_UPSCALE = 2;
  *  余量供容器联动平移（靠墙/探头）；透明余量区由穿透层保证不拦桌面。
  *  仅在余量有效时生效：窄角色受 MIN_WINDOW_WIDTH 兑底时不额外扩宽。 */
 export const LOCOMOTION_AREA_RATIO = 2.2;
-/** 角色头顶留给气泡叠层的空白区高度。 */
-export const BUBBLE_HEADROOM = 96;
+/** 气泡侧向贴头，无需为角色头顶预留额外窗口高度。 */
+export const BUBBLE_HEADROOM = 0;
+/** VRM 桌面角色头顶动作余量：站姿高度的 20%，容纳抬手动作。 */
+export const VRM_TOP_HEADROOM_RATIO = 0.2;
 /** 气泡内缘距窗口中线的间距占角色宽比例（头半宽经验值）：贴近头部又不遮脸。 */
 export const HEAD_GAP_RATIO = 0.12;
 /** 气泡顶边相对角色头顶的上移重叠量，视觉更贴合头部。 */
@@ -60,6 +62,7 @@ export function computeCharacterLayout(
   modelW: number,
   modelH: number,
   maxUpscale: number = Number.POSITIVE_INFINITY,
+  topHeadroomRatio: number = 0,
 ): CharacterLayout {
   const scale = Math.min(
     TARGET_CHARACTER_HEIGHT / modelH,
@@ -68,6 +71,7 @@ export function computeCharacterLayout(
   );
   const charW = modelW * scale;
   const charH = modelH * scale;
+  const headroom = BUBBLE_HEADROOM + Math.ceil(charH * topHeadroomRatio);
   // 活动区扩容（I3）：仅当角色宽足以撑出余量时才放宽窗口，
   // 否则保持「只有角色那么大」的原语义（窄角色/静态皮肤兑底）
   const stageW = Math.ceil(charW) + PAD * 2;
@@ -76,11 +80,11 @@ export function computeCharacterLayout(
   return {
     // 宽度下限保 dock 输入条可用（窄角色不再压扁输入框，见 MIN_WINDOW_WIDTH）
     winW: Math.max(expandedW, MIN_WINDOW_WIDTH),
-    winH: BUBBLE_HEADROOM + Math.ceil(charH) + CHROME_HEIGHT,
+    winH: headroom + Math.ceil(charH) + CHROME_HEIGHT,
     scale,
     charW,
     charH,
-    bubbleTop: PAD + BUBBLE_HEADROOM - BUBBLE_HEAD_OVERLAP,
+    bubbleTop: PAD + headroom - BUBBLE_HEAD_OVERLAP,
     headGap: Math.round(charW * HEAD_GAP_RATIO),
   };
 }
