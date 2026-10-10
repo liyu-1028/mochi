@@ -89,7 +89,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          INPUT_DIR="$RUNNER_TEMP/mochi-motion-input"
+          # 使用相对路径，避免 Windows 盘符被 GNU tar 解释为远程主机。
+          INPUT_DIR=".mochi-motion-input"
           mkdir -p "$INPUT_DIR" assets/local-motions/mochi-vrm-defaults
           gh release download "$GITHUB_REF_NAME" --pattern mochi-build-motions.tar.gz --dir "$INPUT_DIR"
           tar -xzf "$INPUT_DIR/mochi-build-motions.tar.gz" -C assets/local-motions/mochi-vrm-defaults
