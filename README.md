@@ -52,10 +52,10 @@
 
 <h3 align="center">Mochi · VRM 角色跳舞</h3>
 <div align="center">
-<img src="docs/images/mochi-dance.gif" width="360" alt="Mochi 播放导入的 VRMA 舞蹈动作"/>
+<img src="docs/images/mochi-dance-hd.gif" width="480" alt="Mochi 播放导入的 VRMA 舞蹈动作（高清）"/>
 </div>
 
-演示为应用真实播放的短片段，无配乐。动作「愛包ダンスホール」来自
+演示为应用真实播放的 960 × 1280 高清短片段（约 6 秒），无配乐。动作「愛包ダンスホール」来自
 **八ツ橋まろん（Maron Yatsuhashi）**，通过 VRMA 播放，并作为 Mochi 的内置动作随安装包提供。
 
 <div align="center">
