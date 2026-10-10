@@ -2,17 +2,22 @@
  * diagnosticsClient —— 诊断包导出与设置导入导出（功能清单 1.8 / 7.1 尾巴）。
  *
  * 路径选择走 dialog 插件（保存/打开对话框），文件落盘与打包在 Rust 命令
- * （src-tauri/src/diagnostics.rs）；设置 JSON 内容来自脱敏的 GET /config
- * （providers 仅 key_ref 引用名，密钥永不落盘——§8 安全红线）。
+ * （src-tauri/src/diagnostics.rs）；设置 JSON 内容来自 GET /config/export 的可迁移快照，
+ * 模型连接、key_ref 与密钥不进入备份文件。
  *
- * 导入应用范围：general / character / voice 三段（走既有 PUT 端点，
- * 服务端校验 + 原子落盘）；providers 涉及钥匙串绑定不随文件迁移，
+ * 导入应用范围：语言、省电、角色、语音、回复长度与人格（服务端一次校验与保存）；
+ * 模型连接涉及钥匙串绑定不随文件迁移，
  * 跨机导入后需在设置里补录 Key。
  */
 import { save, open } from "@tauri-apps/plugin-dialog";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import { emit } from "@tauri-apps/api/event";
+import {
+  EVENT_LANGUAGE_CHANGED,
+  EVENT_POWER_SAVE_CHANGED,
+  EVENT_SKIN_CHANGED,
+} from "../panelWindow";
 import { configApi } from "./configClient";
-import type { VoiceSettings } from "./configClient";
 
 /** 导出诊断包；返回写入字节数（用于反馈），取消保存返回 null。 */
 export async function exportDiagnostics(): Promise<number | null> {
@@ -26,79 +31,68 @@ export async function exportDiagnostics(): Promise<number | null> {
   return written;
 }
 
-/** 设置 JSON 的可迁移形状（脱敏视图的子集）。 */
-export interface SettingsExport {
-  exportedAt: string;
-  general?: { language?: string; powerSave?: boolean };
-  character?: { activeSkin?: string };
-  voice?: Partial<VoiceSettings>;
-}
-
-/** 导出设置为 JSON；取消返回 null。 */
+/** Export the server's portable camelCase snapshot. Cancelled dialogs return null. */
 export async function exportSettings(): Promise<number | null> {
-  const path = await save({
-    title: "导出设置",
-    defaultPath: "mochi-settings.json",
-    filters: [{ name: "JSON", extensions: ["json"] }],
-  });
-  if (path === null) return null;
-
-  const config = await configApi.getConfig();
-  const payload: SettingsExport = {
-    exportedAt: new Date().toISOString(),
-    general: {
-      language: config.general?.language,
-      powerSave: config.general?.powerSave,
-    },
-    character: config.character,
-    voice: config.voice,
-  };
+  const payload = await configApi.exportSettings();
   const json = JSON.stringify(payload, null, 2);
-  await invoke("write_text_file", { path, contents: json });
-  return json.length;
+  const bytes = new TextEncoder().encode(json).length;
+  if (isTauri()) {
+    const path = await save({
+      title: "导出设置",
+      defaultPath: "mochi-settings.json",
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    if (path === null) return null;
+    await invoke("write_text_file", { path, contents: json });
+  } else {
+    const url = URL.createObjectURL(new Blob([json], { type: "application/json;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "mochi-settings.json";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    // Let the browser finish consuming the download before releasing the blob.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  return bytes;
 }
 
-/**
- * 导入设置：选择 JSON → 校验形状 → 分段 PUT（服务端逐字段校验，
- * 任一段失败即中止并抛错，已生效段保留——用户可重导）。
- * 返回是否应用了变更（取消选择返回 null）。
- */
-export async function importSettings(): Promise<boolean | null> {
-  const path = await open({
-    title: "导入设置",
-    multiple: false,
-    directory: false,
-    filters: [{ name: "JSON", extensions: ["json"] }],
-  });
-  if (path === null) return null;
-
-  const raw = await invoke<string>("read_text_file", { path });
-  let parsed: SettingsExport;
+/** Select/read a backup, then validate and apply it in one server transaction. */
+export async function importSettings(file?: File): Promise<boolean | null> {
+  let raw: string;
+  if (file) {
+    if (file.size > 2 * 1024 * 1024) throw new Error("settings-file-too-large");
+    raw = await file.text();
+  } else {
+    const path = await open({
+      title: "导入设置",
+      multiple: false,
+      directory: false,
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    if (path === null) return null;
+    raw = await invoke<string>("read_text_file", { path });
+  }
+  if (new TextEncoder().encode(raw).length > 2 * 1024 * 1024) {
+    throw new Error("settings-file-too-large");
+  }
+  let parsed: unknown;
   try {
-    parsed = JSON.parse(raw) as SettingsExport;
+    parsed = JSON.parse(raw.replace(/^\uFEFF/, ""));
   } catch {
     throw new Error("invalid-json");
   }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     throw new Error("invalid-json");
   }
-
-  let applied = false;
-  const { general, character, voice } = parsed;
-  if (general && (general.language !== undefined || general.powerSave !== undefined)) {
-    await configApi.updateGeneral({
-      ...(general.language !== undefined ? { language: general.language as "zh-CN" | "en" } : {}),
-      ...(general.powerSave !== undefined ? { powerSave: general.powerSave } : {}),
-    });
-    applied = true;
+  const applied = await configApi.importSettings(parsed);
+  if (isTauri()) {
+    await Promise.allSettled([
+      emit(EVENT_LANGUAGE_CHANGED, { language: applied.general.language }),
+      emit(EVENT_POWER_SAVE_CHANGED, { powerSave: applied.general.powerSave }),
+      emit(EVENT_SKIN_CHANGED, applied.character.activeSkin),
+    ]);
   }
-  if (character && typeof character.activeSkin === "string") {
-    await configApi.setCharacter({ activeSkin: character.activeSkin });
-    applied = true;
-  }
-  if (voice && typeof voice === "object") {
-    await configApi.putVoice(voice);
-    applied = true;
-  }
-  return applied;
+  return true;
 }

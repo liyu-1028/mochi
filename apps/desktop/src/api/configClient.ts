@@ -118,6 +118,24 @@ export interface PersonaSettings {
   styleCustom: string;
 }
 
+/** Portable settings backup: model connections and API keys stay on this device. */
+export interface SettingsExport {
+  format?: "mochi-settings";
+  version?: 1;
+  exportedAt: string;
+  general?: { language?: Language; powerSave?: boolean };
+  character?: CharacterSettings;
+  voice?: Partial<VoiceSettings>;
+  agent?: Pick<AgentSettings, "maxReplyChars">;
+  persona?: PersonaSettings;
+}
+
+export interface ImportedSettings {
+  general: GeneralSettings;
+  character: CharacterSettings;
+  voice: VoiceSettings;
+}
+
 /** GET /config/persona 响应：当前配置 + 三维预设目录。 */
 export interface PersonaFullView {
   current: PersonaSettings;
@@ -156,6 +174,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const configApi = {
+  exportSettings: (): Promise<SettingsExport> => request("/config/export"),
+  importSettings: (body: unknown): Promise<ImportedSettings> =>
+    request("/config/import", { method: "POST", body: JSON.stringify(body) }),
   /** 完整配置（含 general/character/voice 段；诊断导出与设置导入用）。 */
   getConfig: (): Promise<{
     general: GeneralSettings;

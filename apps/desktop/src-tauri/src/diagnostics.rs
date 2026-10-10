@@ -58,22 +58,20 @@ fn redact_text(text: &str) -> String {
 /// 收集诊断 zip 到 `path`；返回写入内容字节数（供前端反馈）。
 #[tauri::command]
 pub fn export_diagnostics<R: Runtime>(app: AppHandle<R>, path: String) -> Result<u64, String> {
-    let data_dir = datadir::resolve_data_dir(&app)
-        .ok_or_else(|| "无法定位数据目录".to_string())?;
-    let bytes = build_diagnostic_zip(
-        &data_dir,
-        &app.package_info().version.to_string(),
-    )?;
+    let data_dir = datadir::resolve_data_dir(&app).ok_or_else(|| "无法定位数据目录".to_string())?;
+    let bytes = build_diagnostic_zip(&data_dir, &app.package_info().version.to_string())?;
     fs::write(&path, &bytes).map_err(|e| format!("写入失败：{e}"))?;
     Ok(bytes.len() as u64)
 }
 
 /// 纯函数核心：从数据目录收集诊断内容并打包（可单测）。
-pub fn build_diagnostic_zip(data_dir: &std::path::Path, app_version: &str) -> Result<Vec<u8>, String> {
+pub fn build_diagnostic_zip(
+    data_dir: &std::path::Path,
+    app_version: &str,
+) -> Result<Vec<u8>, String> {
     let mut zip = ZipWriter::new(std::io::Cursor::new(Vec::new()));
     let options: SimpleFileOptions =
         SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
-
 
     // 1) system.json
     let sys = SystemInfo {
@@ -94,7 +92,12 @@ pub fn build_diagnostic_zip(data_dir: &std::path::Path, app_version: &str) -> Re
 
     // 3) config.sanitized.toml
     if let Ok(content) = fs::read_to_string(data_dir.join("config.toml")) {
-        add_text(&mut zip, options, "config.sanitized.toml", &redact_text(&content));
+        add_text(
+            &mut zip,
+            options,
+            "config.sanitized.toml",
+            &redact_text(&content),
+        );
     }
 
     // 4) 日志：数据目录 *.log 逐个脱敏
@@ -132,7 +135,7 @@ pub fn build_diagnostic_zip(data_dir: &std::path::Path, app_version: &str) -> Re
     Ok(bytes.into_inner())
 }
 
-/// 设置导出落盘（7.1）：前端持有 JSON 内容（来自脱敏的 GET /config），
+/// 设置导出落盘（7.1）：前端持有 JSON 内容（来自 GET /config/export），
 /// Rust 仅负责原子写，路径来自 dialog 插件。
 #[tauri::command]
 pub fn write_text_file(path: String, contents: String) -> Result<(), String> {
@@ -146,8 +149,9 @@ pub fn write_text_file(path: String, contents: String) -> Result<(), String> {
 /// 设置导入读取（7.1）：读 JSON 文本交前端校验应用。
 #[tauri::command]
 pub fn read_text_file(path: String) -> Result<String, String> {
-    if !std::path::Path::new(&path).exists() {
-        return Err("文件不存在".into());
+    let metadata = fs::metadata(&path).map_err(|e| format!("读取失败：{e}"))?;
+    if metadata.len() > 2 * 1024 * 1024 {
+        return Err("settings-file-too-large".into());
     }
     fs::read_to_string(path).map_err(|e| format!("读取失败：{e}"))
 }
@@ -182,6 +186,32 @@ mod tests {
     use std::io::Read as _;
 
     #[test]
+    fn 设置文件支持中文往返与覆盖且不留下临时文件() {
+        let path = std::env::temp_dir().join(format!("mochi-settings-{}.json", std::process::id()));
+        let path_text = path.to_string_lossy().to_string();
+        write_text_file(path_text.clone(), "旧文件".to_string()).unwrap();
+        let json = r#"{"persona":{"styleCustom":"温柔简洁"}}"#;
+        write_text_file(path_text.clone(), json.to_string()).unwrap();
+        assert_eq!(read_text_file(path_text.clone()).unwrap(), json);
+        assert!(!std::path::Path::new(&format!("{path_text}.tmp")).exists());
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn 设置文件过大时不读取内容() {
+        let path =
+            std::env::temp_dir().join(format!("mochi-settings-large-{}.json", std::process::id()));
+        let file = fs::File::create(&path).unwrap();
+        file.set_len(2 * 1024 * 1024 + 1).unwrap();
+        assert_eq!(
+            read_text_file(path.to_string_lossy().to_string()).unwrap_err(),
+            "settings-file-too-large"
+        );
+        drop(file);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn 裸密钥与凭据头被抹除() {
         let text = "key sk-abc123def456ghi789 leaked in log\nAuthorization: Bearer abcdef123456XYZ";
         let out = redact_text(text);
@@ -211,7 +241,11 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("runtime.json"), r#"{"port": 8199}"#).unwrap();
         fs::write(dir.join("config.toml"), "active_skin = \"live2d-hiyori\"\n").unwrap();
-        fs::write(dir.join("mochi-server.log"), "error: key sk-abcdef123456 leaked").unwrap();
+        fs::write(
+            dir.join("mochi-server.log"),
+            "error: key sk-abcdef123456 leaked",
+        )
+        .unwrap();
         fs::write(dir.join("mochi.db"), "x".repeat(1024)).unwrap();
 
         let bytes = build_diagnostic_zip(&dir, "0.9.0").unwrap();

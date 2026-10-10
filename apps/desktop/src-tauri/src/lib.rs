@@ -26,6 +26,7 @@ const TRAY_QUIT_EVENT: &str = "mochi:tray-quit";
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         // 仅记忆 character 窗口：panel 窗口运行期创建、每次 center 居中，
         // 若被插件恢复旧状态会覆盖 center:true。
         // 只持久化位置/可见性，不持久化尺寸：尺寸事实源是前端角色布局

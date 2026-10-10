@@ -8,6 +8,7 @@
 import { useEffect, useState } from "react";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useAppUpdateChecks } from "../hooks/useAppUpdateChecks";
 import { useSettingsHydration } from "../hooks/useSettingsHydration";
 import { EVENT_ONBOARDING_DONE, EVENT_PANEL_NAVIGATE, type PanelId } from "../panelWindow";
 /* settings.css 由 main.tsx 全局导入（App 内联降级与 PanelShell 共用） */
@@ -26,6 +27,7 @@ export function PanelShell({ initialPanel }: PanelShellProps) {
   const [panel, setPanel] = useState<PanelId>(initialPanel);
   // 语言事实源在 sidecar；面板窗口是独立 JS 上下文，需自行 hydrate
   useSettingsHydration();
+  useAppUpdateChecks();
 
   // 角色窗口菜单再次选择时切换本窗口视图（见 panelWindow.openPanelWindow）
   useEffect(() => {

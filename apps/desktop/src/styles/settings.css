@@ -627,6 +627,7 @@
   color: #8a7580;
   border-top: 1px solid #f3e3e7;
   padding-top: 12px;
+  overflow-wrap: anywhere;
 }
 
 /* ---- 记忆面板（M1-S3，功能清单 6.4） ---- */
@@ -1168,4 +1169,56 @@
   .motions__header {
     align-items: flex-start;
   }
+}
+
+/* App version stays visible across setting tabs, with an optional upgrade badge. */
+.settings__version {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--mochi-pink);
+  flex-shrink: 0;
+  min-width: 0;
+}
+.settings__version-details {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+.settings__version-details strong {
+  font-size: 13px;
+}
+.settings__version-details .settings__hint {
+  margin: 0;
+}
+.settings__version-check,
+.settings__upgrade {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+  border: 1px solid var(--mochi-pink);
+  border-radius: 10px;
+  padding: 8px 10px;
+  color: var(--ink);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+.settings__upgrade {
+  background: var(--mochi-pink);
+}
+.settings__version-check:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.settings__version button:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
 }

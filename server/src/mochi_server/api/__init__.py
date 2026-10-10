@@ -17,4 +17,7 @@ __all__ = [
     "session_router",
     "skin_router",
     "tts_router",
+    "update_router",
 ]
+
+from .update_routes import router as update_router

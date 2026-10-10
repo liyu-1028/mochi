@@ -30,6 +30,7 @@ import { SkinsPanel } from "./components/SkinsPanel";
 import { SpeechBubbleArea } from "./components/SpeechBubbleArea";
 import { ToolActivity } from "./components/ToolActivity";
 import { resolveWsUrl, useMochiConnection } from "./hooks/useMochiConnection";
+import { useAppUpdateChecks } from "./hooks/useAppUpdateChecks";
 import { useSettingsHydration } from "./hooks/useSettingsHydration";
 import { useSidecarStatus } from "./hooks/useSidecarStatus";
 import { useTTS } from "./hooks/useTTS";
@@ -59,6 +60,7 @@ import { setupTray } from "./tray";
 const IS_TAURI = "__TAURI_INTERNALS__" in window;
 
 export default function App() {
+  useAppUpdateChecks();
   // WS 地址随 runtime.json 端口发现更新（M1-S0）：release 下 sidecar 换端口时
   // 桌面壳 emit 就绪事件 → 重新解析 url → useMochiConnection 依 url 变化重连
   const [wsUrl, setWsUrl] = useState(resolveWsUrl);

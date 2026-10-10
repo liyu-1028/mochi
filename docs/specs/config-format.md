@@ -50,7 +50,7 @@ config_version = 2            # schema 版本，迁移依据（§4）
    sidecar，且 Rust 面保持最小化；候选过的 Rust `keyring` crate /
    tauri-plugin-stronghold 不采用。
 3. 日志、遥测、错误上报路径**禁止**序列化 connection 表原文（脱敏规则：只保留 `preset_id`/`protocol`/`model`/`key_ref`）。
-4. 「导出配置」（功能清单 7.6）时同样只导出 `key_ref`，导入端需重新授权 Key。
+4. 「导出设置」只包含可迁移的用户偏好，不包含模型连接、API Key 或 `key_ref`；跨设备时在模型设置中重新配置连接。
 
 ## 4. 版本与迁移
 
@@ -82,3 +82,30 @@ v1 的 `[model.providers.*]` 在读取时自动迁移为同名 connection + prof
 
 窗口位置、面板开合等纯 UI 状态由 Tauri 壳本地存储（window state 插件），
 与用户配置分离——config.toml 只承载「跨会话有意义的用户偏好」。
+
+## 8. 设置备份与恢复
+
+- `GET /config/export` 返回 `format: "mochi-settings"`、`version: 1`、`exportedAt` 与
+  camelCase 设置快照：语言、省电、当前角色、语音、回复长度和人格。
+- `POST /config/import` 复用各设置项的校验模型；角色必须已安装，人格预设必须有效。
+  全部字段校验完成后，通过既有配置保存与 registry 热更新机制一次原子落盘。
+  失败文件不修改任何设置；空文件、未来格式版本和无可应用字段的文件不会被报告为成功。
+- 兼容早期 JSON 备份中的 `active_skin`、`tts_enabled` 等 snake_case 字段。
+  桌面端使用系统保存/打开对话框；浏览器端使用下载与文件选择。取消操作不显示成功提示。
+- 备份大小上限 2 MB。文件不包含角色模型、动作文件或模型连接，跨设备时先导入所选角色。
+  导入完成后广播语言、省电与角色变更，让桌面角色立即跟随设置。
+
+## 9. 应用版本与更新提示
+
+设置底部显示已安装壳通过 Tauri `getVersion()` 返回的版本；浏览器开发版使用
+`tauri.conf.json` 的版本，避免沿用工作区 package.json 的占位版本。
+
+启动和窗口重新获得焦点时检查更新；成功结果缓存一小时，失败后五分钟自动重试，
+避免启动时 sidecar 尚未就绪导致更新状态长时间停在失败。`GET /updates/latest` 只查询
+[GitHub 官方最新发布地址](https://docs.github.com/en/repositories/releasing-projects-on-github/linking-to-releases)，
+验证其跳转只指向 Mochi 仓库的正式版本标签。检查尊重用户已有的系统代理，一小时缓存与在途锁
+由 sidecar 共享，不发送配置或凭据，也不消耗 GitHub 匿名 REST API 配额。
+`?force=true` 用于手动检查；失败显示可重试状态，而不是「已是最新版本」。
+
+前端按 SemVer 比较版本，只在新版本高于当前版本时显示向上箭头和「可升级」按钮。
+点击通过既有外链入口打开该版本的更新说明与下载页，由用户选择安装包升级。

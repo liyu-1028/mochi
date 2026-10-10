@@ -37,8 +37,10 @@ from .api import (
     session_router,
     skin_router,
     tts_router,
+    update_router,
 )
 from .api.security import ALLOWED_CORS_ORIGINS, SensitiveDataFilter, localhost_only
+from .api.update_routes import ReleaseChecker
 from .attention.bridge import CompanionCoordinator, start_pump_loop
 from .attention.engine import AttentionEngine, settings_from_config
 from .config import AppConfig, load_config, save_config
@@ -261,6 +263,8 @@ def create_app(
         if config is not None
         else None
     )
+    app.state.release_checker = ReleaseChecker()
+    app.include_router(update_router)
     app.include_router(config_router)
     app.include_router(session_router)
     app.include_router(skin_router)

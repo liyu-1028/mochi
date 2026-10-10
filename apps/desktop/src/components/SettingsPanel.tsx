@@ -22,6 +22,7 @@ import { SettingsGeneralSection } from "./SettingsGeneralSection";
 import { SettingsModelSection } from "./SettingsModelSection";
 import { SettingsPlaceholder } from "./SettingsPlaceholder";
 import { SettingsVoiceSection } from "./SettingsVoiceSection";
+import { AppVersion } from "./AppVersion";
 
 interface SettingsPanelProps {
   onClose: () => void;
@@ -86,6 +87,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
             {tab === "privacy" ? <SettingsPlaceholder /> : null}
           </div>
         </div>
+        <AppVersion />
       </div>
     </div>
   );

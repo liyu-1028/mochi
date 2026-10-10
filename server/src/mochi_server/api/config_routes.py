@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -553,6 +554,71 @@ class CharacterView(CamelModel):
 
 class CharacterUpdate(CamelModel):
     active_skin: str | None = None
+
+
+class SettingsTransfer(CamelModel):
+    """可迁移的设置；接受旧文件的 snake_case，不含模型连接与钥匙串引用。"""
+
+    format: Literal["mochi-settings"] | None = None
+    version: Literal[1] | None = None
+    exported_at: str | None = None
+    general: GeneralUpdate | None = None
+    character: CharacterUpdate | None = None
+    voice: VoiceUpdate | None = None
+    agent: AgentUpdate | None = None
+    persona: PersonaUpdate | None = None
+
+
+@router.get("/export")
+async def export_settings(request: Request) -> dict:
+    config = _registry(request).config
+    return SettingsTransfer(
+        format="mochi-settings",
+        version=1,
+        exported_at=datetime.now(UTC).isoformat(),
+        general=GeneralUpdate(
+            language=config.general.language, power_save=config.general.power_save
+        ),
+        character=CharacterUpdate(active_skin=config.character.active_skin),
+        voice=VoiceUpdate.model_validate(config.voice.model_dump()),
+        agent=AgentUpdate(max_reply_chars=config.agent.max_reply_chars),
+        persona=PersonaUpdate.model_validate(config.character.persona.model_dump()),
+    ).model_dump(by_alias=True, exclude_none=True)
+
+
+@router.post("/import")
+async def import_settings(body: SettingsTransfer, request: Request) -> dict:
+    """整份文件校验后一次原子保存，错误文件不会留下半份设置。"""
+    sections = {
+        name: section.model_dump(exclude_none=True)
+        for name in ("general", "character", "voice", "agent", "persona")
+        if (section := getattr(body, name)) is not None
+    }
+    if not any(sections.values()):
+        raise HTTPException(status_code=422, detail="文件未包含可导入的 Mochi 设置")
+    skin_id = sections.get("character", {}).get("active_skin")
+    if skin_id:
+        skins = request.app.state.skin_registry
+        if skins is None or not skins.has(skin_id):
+            raise HTTPException(status_code=422, detail=f"请先在装扮管理中导入角色：{skin_id}")
+    for dimension in ("soul", "personality", "style"):
+        preset_id = sections.get("persona", {}).get(f"{dimension}_preset")
+        if preset_id is not None and not valid_preset_id(dimension, preset_id):
+            raise HTTPException(status_code=422, detail=f"{dimension} 预设不存在：{preset_id}")
+
+    def mutate(config: AppConfig) -> None:
+        for name, values in sections.items():
+            target = config.character.persona if name == "persona" else getattr(config, name)
+            for field, value in values.items():
+                setattr(target, field, value)
+
+    registry = _registry(request)
+    config = _apply(registry, _config_path(request), mutate)
+    return {
+        "general": _general_view(config),
+        "character": _character_view(config),
+        "voice": _voice_view(config),
+    }
 
 
 def _character_view(config: AppConfig) -> dict:
