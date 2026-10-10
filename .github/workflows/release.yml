@@ -34,6 +34,8 @@ jobs:
           - platform: windows-latest
             bundles: nsis
     runs-on: ${{ matrix.platform }}
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -79,11 +81,24 @@ jobs:
         with:
           workspaces: "apps/desktop/src-tauri -> target"
 
+      # 原始动作只用于已授权的随包分发，不在公开源码中单独提供。
+      # 维护者先创建同 tag 的发布草稿并上传构建输入；发布前删除该输入。
+      - name: 获取已授权的内置动作构建输入
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          INPUT_DIR="$RUNNER_TEMP/mochi-motion-input"
+          mkdir -p "$INPUT_DIR" assets/local-motions/mochi-vrm-defaults
+          gh release download "$GITHUB_REF_NAME" --pattern mochi-build-motions.tar.gz --dir "$INPUT_DIR"
+          tar -xzf "$INPUT_DIR/mochi-build-motions.tar.gz" -C assets/local-motions/mochi-vrm-defaults
+          test -f assets/local-motions/mochi-vrm-defaults/index.json
+
       # beforeBuildCommand 会依次执行：Live2D Core + VRM 模型下载 → sidecar PyInstaller
       # 打包 → tsc → vite build，随后 cargo release + 打 ${{ matrix.bundles }}
       - name: 构建安装包
         env:
-          # 公开包不包含本机下载的动作素材；用户在动作管理中自行导入。
+          # 缺少已授权的角色内置动作时中止构建，避免发布空动作库。
           MOCHI_RELEASE_BUILD: "1"
         run: pnpm --filter @mochi/desktop exec tauri build --bundles ${{ matrix.bundles }}
 
@@ -137,10 +152,8 @@ jobs:
 
   publish:
     needs: build
-    # 显式 if 覆盖 needs 的默认 success() 门禁：容忍个别平台腿失败
-    # （如 runner 镜像退役）仍发布已有产物；仅取消时不发布。
-    # 全部失败（无产物）会被下方「校验产物」拦下，不会发出空 Release。
-    if: ${{ !cancelled() }}
+    # 三个平台均成功后再删除私有构建输入并公开，失败时保留草稿供重试。
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write # softprops/action-gh-release 创建 Release 所需
@@ -178,6 +191,14 @@ jobs:
           echo "----- RELEASE_NOTES.md -----"
           cat RELEASE_NOTES.md
 
+      - name: 移除仅供构建使用的原始素材
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${{ github.ref_name }}" --json assets --jq '.assets[].name' | grep -qx mochi-build-motions.tar.gz; then
+            gh release delete-asset "${{ github.ref_name }}" mochi-build-motions.tar.gz --yes
+          fi
+
       - name: 发布 GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -186,4 +207,5 @@ jobs:
             dist/**/*.exe
             dist/**/*.zip
           body_path: RELEASE_NOTES.md
+          draft: false
           fail_on_unmatched_files: true

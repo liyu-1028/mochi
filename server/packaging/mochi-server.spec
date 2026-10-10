@@ -38,9 +38,11 @@ hiddenimports += collect_submodules("langchain_core", filter=lambda name: "seria
 
 datas = collect_data_files("keyring")  # backends.toml 等优先级配置
 datas += collect_data_files("certifi")  # cacert.pem
-# 本机私有素材包不进入 Git；本地构建保留用户提供的 VRMA 和作者署名。
+# 经维护者确认获准随安装包分发的素材不进入公开源码；CI 从发布草稿获取。
 local_motions = Path(SPECPATH).parents[1] / "assets/local-motions/mochi-vrm-defaults"
-if local_motions.is_dir() and os.environ.get("MOCHI_RELEASE_BUILD") != "1":
+if os.environ.get("MOCHI_RELEASE_BUILD") == "1" and not (local_motions / "index.json").is_file():
+    raise RuntimeError("发布构建缺少已授权的 Mochi 内置动作素材")
+if local_motions.is_dir():
     datas += [(str(local_motions), "mochi_server/motion/defaults/mochi-vrm")]
 
 a = Analysis(

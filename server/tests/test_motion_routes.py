@@ -323,3 +323,25 @@ def test_existing_user_import_is_merged_with_role_default(tmp_path, monkeypatch)
     assert len(entries) == 1
     assert entries[0].label == "我保留的名称"
     assert entries[0].source == "builtin"
+
+
+def test_role_defaults_survive_upgrade_without_packaged_assets(role_pack, tmp_path):
+    from mochi_server.motion.library import MotionLibrary
+
+    original = MotionLibrary(defaults_dir=role_pack)
+    original.update("wave", {"label": "我的挥手", "agentSelectable": False})
+    entry = original.get("wave")
+    assert entry is not None
+    cached_file = original.file_path(entry)
+    assert cached_file != role_pack / "motions/wave.vrma"
+    assert cached_file.read_bytes() == b"original-role-wave"
+
+    # 模拟安装新版本后，旧安装目录中的素材已经不存在。
+    upgraded = MotionLibrary(defaults_dir=tmp_path / "missing-new-package")
+    entries = upgraded.list_all("mochi-vrm")
+    assert len(entries) == 1
+    assert entries[0].source == entries[0].category == "builtin"
+    assert entries[0].label == "我的挥手"
+    assert entries[0].agent_selectable is False
+    assert entries[0].credit == "原作者"
+    assert upgraded.file_path(entries[0]).read_bytes() == b"original-role-wave"

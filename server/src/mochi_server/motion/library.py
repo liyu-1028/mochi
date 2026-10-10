@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -90,6 +91,7 @@ class MotionLibrary:
             )
         )
         self._ensure_layout()
+        self._preserve_role_defaults()
 
     # ------------------------------------------------------------------
     # 查询
@@ -189,6 +191,36 @@ class MotionLibrary:
         (self._dir / "motions").mkdir(parents=True, exist_ok=True)
         if not (self._dir / "index.json").exists():
             self._write_index({})
+
+    def _preserve_role_defaults(self) -> None:
+        """保留本机角色动作；升级后安装目录不再提供素材时仍可播放。"""
+        persistent = self._dir / "role-defaults" / "mochi-vrm"
+        if self._defaults_dir == persistent:
+            return
+        entries = self._read_index(self._defaults_dir / "index.json")
+        retained = self._read_index(persistent / "index.json")
+        for motion_id, entry in entries.items():
+            source = self._defaults_dir / "motions" / entry.file
+            if not source.is_file():
+                continue
+            target = persistent / "motions" / entry.file
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+            retained[motion_id] = entry
+        if retained:
+            persistent.mkdir(parents=True, exist_ok=True)
+            target = persistent / "index.json"
+            temporary = target.with_suffix(".tmp")
+            temporary.write_text(
+                json.dumps(
+                    {"motions": [e.model_dump(by_alias=True) for e in retained.values()]},
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            temporary.replace(target)
+            self._defaults_dir = persistent
 
     def _merged_index(self) -> dict[str, MotionEntry]:
         defaults = self._read_index(self._defaults_dir / "index.json")
