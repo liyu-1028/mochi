@@ -24,6 +24,10 @@ const initialForm = {
   agentSelectable: false,
 };
 
+export function motionGroup(entry: Pick<MotionEntry, "source" | "category">): "builtin" | "custom" {
+  return entry.source === "builtin" || entry.category === "builtin" ? "builtin" : "custom";
+}
+
 export function MotionsPanel({ onClose }: MotionsPanelProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<VrmStage | null>(null);
@@ -202,9 +206,11 @@ export function MotionsPanel({ onClose }: MotionsPanelProps) {
       setFile(null);
       setForm(initialForm);
       setShowImport(false);
-      setTab("custom");
+      setTab(form.category);
       setSearch("");
-      setNotice("动作已加入我的动作，可以点击预览。");
+      setNotice(
+        `动作已加入${form.category === "builtin" ? "角色内置" : "用户扩展"}，可以点击预览。`,
+      );
       if (fileInputRef.current) fileInputRef.current.value = "";
       await refresh();
     } catch (err) {
@@ -251,8 +257,8 @@ export function MotionsPanel({ onClose }: MotionsPanelProps) {
     if (selected) setForm((old) => ({ ...old, label: selected.name.replace(/\.vrma$/i, "") }));
   }
 
-  const builtins = motions.filter((entry) => entry.source === "builtin");
-  const custom = motions.filter((entry) => entry.source !== "builtin");
+  const builtins = motions.filter((entry) => motionGroup(entry) === "builtin");
+  const custom = motions.filter((entry) => motionGroup(entry) === "custom");
   const visible = (tab === "builtin" ? builtins : custom).filter((entry) =>
     entry.label.toLowerCase().includes(search.trim().toLowerCase()),
   );
@@ -314,7 +320,7 @@ export function MotionsPanel({ onClose }: MotionsPanelProps) {
               <strong>{selected?.label ?? skin?.name ?? "Mochi"}</strong>
               <span className="motions__hint">
                 {selected
-                  ? `${(selected.durationMs / 1000).toFixed(1)} 秒 · ${selected.source === "builtin" ? "角色内置" : "我的动作"}`
+                  ? `${(selected.durationMs / 1000).toFixed(1)} 秒 · ${motionGroup(selected) === "builtin" ? "角色内置" : "用户扩展"}`
                   : "选择右侧动作，看看角色的表现"}
               </span>
               {selected?.credit ? (
@@ -347,7 +353,7 @@ export function MotionsPanel({ onClose }: MotionsPanelProps) {
                     setDeleting(null);
                   }}
                 >
-                  我的动作 <span>{custom.length}</span>
+                  用户扩展 <span>{custom.length}</span>
                 </button>
               </div>
               <input
@@ -361,7 +367,7 @@ export function MotionsPanel({ onClose }: MotionsPanelProps) {
                 className="motions__scroll"
                 id="motion-list"
                 role="tabpanel"
-                aria-label={tab === "builtin" ? "角色内置" : "我的动作"}
+                aria-label={tab === "builtin" ? "角色内置" : "用户扩展"}
               >
                 {!visible.length ? (
                   <div className="motions__empty">
@@ -465,9 +471,26 @@ export function MotionsPanel({ onClose }: MotionsPanelProps) {
               </p>
             </div>
             <div className="motions__import-pane" hidden={!showImport}>
-              <h3>导入到我的动作</h3>
+              <h3>导入动作</h3>
               <p className="motions__hint">选择下载并解压的 .vrma 文件，保留原有动作和时长。</p>
               <div className="motions__import">
+                <label>
+                  动作分类
+                  <select
+                    className="motions__input"
+                    aria-label="动作分类"
+                    value={form.category}
+                    onChange={(e) =>
+                      setForm((old) => ({
+                        ...old,
+                        category: e.target.value as "builtin" | "custom",
+                      }))
+                    }
+                  >
+                    <option value="builtin">角色内置</option>
+                    <option value="custom">用户扩展</option>
+                  </select>
+                </label>
                 <label className="motions__file">
                   VRMA 文件
                   <input

@@ -35,7 +35,8 @@ jobs:
             bundles: nsis
     runs-on: ${{ matrix.platform }}
     permissions:
-      contents: read
+      # 草稿发布仅对拥有 push 权限的身份可见。
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
