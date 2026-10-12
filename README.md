@@ -17,7 +17,7 @@
 
 </div>
 
-> 🚧 当前阶段：Beta（v0.15.0）——VRM 角色与可扩展动作已上线。
+> 🚧 当前阶段：Beta（[v0.15.1](https://github.com/liyu-1028/mochi/releases/tag/v0.15.1)）——VRM 角色与可扩展动作已上线。
 > 产品全貌见 [docs/feature-list.md](docs/feature-list.md)。
 
 ## ✨ 功能特性
@@ -25,8 +25,8 @@
 ### 🍡 会呼吸的桌面角色
 
 - **VRM + Three.js 渲染** —— 默认角色改为 3D VRM，支持自然站姿、眨眼、视线与口型；角色状态与 Agent 实时联动
-- **情绪表情反馈** —— 回复自动携带情绪标签，7 类情绪（开心 / 难过 / 困惑 / 惊讶 / 不好意思…）映射到角色表情
-- **触摸互动** —— 视线跟随光标，摸头眼笑、戳身摆动，分区差异化反应
+- **情绪反馈** —— 回复支持 7 类情绪标签；开心、难过、惊讶、生气等通过 VRM 表情呈现，实际效果取决于模型支持的表情
+- **桌面互动** —— 视线跟随光标，点击唤出对话，拖拽调整位置；点按与长按的肢体反馈需配置对应的 VRMA 动作
 - **性能护栏** —— 高负载自动降帧 + 省电模式，常驻不拖慢你的电脑
 
 ### 🎨 捏出你的专属伙伴
@@ -39,14 +39,14 @@
 
 - **流式对话** —— 气泡流式输出，Markdown / 代码块渲染，随时打断
 - **会话与长期记忆** —— 在聊天回忆中新建或继续会话；已保存的偏好与关键事实跨会话召回，支持手动管理
-- **语音开口** —— TTS 默认引擎**无需任何 Key**，音色 / 语速 / 音量可调，音量驱动精细口型
+- **语音开口** —— TTS 默认在线引擎**无需任何 Key**，音色 / 语速 / 音量可调，音量驱动口型
 
 ### 🧠 强大的 Agent 内核
 
-- **多模型接入** —— OpenAI 兼容接口 / Anthropic / Ollama 本地模型，热切换无需重启
-- **工具调用** —— 工具注册 / 调用 / 结果回流完整闭环，危险操作必须用户确认
-- **数据本地化** —— 配置 / 历史 / 记忆全部留在本地；API Key 只进 OS 钥匙串，永不落明文
-- **开放协议** —— 前后端只依赖[标准事件协议 v0.1](docs/protocol/agent-events-v0.1.md)，任何开发者可挂载自己的 Agent
+- **多模型接入** —— OpenAI 兼容接口（Chat / Responses）/ Anthropic / Ollama 本地模型，热切换无需重启
+- **工具调用** —— 已内置时间查询与文本文件读取，支持工具调用与结果回流；读取用户文件等敏感操作经用户确认或白名单授权
+- **本地存储** —— 配置 / 历史 / 记忆 / 动作库存于本机，API Key 存入 OS 钥匙串；云端模型与默认在线语音会向所选服务发送相应内容
+- **开放协议** —— 前后端通过[标准事件协议 v0.1](docs/protocol/agent-events-v0.1.md)通信，为第三方 Agent 接入提供契约
 
 ## 🖼️ 功能演示
 
@@ -75,7 +75,7 @@
 </table>
 </div>
 
-首次安装即有六个 Mochi 内置动作：跳舞、展示全身、比 V、转圈、模特摆姿势和蹲起运动。
+发行包预装六个 Mochi 内置动作：跳舞、展示全身、比 V、转圈、模特摆姿势和蹲起运动。
 你也可以按下方指引继续导入喜欢的动作，归为角色内置或用户扩展。
 
 ## 🎭 换一个你喜欢的角色
@@ -95,8 +95,8 @@
 
 ## 💃 添加自己的动作
 
-角色文件 `.vrm` 和动作文件 `.vrma` 分别导入。Mochi 自带六个已有的 VRMA 动作，
-保留原作者的动画与署名，不再使用程序生成的肢体动作代替素材。
+角色文件 `.vrm` 和动作文件 `.vrma` 分别导入。发行包预装六个 VRMA 动作，
+按原始素材播放并保留作者署名。
 眨眼、视线、表情和口型由角色渲染驱动提供；其他角色未配置动作时保持自然站姿。
 
 1. 从 [VRoid 官方 VRMA 动作包](https://booth.pm/ja/items/5512385) 或创作者页面
@@ -124,6 +124,8 @@ cd server && uv sync && cd .. # Python 依赖
 ```
 
 > 默认 VRM 模型由 `scripts/download-vrm-assets.mjs` 按固定来源下载并校验 SHA256。
+> 发行包中的六个内置动作素材未纳入公开源码，也不会由 `pnpm install` 下载；
+> 从源码启动时，可在动作管理中自行导入 `.vrma`。没有待机动作时，角色保持自然站姿。
 > Live2D 兼容路径的 Cubism Core 由独立脚本获取；两者的许可见
 > [角色资产声明](LICENSE-Live2D.md)。
 
@@ -156,24 +158,27 @@ pnpm dev                     # Tauri 桌面应用（开发模式，需 Rust 环�
 | Python  | 3.12（`server/.python-version` 固定，无需手装） | 由 uv 自动安装                                                                                                                      |
 
 > 依赖可复现：三端锁文件（`pnpm-lock.yaml` / `server/uv.lock` /
-> `Cargo.lock`）均已入库，CI 一律 frozen 安装；工具链版本由上表所列文件
-> 固定，保证 clone 下来的构建环境与 CI 一致。升级基线时同步修改对应文件
+> `Cargo.lock`）均已入库；CI 与发行流程按上表所列文件选择工具链。
+> 升级基线时同步修改对应文件
 > 与 `.github/workflows/` 中的引用。
 
 ## 📦 安装与使用（发行版）
 
-双击安装、全程无需命令行。Python sidecar 由 PyInstaller 打成独立可执行随包
+从 [GitHub Releases](https://github.com/liyu-1028/mochi/releases/latest) 下载对应平台的发行包。
+Python sidecar 由 PyInstaller 打成独立可执行随包
 分发（用户机器不需要 Python 环境），桌面壳自动拉起并在异常时自动重启。
 
 - **macOS 12+**（Apple Silicon / Intel）：`Mochi_<版本>_<架构>.dmg` → 拖入
   应用程序文件夹。
-- **Windows 10+**：NSIS 安装包（`v*` tag 流水线产出）。
+- **Windows 10+**（x64）：`Mochi_<版本>_x64-setup.exe` 安装包，或
+  `Mochi_<版本>_x64-portable.zip` 便携版。便携版解压到可写目录后运行 `Mochi.exe`，
+  数据保存在便携目录；需要系统已安装 WebView2 运行时。
 
 <details>
 <summary><b>⚠️ 首次打开提示「已损坏」或「无法验证开发者」怎么办？</b></summary>
 
 当前阶段安装包**未签名、未公证**，macOS Gatekeeper / Windows SmartScreen
-会拦截从网络下载的未知应用，属于正常现象，应用本身没有问题。
+可能拦截从网络下载的未知应用。确认安装包来自本仓库的 GitHub Releases 后，可按以下步骤打开。
 
 **macOS — 提示「已损坏，无法打开」：**
 
@@ -192,7 +197,7 @@ xattr -cr /Applications/Mochi.app
 **Windows — SmartScreen 提示「未知发布者」或「Windows 已保护你的电脑」：**
 
 点击弹窗中的 **「更多信息」** → **「仍要运行」** 即可。
-此警告仅因安装包缺少代码签名证书，安装后不会再次出现。
+当前安装包缺少代码签名证书，因此可能显示此提示。
 
 </details>
 
@@ -222,6 +227,9 @@ pnpm --filter @mochi/desktop build      # tsc + tauri build，自动打包 sidec
 | [docs/specs/code-style.md](docs/specs/code-style.md)                     | 代码规范与提交钩子                   |
 | [docs/specs/commit-convention.md](docs/specs/commit-convention.md)       | Git 与 Commit 规范                   |
 | [docs/specs/config-format.md](docs/specs/config-format.md)               | 用户配置格式规范                     |
+| [docs/specs/chat-sessions.md](docs/specs/chat-sessions.md)               | 聊天会话与历史回看                   |
+| [docs/specs/memory-behavior.md](docs/specs/memory-behavior.md)           | 长期记忆的保存与召回                 |
+| [docs/specs/vrma-import-workflow.md](docs/specs/vrma-import-workflow.md) | VRMA 动作导入与播放设置              |
 
 ## 🤝 参与贡献
 
