@@ -4,6 +4,7 @@ import App from "./App";
 import { PanelShell } from "./components/PanelShell";
 import type { PanelId } from "./panelWindow";
 import { initRuntimePortListener } from "./api/sidecarRuntime";
+import { ttsPlayer } from "./character/ttsPlayer";
 import "./styles.css";
 /* 面板/向导样式全局导入：桌面端由 PanelShell 窗口使用，浏览器 dev:web
    的内联降级（App.tsx IS_TAURI 分支）同样需要 */
@@ -59,3 +60,10 @@ function mountApp() {
 
 // 主窗口与面板各自有独立 JS 上下文；首次请求必须等待本窗口端口握手。
 void initRuntimePortListener().then(mountApp);
+
+// 面板窗口不渲染 App 根，App 的 pointerdown 解锁覆盖不到；试听等即时
+// 播放（设置→语音）需要本窗口自行解锁 AudioContext（2026-10-13 缺陷 D-4）
+if (panelId) {
+  const unlock = () => ttsPlayer.unlock();
+  window.addEventListener("pointerdown", unlock);
+}

@@ -601,6 +601,16 @@ export function VrmStage({
           bodyY: cur.bodyY,
           headY: cur.headY,
         });
+        // 位移/缩放由 rAF 直写 DOM：ref 变化不触发 React 渲染，若走 JSX
+        // style 绑定会冻结在最后一次渲染值（2026-10-13 缺陷 D-2）
+        const host = containerRef.current;
+        if (host) {
+          if (cur.dx !== 0 || cur.dy !== 0 || cur.scale !== 1) {
+            host.style.transform = locomotionTransform(cur);
+          } else if (host.style.transform) {
+            host.style.transform = "";
+          }
+        }
       }
     };
     raf = requestAnimationFrame(loop);
@@ -711,7 +721,6 @@ export function VrmStage({
       data-skin={skin?.id}
       data-locomotion={locomotion}
       data-engine="vrm"
-      style={transformed ? { transform: locomotionTransform(activePose) } : undefined}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
       onPointerDown={handlePointerDown}
