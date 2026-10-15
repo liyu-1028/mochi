@@ -1,22 +1,63 @@
 /**
- * SettingsVoiceSection —— 设置「语音」tab（M1-S2，功能清单 5.1/7.1）。
+ * SettingsVoiceSection —— 设置「语音」tab（ADR-0007-R1 云端引擎）。
  *
- * 事实源在 sidecar [voice]：改值即 putVoice 落盘热生效；静音/启用翻转
- * 经 voiceEvents 通知 useTTS 立即停播。试听共用 speakText 播放链路。
+ * 顶部引擎状态区：未配置引导录入/复用百炼连接（真实合成探测）；
+ * 已配置展示脱敏 Key 与测试/解绑。设置项事实源在 sidecar [voice]。
  */
-import { useEffect, useState } from "react";
-import { configApi, type VoiceSettings } from "../api/configClient";
+import { useEffect, useState, type ReactNode } from "react";
+import { configApi, type VoiceConnectionStatus, type VoiceSettings } from "../api/configClient";
 import { ttsApi, type TtsVoiceOption } from "../api/ttsClient";
 import { speakText } from "../hooks/useTTS";
 import { useI18n } from "../i18n";
 import { notifyVoiceChanged } from "../store/voiceEvents";
 
+/** setup 请求参数：复用连接优先，其次新 Key；两者皆空返回 null（按钮禁用兜底）。 */
+export function buildSetupInput(
+  apiKey: string,
+  reuseId: string,
+): { apiKey: string } | { reuseConnectionId: string } | null {
+  if (reuseId) return { reuseConnectionId: reuseId };
+  if (apiKey) return { apiKey };
+  return null;
+}
+
+/** 音色目录按品类 optgroup 分组渲染；无 category 的平铺（默认兜底项也走这里）。 */
+export function renderVoiceOptions(
+  options: TtsVoiceOption[],
+  t: (key: string) => string,
+): ReactNode[] {
+  const groups = new Map<string, TtsVoiceOption[]>();
+  const plain: TtsVoiceOption[] = [];
+  for (const v of options) {
+    if (v.category) groups.set(v.category, [...(groups.get(v.category) ?? []), v]);
+    else plain.push(v);
+  }
+  const renderOption = (v: TtsVoiceOption) => (
+    <option key={v.id} value={v.id}>
+      {`${v.name}${v.lang && v.lang !== "zh-CN" ? `（${v.lang}）` : ""}`}
+    </option>
+  );
+  return [
+    ...[...groups.entries()].map(([category, items]) => (
+      <optgroup key={category} label={t(`voice.category.${category}`)}>
+        {items.map(renderOption)}
+      </optgroup>
+    )),
+    ...plain.map(renderOption),
+  ];
+}
+
 export function SettingsVoiceSection() {
   const { t } = useI18n();
   const [voice, setVoice] = useState<VoiceSettings | null>(null);
   const [voices, setVoices] = useState<TtsVoiceOption[]>([]);
+  const [status, setStatus] = useState<VoiceConnectionStatus | null>(null);
+  const [apiKey, setApiKey] = useState("");
+  const [reuseId, setReuseId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null);
 
-  useEffect(() => {
+  const reload = () => {
     configApi
       .getVoice()
       .then(setVoice)
@@ -25,7 +66,12 @@ export function SettingsVoiceSection() {
       .voices()
       .then((v) => setVoices(v.voices))
       .catch(() => {});
-  }, []);
+    configApi
+      .voiceStatus()
+      .then(setStatus)
+      .catch(() => {});
+  };
+  useEffect(reload, []);
 
   async function update(patch: Partial<VoiceSettings>) {
     if (!voice) return;
@@ -43,10 +89,117 @@ export function SettingsVoiceSection() {
     }
   }
 
+  async function setupConnection() {
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const input = buildSetupInput(apiKey, reuseId);
+      if (!input) return;
+      const result = await configApi.setupVoiceConnection(input);
+      if (result.ok) {
+        setFeedback({ ok: true, text: t("voice.setupOk") });
+        setApiKey("");
+        reload();
+      } else {
+        setFeedback({ ok: false, text: t("voice.setupFail") });
+      }
+    } catch {
+      setFeedback({ ok: false, text: t("voice.setupFail") });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function testConnection() {
+    setBusy(true);
+    setFeedback(null);
+    try {
+      await speakText(t("voice.testText"));
+      setFeedback({ ok: true, text: t("voice.setupOk") });
+    } catch {
+      setFeedback({ ok: false, text: t("voice.setupFail") });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (!voice) return null;
 
   return (
     <div className="settings__voice">
+      <section className="settings__field" aria-label={t("voice.engine")}>
+        <span>{t("voice.engine")}</span>
+        {status?.configured ? (
+          <div className="settings__item">
+            <strong>百炼 · {status.displayName}</strong>
+            <span className="settings__item-sub">
+              {status.maskedKey ? `Key ${status.maskedKey}` : ""}
+            </span>
+            <div className="settings__item-actions">
+              <button
+                className="btn btn--ghost"
+                disabled={busy}
+                onClick={() => void testConnection()}
+              >
+                {t("voice.testConnection")}
+              </button>
+              <button
+                className="btn btn--ghost"
+                onClick={() => {
+                  void update({ connectionId: null, ttsEnabled: false });
+                  reload();
+                }}
+              >
+                {t("voice.unbind")}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="settings__item">
+            <small className="settings__hint">{t("voice.unconfiguredHint")}</small>
+            <label className="settings__field">
+              <span>{t("voice.apiKeyLabel")}</span>
+              <input
+                type="password"
+                value={apiKey}
+                placeholder={t("voice.apiKeyPlaceholder")}
+                onChange={(e) => setApiKey(e.target.value)}
+                aria-label={t("voice.apiKeyLabel")}
+              />
+            </label>
+            {(status?.reusable.length ?? 0) > 0 ? (
+              <label className="settings__field">
+                <span>{t("voice.useExistingConnection")}</span>
+                <select
+                  value={reuseId}
+                  onChange={(e) => setReuseId(e.target.value)}
+                  aria-label={t("voice.useExistingConnection")}
+                >
+                  <option value="">—</option>
+                  {status?.reusable.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.displayName} · {r.maskedKey}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            <button
+              className="btn"
+              disabled={busy || (!reuseId && !apiKey)}
+              onClick={() => void setupConnection()}
+            >
+              {busy ? t("voice.setupTesting") : t("voice.setupButton")}
+            </button>
+          </div>
+        )}
+        {feedback ? (
+          <small className="settings__hint" role={feedback.ok ? "status" : "alert"}>
+            {feedback.text}
+          </small>
+        ) : null}
+      </section>
+
       <label className="settings__field">
         <span>{t("voice.enabled")}</span>
         <input
@@ -70,15 +223,12 @@ export function SettingsVoiceSection() {
           onChange={(e) => void update({ voiceId: e.target.value })}
           aria-label={t("voice.voice")}
         >
-          {(voices.length > 0
-            ? voices
-            : [{ id: voice.voiceId, name: voice.voiceId, lang: "", gender: "" }]
-          ).map((v) => (
-            <option key={v.id} value={v.id}>
-              {v.name}
-              {v.lang ? `（${v.lang}）` : ""}
-            </option>
-          ))}
+          {renderVoiceOptions(
+            voices.length > 0
+              ? voices
+              : [{ id: voice.voiceId, name: voice.voiceId, lang: "", gender: "" }],
+            t,
+          )}
         </select>
       </label>
       <label className="settings__field">
@@ -106,10 +256,16 @@ export function SettingsVoiceSection() {
         />
       </label>
       <div className="settings__field">
-        <button className="btn btn--ghost" onClick={() => void speakText(t("voice.testText"))}>
+        <button
+          className="btn btn--ghost"
+          onClick={() =>
+            void speakText(t("voice.testText"), { voiceId: voice.voiceId, rate: voice.rate })
+          }
+        >
           {t("voice.test")}
         </button>
       </div>
+      <p className="settings__hint">{t("voice.asrHint")}</p>
       <p className="settings__hint">{t("voice.hint")}</p>
     </div>
   );

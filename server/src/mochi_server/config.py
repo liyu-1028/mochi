@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 logger = logging.getLogger(__name__)
 
-CONFIG_VERSION = 2
+CONFIG_VERSION = 3
 
 # 厂商和通信协议是两个独立概念：同一厂商可同时提供 Chat Completions 与
 # Responses；一个连接（账号/Key）可挂多个模型配置。
@@ -114,11 +114,14 @@ class ModelConfig(BaseModel):
 
 
 class VoiceConfig(BaseModel):
-    tts_enabled: bool = True
-    engine: Literal["edge", "local"] = "edge"
-    voice_id: str = "zh-CN-XiaoxiaoNeural"
-    volume: float = Field(default=1.0, ge=0.0, le=1.0)
-    rate: float = Field(default=1.0, ge=0.5, le=2.0)
+    """语音（ADR-0007 修订：云端唯一引擎）。连接引用 model.connections——
+    Key 事实源唯一（KeyStore），voice 段永不落凭证。"""
+
+    tts_enabled: bool = False  # 计费安全：默认关，配好连接后手动开
+    connection_id: str | None = None  # 云语音连接；None = 未配置
+    voice_id: str = "longxing_v3"  # CosyVoice v3 默认音色（温婉邻家女）
+    volume: float = Field(default=1.0, ge=0.0, le=1.0)  # 前端播放增益（不传云端）
+    rate: float = Field(default=1.0, ge=0.5, le=2.0)  # 直接映射 DashScope speed
     muted: bool = False
 
 
@@ -283,8 +286,41 @@ def _migrate_1_to_2(raw: dict[str, Any]) -> dict[str, Any]:
     return migrated
 
 
+def _migrate_2_to_3(raw: dict[str, Any]) -> dict[str, Any]:
+    """语音接云端（ADR-0007 修订）：engine 字段作废、音色映射、默认关。
+
+    存量文件显式写着 engine="edge"——schema 已删该 Literal，无迁移会在
+    校验时 ConfigError 误走「损坏配置备份」路径。计费安全红线：从免费
+    edge 升级到付费云引擎，不替用户默认打开。
+    """
+    # 延迟导入：voices 零依赖，但 import 子模块会执行 tts/__init__
+    from .tts.voices import _LEGACY_VOICE_MAP, DEFAULT_VOICE_ID, VOICES
+
+    migrated = deepcopy(raw)
+    voice = dict(migrated.get("voice") or {})
+    if voice:
+        voice["tts_enabled"] = False
+        # 旧 edge id 走映射；已是 CosyVoice 目录内 id 原样；其余未知值回默认
+        # （迁移语境比 PUT 保守：旧文件的 voice_id 只可能来自旧目录）
+        current = str(voice.get("voice_id") or "")
+        known = {v.id for v in VOICES}
+        voice["voice_id"] = _LEGACY_VOICE_MAP.get(
+            current, current if current in known else DEFAULT_VOICE_ID
+        )
+        voice.pop("engine", None)  # pydantic 忽略多余键，残留无害；顺手清掉
+        # 悬空绑定静默清掉（引用可重建），避免整份配置被误判损坏重置为默认
+        bound = voice.get("connection_id")
+        if bound and bound not in (migrated.get("model", {}).get("connections") or {}):
+            voice.pop("connection_id", None)
+        migrated["voice"] = voice
+    return migrated
+
+
 # config_version N → N+1 的迁移函数注册表；迁移必须幂等且只增不删。
-_MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {1: _migrate_1_to_2}
+_MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
+    1: _migrate_1_to_2,
+    2: _migrate_2_to_3,
+}
 
 
 def migrate(raw: dict[str, Any]) -> dict[str, Any]:
@@ -305,7 +341,7 @@ def migrate(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def _validate_model_references(config: AppConfig) -> None:
-    """默认模型与 profile → connection 引用必须完整。"""
+    """默认模型、profile 与语音绑定 → connection 引用必须完整。"""
     default = config.model.default_profile
     if default != TRIAL_PROFILE_ID and default not in config.model.profiles:
         raise ConfigError(f"default_profile={default!r} 未在 profiles 中定义")
@@ -314,6 +350,12 @@ def _validate_model_references(config: AppConfig) -> None:
             raise ConfigError(
                 f"profile={profile_id!r} 引用了不存在的 connection={profile.connection_id!r}"
             )
+    if config.voice.connection_id is not None and (
+        config.voice.connection_id not in config.model.connections
+    ):
+        raise ConfigError(
+            f"voice.connection_id={config.voice.connection_id!r} 未在 connections 中定义"
+        )
 
 
 # ---------------------------------------------------------------------------

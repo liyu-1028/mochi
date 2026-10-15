@@ -16,12 +16,12 @@
 ## 2. 文件结构
 
 ```toml
-config_version = 2            # schema 版本，迁移依据（§4）
+config_version = 3            # schema 版本，迁移依据（§4）
 
 [general]                     # 语言 / 自启 / 遥测 / 省电模式
 [character]                   # 当前皮肤等角色偏好
 [model]                       # default_profile + connections + profiles
-[voice]                       # TTS 引擎 / 音色 / 音量 / 静音
+[voice]                       # 云语音连接引用 / 音色 / 音量 / 静音（ADR-0007-R1）
 [privacy]                     # local_only 隐私模式
 [skills]                      # 已启用技能 id 列表
 [tools]                       # dangerous 工具「总是允许」白名单（6.5）
@@ -86,7 +86,8 @@ v1 的 `[model.providers.*]` 在读取时自动迁移为同名 connection + prof
 ## 8. 设置备份与恢复
 
 - `GET /config/export` 返回 `format: "mochi-settings"`、`version: 1`、`exportedAt` 与
-  camelCase 设置快照：语言、省电、当前角色、语音、回复长度和人格。
+  camelCase 设置快照：语言、省电、当前角色、语音、回复长度和人格；语音快照
+  不含引擎绑定（connectionId 留本机，Key 永不出库）。
 - `POST /config/import` 复用各设置项的校验模型；角色必须已安装，人格预设必须有效。
   全部字段校验完成后，通过既有配置保存与 registry 热更新机制一次原子落盘。
   失败文件不修改任何设置；空文件、未来格式版本和无可应用字段的文件不会被报告为成功。

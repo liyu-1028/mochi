@@ -73,14 +73,29 @@ export interface ModelConfigureResult extends ModelTestResult {
   profile?: ModelProfileSummary;
 }
 
-/** [voice] 视图（M1-S0 托盘静音；S2 TTS 设置复用）。 */
+/** [voice] 视图（ADR-0007 修订：云端唯一引擎）。 */
 export interface VoiceSettings {
   ttsEnabled: boolean;
-  engine: "edge" | "local";
+  connectionId: string | null;
   voiceId: string;
   volume: number;
   rate: number;
   muted: boolean;
+}
+
+/** 云语音连接状态（GET /config/voice/status）。 */
+export interface VoiceConnectionStatus {
+  configured: boolean;
+  connectionId: string | null;
+  displayName: string | null;
+  maskedKey: string | null;
+  reusable: Array<{ id: string; displayName: string; maskedKey: string; active: boolean }>;
+}
+
+/** 配置云语音连接请求：新录 Key 或复用已有连接（零新增 Key）。 */
+export interface VoiceConnectionSetupInput {
+  apiKey?: string;
+  reuseConnectionId?: string;
 }
 
 /** [agent] 视图（2026-09-28）：认知行为设置；当前 UI 仅暴露回复长度上限。 */
@@ -214,9 +229,19 @@ export const configApi = {
 
   getVoice: (): Promise<VoiceSettings> => request("/config/voice"),
 
-  /** 部分更新 [voice]（托盘静音等），返回更新后的 voice。 */
+  /** 部分更新 [voice]（托盘静音等），返回更新后的 voice。
+   *  connectionId 显式传 null 解绑引擎绑定。 */
   putVoice: (body: Partial<VoiceSettings>): Promise<VoiceSettings> =>
     request("/config/voice", { method: "PUT", body: JSON.stringify(body) }),
+
+  /** 语音连接状态（当前绑定脱敏 Key + 可复用的百炼/自定义连接）。 */
+  voiceStatus: (): Promise<VoiceConnectionStatus> => request("/config/voice/status"),
+
+  /** 配置云语音连接：真实合成探测 → Key 入库 → 绑定；失败零副作用。 */
+  setupVoiceConnection: (
+    input: VoiceConnectionSetupInput,
+  ): Promise<{ ok: boolean; connectionId?: string }> =>
+    request("/config/voice/connection", { method: "POST", body: JSON.stringify(input) }),
 
   /** [character] 当前值（activeSkin）。 */
   getCharacter: (): Promise<CharacterSettings> => request("/config/character"),

@@ -3,6 +3,7 @@
 不占用 WS 协议（v0.1 冻结且聚焦对话事件流）；配置/会话/记忆 CRUD 走请求-响应语义。
 """
 
+from .asr_routes import router as asr_router
 from .config_routes import router as config_router
 from .memory_routes import router as memory_router
 from .motion_routes import router as motion_router
@@ -11,6 +12,7 @@ from .skin_routes import router as skin_router
 from .tts_routes import router as tts_router
 
 __all__ = [
+    "asr_router",
     "config_router",
     "memory_router",
     "motion_router",

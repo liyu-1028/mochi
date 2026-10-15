@@ -31,6 +31,7 @@ from .agent.ollama_probe import probe_ollama
 from .agent.registry import AgentFactory
 from .agent.service import AgentService
 from .api import (
+    asr_router,
     config_router,
     memory_router,
     motion_router,
@@ -266,6 +267,7 @@ def create_app(
     app.state.release_checker = ReleaseChecker()
     app.include_router(update_router)
     app.include_router(config_router)
+    app.include_router(asr_router)
     app.include_router(session_router)
     app.include_router(skin_router)
     app.include_router(motion_router)

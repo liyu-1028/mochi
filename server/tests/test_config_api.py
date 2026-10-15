@@ -312,9 +312,9 @@ def test_get_voice_returns_camel_case_defaults(client):
     resp = client.get("/config/voice")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["ttsEnabled"] is True
-    assert data["engine"] == "edge"
-    assert data["voiceId"] == "zh-CN-XiaoxiaoNeural"
+    assert data["ttsEnabled"] is False  # ADR-0007 修订：计费安全默认关
+    assert data["connectionId"] is None
+    assert data["voiceId"] == "longxing_v3"
     assert data["volume"] == 1.0
     assert data["rate"] == 1.0
     assert data["muted"] is False
@@ -336,15 +336,19 @@ def test_put_voice_partial_update_keeps_others(client):
     data = resp.json()
     assert data["volume"] == 0.5
     assert data["muted"] is False  # 未传字段不变
-    assert data["voiceId"] == "zh-CN-XiaoxiaoNeural"
+    assert data["voiceId"] == "longxing_v3"
 
 
 def test_put_voice_out_of_range_rejected(client):
     resp = client.put("/config/voice", json={"volume": 1.5})
     assert resp.status_code == 422
     assert client.app.state.registry.config.voice.volume == 1.0
-    resp = client.put("/config/voice", json={"engine": "piper"})
-    assert resp.status_code == 422
+    # connection_id 绑定目标必须存在（404），显式 null 解绑合法
+    resp = client.put("/config/voice", json={"connectionId": "ghost"})
+    assert resp.status_code == 404
+    resp = client.put("/config/voice", json={"connectionId": None})
+    assert resp.status_code == 200
+    assert client.app.state.registry.config.voice.connection_id is None
 
 
 # ---------------------------------------------------------------------------
@@ -590,3 +594,62 @@ def test_put_agent_out_of_range_422(client):
         assert resp.status_code == 422
     # 非整数同样拒绝
     assert client.put("/config/agent", json={"maxReplyChars": 200.5}).status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# [voice] 云端连接（ADR-0007 修订）
+# ---------------------------------------------------------------------------
+
+
+def _probe_stub(monkeypatch, ok: bool = True):
+    async def fake(conn):
+        return ok, "" if ok else "API Key 无效"
+
+    from mochi_server.tts import cosyvoice_engine
+
+    monkeypatch.setattr(cosyvoice_engine, "probe", fake)
+
+
+def test_voice_status_unconfigured(client):
+    resp = client.get("/config/voice/status")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["configured"] is False
+    assert data["connectionId"] is None
+
+
+def test_setup_voice_connection_success(client, monkeypatch):
+    _probe_stub(monkeypatch, ok=True)
+    resp = client.post("/config/voice/connection", json={"apiKey": "sk-test-123456"})
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True, "connectionId": "bailian-voice"}
+    # 绑定生效 + Key 入库（脱敏可见）
+    status = client.get("/config/voice/status").json()
+    assert status["configured"] is True
+    assert status["maskedKey"].startswith("sk-")
+    # 落盘：连接成为标准 model.connections 条目，可被聊天侧复用
+    on_disk = load_config(client.app.state.config_path)
+    assert "bailian-voice" in on_disk.model.connections
+    assert on_disk.model.connections["bailian-voice"].preset_id == "dashscope"
+    assert on_disk.voice.connection_id == "bailian-voice"
+
+
+def test_setup_voice_connection_probe_fail_no_side_effect(client, monkeypatch):
+    _probe_stub(monkeypatch, ok=False)
+    resp = client.post("/config/voice/connection", json={"apiKey": "sk-bad"})
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is False
+    # 零副作用：不绑定、不落连接
+    assert client.app.state.registry.config.voice.connection_id is None
+    assert "bailian-voice" not in client.app.state.registry.config.model.connections
+    assert client.app.state.registry.key_store.get_key("bailian-voice") is None
+
+
+def test_delete_connection_unbinds_voice(client, monkeypatch):
+    _probe_stub(monkeypatch, ok=True)
+    client.post("/config/voice/connection", json={"apiKey": "sk-test-123456"})
+    assert client.app.state.registry.config.voice.connection_id == "bailian-voice"
+    resp = client.delete("/config/model-connections/bailian-voice")
+    assert resp.status_code == 204
+    # 联动解绑：不留悬空引用
+    assert client.app.state.registry.config.voice.connection_id is None

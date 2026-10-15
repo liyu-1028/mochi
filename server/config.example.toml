@@ -45,11 +45,12 @@ model = "example-chat"
 # context_window = 32768            # 可选：token 窗口（4.4 预算裁剪），缺省 8192
 
 [voice]
-tts_enabled = true
-engine = "edge"              # edge（默认免费）| local（Piper 等，M1）
-voice_id = "zh-CN-XiaoxiaoNeural"
-volume = 1.0                 # 0.0 ~ 1.0
-rate = 1.0                   # 语速倍率
+tts_enabled = false          # 云端按量计费：默认关，配好连接后手动开
+# 云语音连接（引用 [model.connections]；Key 存系统钥匙串，见 §3 红线）
+# connection_id = "bailian-voice"
+voice_id = "longxing_v3"     # CosyVoice v3 音色（目录见 /tts/voices，含社交陪伴/方言/童声）
+volume = 1.0                 # 0.0 ~ 1.0（播放器本地增益）
+rate = 1.0                   # 语速倍率（映射云端 speed）
 muted = false
 
 [privacy]

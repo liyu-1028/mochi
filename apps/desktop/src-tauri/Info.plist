@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- 语音输入（ADR-0007-R1）：macOS 授权弹窗的用途说明，与默认生成的 plist 合并 -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Mochi 需要使用麦克风进行语音输入。</string>
+</dict>
+</plist>

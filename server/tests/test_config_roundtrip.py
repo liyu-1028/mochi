@@ -111,7 +111,7 @@ context_window = 131072
 
     loaded = load_config(path)
 
-    assert loaded.config_version == 2
+    assert loaded.config_version == 3  # v1→v2→v3 链式迁移
     assert loaded.model.default_profile == "cloud"
     connection = loaded.model.connections["cloud"]
     assert connection.preset_id == "zhipu"
@@ -123,7 +123,7 @@ context_window = 131072
     assert profile.model == "glm-5.3-flash"
     assert profile.context_window == 131072
     persisted = path.read_text(encoding="utf-8")
-    assert "config_version = 2" in persisted
+    assert "config_version = 3" in persisted
     assert 'default_profile = "cloud"' in persisted
     assert "providers" not in persisted
 
@@ -212,3 +212,59 @@ def test_migrate_missing_step_raises():
 def test_default_config_trial_is_valid():
     config = default_config()
     assert config.model.default_profile == TRIAL_PROFILE_ID
+
+
+def _write_v2_voice_config(tmp_path, *, extra_voice: str = "") -> None:
+    path = tmp_path / "config.toml"
+    path.write_text(
+        f"""
+config_version = 2
+
+[voice]
+tts_enabled = true
+engine = "edge"
+voice_id = "zh-CN-XiaoxiaoNeural"
+volume = 0.8
+rate = 1.2
+muted = false
+{extra_voice}
+
+[general]
+language = "zh-CN"
+""".lstrip(),
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_v2_voice_migrates_to_v3(tmp_path):
+    """ADR-0007 修订：engine 作废、计费安全默认关、旧音色映射、偏好无损。"""
+    path = _write_v2_voice_config(tmp_path)
+    loaded = load_config(path)
+    assert loaded.config_version == 3
+    assert loaded.voice.tts_enabled is False  # 强制关（计费红线）
+    assert loaded.voice.voice_id == "longxing_v3"  # 旧 edge 音色映射到 v3 默认系
+    assert loaded.voice.connection_id is None
+    assert loaded.voice.volume == 0.8
+    assert loaded.voice.rate == 1.2
+    assert "engine" not in loaded.voice.model_dump()
+    persisted = path.read_text(encoding="utf-8")
+    assert "engine" not in persisted
+    # 幂等：迁移后文件重读不变
+    assert load_config(path).voice.tts_enabled is False
+
+
+def test_v2_voice_unknown_id_falls_back_to_default(tmp_path):
+    path = _write_v2_voice_config(tmp_path)
+    text = path.read_text(encoding="utf-8").replace("zh-CN-XiaoxiaoNeural", "some-legacy-id")
+    path.write_text(text, encoding="utf-8")
+    assert load_config(path).voice.voice_id == "longxing_v3"
+
+
+def test_dangling_voice_connection_id_cleared_not_reset(tmp_path):
+    """悬空绑定静默清掉——不能因引用悬空把整份配置误判损坏重置为默认。"""
+    path = _write_v2_voice_config(tmp_path, extra_voice='connection_id = "ghost"')
+    loaded = load_config(path)
+    assert loaded.voice.connection_id is None
+    assert loaded.voice.volume == 0.8  # 其余偏好完好（未走默认重置路径）
+    assert not list(tmp_path.glob("config.toml.bak-*"))  # 未触发损坏备份

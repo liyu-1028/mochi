@@ -32,7 +32,7 @@ from ..config import (
 from ..events import CamelModel
 from ..model_catalog import catalog_view, get_preset
 from ..persona import CATALOG, valid_preset_id
-from ..secrets import KeyStore, KeyStoreError
+from ..secrets import KeyStore, KeyStoreError, key_ref_for
 from .security import localhost_only
 
 logger = logging.getLogger(__name__)
@@ -94,10 +94,14 @@ class GeneralUpdate(CamelModel):
 
 
 class VoiceUpdate(CamelModel):
-    """[voice] 部分更新（M1-S0 托盘静音；S2 TTS 设置）：仅传入需变更字段。"""
+    """[voice] 部分更新：仅传入需变更字段。
+
+    None = 不变；connection_id 显式传 null 表示解绑（模型字段集语义，
+    与「未传」区分），解绑/绑定的目标连接必须已存在（404 校验）。
+    """
 
     tts_enabled: bool | None = None
-    engine: Literal["edge", "local"] | None = None
+    connection_id: str | None = Field(default=None, min_length=1, max_length=64)
     voice_id: str | None = None
     volume: float | None = Field(default=None, ge=0.0, le=1.0)
     rate: float | None = Field(default=None, ge=0.5, le=2.0)
@@ -108,7 +112,7 @@ class VoiceView(CamelModel):
     """[voice] 当前值视图（camelCase 响应）。"""
 
     tts_enabled: bool
-    engine: Literal["edge", "local"]
+    connection_id: str | None = None
     voice_id: str
     volume: float
     rate: float
@@ -410,6 +414,8 @@ async def delete_model_connection(connection_id: str, request: Request) -> None:
             del config.model.profiles[profile_id]
         if config.model.default_profile in removed:
             config.model.default_profile = TRIAL_PROFILE_ID
+        if config.voice.connection_id == connection_id:
+            config.voice.connection_id = None  # 联动解绑，防悬空引用
         del config.model.connections[connection_id]
 
     _apply(registry, _config_path(request), mutate)
@@ -465,14 +471,21 @@ async def get_voice(request: Request) -> dict:
 async def update_voice(body: VoiceUpdate, request: Request) -> dict:
     """更新 [voice]：pydantic 校验 → 原子落盘 → 返回最新 voice。"""
     registry = _registry(request)
+    if (
+        "connection_id" in body.model_fields_set
+        and body.connection_id is not None
+        and body.connection_id not in registry.config.model.connections
+    ):
+        raise HTTPException(status_code=404, detail=f"模型连接 {body.connection_id} 不存在")
+    from ..tts.voices import normalize_voice_id
 
     def mutate(config: AppConfig) -> None:
         if body.tts_enabled is not None:
             config.voice.tts_enabled = body.tts_enabled
-        if body.engine is not None:
-            config.voice.engine = body.engine
+        if "connection_id" in body.model_fields_set:
+            config.voice.connection_id = body.connection_id
         if body.voice_id is not None:
-            config.voice.voice_id = body.voice_id
+            config.voice.voice_id = normalize_voice_id(body.voice_id)
         if body.volume is not None:
             config.voice.volume = body.volume
         if body.rate is not None:
@@ -482,11 +495,107 @@ async def update_voice(body: VoiceUpdate, request: Request) -> dict:
 
     new_config = _apply(registry, _config_path(request), mutate)
     logger.info(
-        "更新语音设置：muted=%s tts_enabled=%s",
+        "更新语音设置：muted=%s tts_enabled=%s connection=%s",
         new_config.voice.muted,
         new_config.voice.tts_enabled,
+        new_config.voice.connection_id,
     )
     return _voice_view(new_config)
+
+
+class VoiceConnectionSetup(CamelModel):
+    """配置云语音连接：新录 Key 或复用已有百炼连接（零新增 Key）。"""
+
+    api_key: str | None = None
+    reuse_connection_id: str | None = None
+
+
+@router.get("/voice/status")
+async def voice_status(request: Request) -> dict:
+    """语音连接状态：当前绑定（脱敏 Key）+ 可复用的百炼/自定义连接列表。"""
+    registry = _registry(request)
+    config = registry.config
+    conn_id = config.voice.connection_id
+    reusable = []
+    for cid, connection in config.model.connections.items():
+        if connection.preset_id not in ("dashscope", "custom"):
+            continue
+        secret = registry.key_store.get_key(cid)
+        if not secret:
+            continue
+        reusable.append(
+            {
+                "id": cid,
+                "displayName": connection.display_name,
+                "maskedKey": KeyStore.mask(secret),
+                "active": cid == conn_id,
+            }
+        )
+    current = next((r for r in reusable if r["active"]), None)
+    return {
+        "configured": current is not None,
+        "connectionId": current["id"] if current else None,
+        "displayName": current["displayName"] if current else None,
+        "maskedKey": current["maskedKey"] if current else None,
+        "reusable": reusable,
+    }
+
+
+@router.post("/voice/connection")
+async def setup_voice_connection(body: VoiceConnectionSetup, request: Request) -> dict:
+    """配置云语音连接：真实合成探测 → Key 入库 → 原子落盘；失败零副作用。"""
+    registry = _registry(request)
+    from ..tts import cosyvoice_engine
+    from ..tts.cosyvoice_engine import VOICE_CONNECTION_ID, SpeechConnection
+
+    reuse = body.reuse_connection_id
+    connection_id = reuse or VOICE_CONNECTION_ID
+    api_key = body.api_key
+    if api_key is None and reuse is not None:
+        api_key = registry.key_store.get_key(reuse)
+    if not api_key:
+        raise HTTPException(status_code=422, detail="请填写 API Key 或选择要复用的连接")
+    conn = SpeechConnection(connection_id=connection_id, api_key=api_key)
+    ok, hint = await cosyvoice_engine.probe(conn)
+    if not ok:
+        return {"ok": False, "hint": hint}
+
+    old_key = registry.key_store.get_key(connection_id)
+    key_changed = api_key != old_key
+    if key_changed:
+        try:
+            registry.key_store.set_key(connection_id, api_key)
+        except KeyStoreError as exc:
+            raise HTTPException(
+                status_code=500, detail=f"API Key 存入系统钥匙串失败：{exc}"
+            ) from exc
+
+    new_config = registry.config.model_copy(deep=True)
+    existing = new_config.model.connections.get(connection_id)
+    # 语音走原生固定端点；endpoints 仅服务聊天侧复用（兼容模式 URL 来自 preset）
+    from ..model_catalog import get_preset
+
+    endpoints = dict(existing.endpoints) if existing else {}
+    endpoints.setdefault("openai_chat", get_preset("dashscope").default_endpoints["openai_chat"])
+    new_config.model.connections[connection_id] = ModelConnectionConfig(
+        preset_id="dashscope",
+        display_name=(existing.display_name if existing else "百炼（语音）"),
+        endpoints=endpoints,
+        key_ref=key_ref_for(connection_id),
+    )
+    new_config.voice.connection_id = connection_id
+    try:
+        save_config(_config_path(request), new_config)
+    except OSError as exc:
+        if key_changed:
+            if old_key is None:
+                registry.key_store.delete_key(connection_id)
+            else:
+                registry.key_store.set_key(connection_id, old_key)
+        raise HTTPException(status_code=500, detail="语音连接保存失败") from exc
+    registry.update_config(new_config)
+    logger.info("语音连接已配置：connection=%s", connection_id)
+    return {"ok": True, "connectionId": connection_id}
 
 
 @router.get("/agent")
@@ -580,7 +689,14 @@ async def export_settings(request: Request) -> dict:
             language=config.general.language, power_save=config.general.power_save
         ),
         character=CharacterUpdate(active_skin=config.character.active_skin),
-        voice=VoiceUpdate.model_validate(config.voice.model_dump()),
+        # 导出红线（§3/§8）：connectionId 不进备份——引擎绑定留本机，Key 永不出库
+        voice=VoiceUpdate(
+            tts_enabled=config.voice.tts_enabled,
+            voice_id=config.voice.voice_id,
+            volume=config.voice.volume,
+            rate=config.voice.rate,
+            muted=config.voice.muted,
+        ),
         agent=AgentUpdate(max_reply_chars=config.agent.max_reply_chars),
         persona=PersonaUpdate.model_validate(config.character.persona.model_dump()),
     ).model_dump(by_alias=True, exclude_none=True)
@@ -605,6 +721,17 @@ async def import_settings(body: SettingsTransfer, request: Request) -> dict:
         preset_id = sections.get("persona", {}).get(f"{dimension}_preset")
         if preset_id is not None and not valid_preset_id(dimension, preset_id):
             raise HTTPException(status_code=422, detail=f"{dimension} 预设不存在：{preset_id}")
+
+    # 备份里的语音绑定指向本机不存在的连接时忽略（引擎绑定留本机，其余偏好照常导入）
+    voice_section = sections.get("voice")
+    bound = voice_section.get("connection_id") if voice_section else None
+    if bound and bound not in _registry(request).config.model.connections:
+        voice_section.pop("connection_id")
+    # 旧备份里的 edge 音色 id 导入时映射为 CosyVoice（与 PUT voice 同口径）
+    if voice_section and voice_section.get("voice_id"):
+        from ..tts.voices import normalize_voice_id
+
+        voice_section["voice_id"] = normalize_voice_id(voice_section["voice_id"])
 
     def mutate(config: AppConfig) -> None:
         for name, values in sections.items():

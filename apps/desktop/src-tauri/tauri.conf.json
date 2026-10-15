@@ -47,6 +47,7 @@
       "binaries/sidecar/": "sidecar/"
     },
     "macOS": {
+      "infoPlist": "Info.plist",
       "minimumSystemVersion": "12",
       "signingIdentity": null
     }

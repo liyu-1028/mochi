@@ -1,11 +1,14 @@
-"""TTS HTTP 端点（M1-S2，功能清单 5.1）。
+"""TTS HTTP 端点（ADR-0007 修订：云端唯一引擎）。
 
 音频走独立 HTTP 流通道（agent-events-v0.1 §10 排除语音流，协议零改动）：
 - ``POST /tts/stream``：合成并流式返回音频；``X-TTS-Engine`` 上报实际引擎
-  （edge|local|text-fallback|muted），``X-TTS-Cache`` 上报命中；
+  （cosyvoice|text-fallback|cloud-unconfigured|muted），``X-TTS-Cache`` 上报命中；
 - ``GET /tts/voices``：静态精选音色表（零网络）。
 
-降级语义：引擎全链失败 / 静音 / 空文本 → 204，前端静默回纯文本，不阻塞对话。
+降级语义（204 = 无音频可播，前端静默回纯文本，不阻塞对话）：
+静音 / 空文本 / 隐私模式 / 未配置连接 / 云端失败。
+voice_id 不做目录白名单校验——兼容百炼复刻音色（mix_*），未知 id 的
+失败由云端 400 → 纯文本降级兜底（目录演进免发版）。
 """
 
 from __future__ import annotations
@@ -16,6 +19,7 @@ from pydantic import Field
 
 from ..events import CamelModel
 from ..tts import engine, voices
+from ..tts.cosyvoice_engine import resolve_speech_connection
 from .security import localhost_only
 
 router = APIRouter(prefix="/tts", tags=["tts"], dependencies=[Depends(localhost_only)])
@@ -25,12 +29,11 @@ _CHUNK_SIZE = 64 * 1024
 
 
 class TtsStreamRequest(CamelModel):
-    """合成请求：缺省字段回退 [voice] 配置（设置面板/托盘为事实源）。"""
+    """合成请求：缺省字段回退 [voice] 配置（设置面板为事实源）。"""
 
     text: str
-    voice_id: str | None = None
+    voice_id: str | None = Field(default=None, min_length=1, max_length=64)
     rate: float | None = Field(default=None, ge=0.5, le=2.0)
-    volume: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 def _registry(request: Request):
@@ -47,8 +50,10 @@ async def _chunked(data: bytes):
 
 @router.post("/stream")
 async def stream_tts(body: TtsStreamRequest, request: Request) -> Response:
-    """合成音频流；204 = 无音频可播（静音/空文本/纯文本降级）。"""
-    voice = _registry(request).config.voice
+    """合成音频流；204 = 无音频可播（静音/空文本/未配置/纯文本降级）。"""
+    registry = _registry(request)
+    config = registry.config
+    voice = config.voice
     if not voice.tts_enabled or voice.muted:
         return Response(status_code=204, headers={"X-TTS-Engine": "muted"})
 
@@ -61,16 +66,17 @@ async def stream_tts(body: TtsStreamRequest, request: Request) -> Response:
             detail=f"文本过长（上限 {MAX_TTS_TEXT_LENGTH} 字符）",
         )
 
-    voice_id = body.voice_id or voice.voice_id
-    if not voices.is_known_voice(voice_id):
-        raise HTTPException(status_code=400, detail=f"未知音色：{voice_id}")
+    if config.privacy.local_only:
+        return Response(status_code=204, headers={"X-TTS-Engine": engine.ENGINE_UNCONFIGURED})
+    conn = resolve_speech_connection(config, registry.key_store)
+    if conn is None:
+        return Response(status_code=204, headers={"X-TTS-Engine": engine.ENGINE_UNCONFIGURED})
 
     audio, used_engine, cache_hit = await engine.synthesize(
         text,
-        voice_id=voice_id,
+        voice_id=body.voice_id or voices.normalize_voice_id(voice.voice_id),
         rate=body.rate if body.rate is not None else voice.rate,
-        volume=body.volume if body.volume is not None else voice.volume,
-        primary=voice.engine,
+        conn=conn,
     )
     headers = {
         "X-TTS-Engine": used_engine,
@@ -78,9 +84,7 @@ async def stream_tts(body: TtsStreamRequest, request: Request) -> Response:
     }
     if used_engine == engine.ENGINE_FALLBACK:
         return Response(status_code=204, headers=headers)
-    return StreamingResponse(
-        _chunked(audio), media_type=engine.media_type_for(used_engine), headers=headers
-    )
+    return StreamingResponse(_chunked(audio), media_type=engine.media_type_for(), headers=headers)
 
 
 @router.get("/voices")

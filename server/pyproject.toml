@@ -18,7 +18,6 @@ dependencies = [
     # M1-S1 会话持久化（4.3/6.2）：异步 SQLite，轻量迁移不用 Alembic
     "aiosqlite>=0.20",
     "python-multipart>=0.0.9",  # FastAPI UploadFile（M1-S1 皮肤导入）
-    "edge-tts>=6.1",
     # M1-S4 Agent 编排层（选型理由见 docs/internal/adr/0008-agent-orchestration.md）
     "langgraph>=0.2",                    # ReAct 图编排 + interrupt() 人审（D1/D3）
     "langgraph-checkpoint-sqlite>=2.0",  # checkpoint 落现有 SQLite（D4）
@@ -26,6 +25,7 @@ dependencies = [
     "langchain-anthropic>=0.3",
     "langchain-openai>=0.3",
     "langchain-ollama>=0.3",
+    "websockets>=13",
 ]
 
 [dependency-groups]

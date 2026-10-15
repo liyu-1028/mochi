@@ -1,13 +1,21 @@
-"""TTS 引擎降级链与缓存测试（M1-S2， monkeypatch 禁联网）。"""
+"""TTS 引擎层测试（ADR-0007 修订：云端唯一引擎 + 纯文本降级；monkeypatch 禁联网）。"""
 
 from __future__ import annotations
 
 import pytest
 
-from mochi_server.tts import TTSEngineError, edge_engine, local_engine
+from mochi_server.tts import TTSEngineError
 from mochi_server.tts.cache import TTSCache, make_key
+from mochi_server.tts.cosyvoice_engine import SpeechConnection
 from mochi_server.tts.engine import ENGINE_FALLBACK, synthesize
-from mochi_server.tts.voices import is_known_voice, voice_catalog
+from mochi_server.tts.voices import (
+    DEFAULT_VOICE_ID,
+    VOICES,
+    normalize_voice_id,
+    voice_catalog,
+)
+
+_CONN = SpeechConnection(connection_id="bailian-voice", api_key="sk")
 
 
 @pytest.fixture(autouse=True)
@@ -19,110 +27,83 @@ def _clean_cache():
     cache_mod.CACHE = cache_mod.TTSCache()
 
 
-def _patch_edge(monkeypatch, result=b"MP3"):
+def _patch_cloud(monkeypatch, result=b"MP3"):
     calls = {"n": 0}
 
-    async def fake(text, voice_id, rate, volume):
+    async def fake(text, *, voice_id, rate, conn):
         calls["n"] += 1
         if isinstance(result, Exception):
             raise result
         return result
 
-    monkeypatch.setattr(edge_engine, "synthesize", fake)
-    return calls
+    from mochi_server.tts import cosyvoice_engine
 
-
-def _patch_local(monkeypatch, result=b"WAV"):
-    calls = {"n": 0}
-
-    async def fake(text, rate):
-        calls["n"] += 1
-        if isinstance(result, Exception):
-            raise result
-        return result
-
-    monkeypatch.setattr(local_engine, "synthesize", fake)
+    monkeypatch.setattr(cosyvoice_engine, "synthesize", fake)
     return calls
 
 
 @pytest.mark.asyncio
-async def test_edge_primary_success(monkeypatch):
-    edge = _patch_edge(monkeypatch)
-    local = _patch_local(monkeypatch)
-    audio, engine, hit = await synthesize(
-        "你好", voice_id="zh-CN-XiaoxiaoNeural", rate=1.0, volume=1.0, primary="edge"
-    )
-    assert (audio, engine, hit) == (b"MP3", "edge", False)
-    assert edge["n"] == 1 and local["n"] == 0
+async def test_cloud_success_returns_mp3(monkeypatch):
+    _patch_cloud(monkeypatch)
+    audio, used, hit = await synthesize("你好", voice_id="longxing_v3", rate=1.0, conn=_CONN)
+    assert audio == b"MP3"
+    assert used == "cosyvoice"
+    assert hit is False
 
 
 @pytest.mark.asyncio
-async def test_edge_fail_falls_back_to_local(monkeypatch):
-    _patch_edge(monkeypatch, TTSEngineError("network down"))
-    local = _patch_local(monkeypatch)
-    audio, engine, _ = await synthesize(
-        "你好", voice_id="zh-CN-XiaoxiaoNeural", rate=1.0, volume=1.0, primary="edge"
-    )
-    assert (audio, engine) == (b"WAV", "local")
-    assert local["n"] == 1
+async def test_cloud_fail_falls_back_to_text(monkeypatch):
+    _patch_cloud(monkeypatch, TTSEngineError("401"))
+    audio, used, hit = await synthesize("你好", voice_id="longxing_v3", rate=1.0, conn=_CONN)
+    assert audio == b""
+    assert used == ENGINE_FALLBACK
+    assert hit is False
 
 
 @pytest.mark.asyncio
-async def test_all_engines_fail_text_fallback(monkeypatch):
-    _patch_edge(monkeypatch, TTSEngineError("network down"))
-    _patch_local(monkeypatch, TTSEngineError("no say binary"))
-    audio, engine, _ = await synthesize(
-        "你好", voice_id="zh-CN-XiaoxiaoNeural", rate=1.0, volume=1.0, primary="edge"
-    )
-    assert (audio, engine) == (b"", ENGINE_FALLBACK)
-
-
-@pytest.mark.asyncio
-async def test_cache_hit_avoids_resynthesis(monkeypatch):
-    edge = _patch_edge(monkeypatch)
-    kwargs = dict(voice_id="zh-CN-XiaoxiaoNeural", rate=1.0, volume=1.0, primary="edge")
-    first = await synthesize("缓存", **kwargs)
-    second = await synthesize("缓存", **kwargs)
-    assert first[2] is False and second[2] is True
-    assert second[0] == b"MP3" and second[1] == "edge"
-    assert edge["n"] == 1
-    # 参数变化 → 新 key
-    third = await synthesize("缓存", **{**kwargs, "rate": 1.5})
-    assert third[2] is False and edge["n"] == 2
-
-
-@pytest.mark.asyncio
-async def test_unknown_primary_defaults_to_edge(monkeypatch):
-    edge = _patch_edge(monkeypatch)
-    await synthesize("x", voice_id="zh-CN-XiaoxiaoNeural", rate=1.0, volume=1.0, primary="bogus")
-    assert edge["n"] == 1
-
-
-def test_edge_pct_mapping():
-    assert edge_engine._pct(1.0) == "+0%"
-    assert edge_engine._pct(2.0) == "+100%"
-    assert edge_engine._pct(0.5) == "-50%"
-
-
-def test_cache_lru_and_ttl():
-    cache = TTSCache(max_items=2, ttl=600)
-    cache.put("a", b"1", "edge")
-    cache.put("b", b"2", "edge")
-    cache.put("c", b"3", "edge")  # 挤出 a
-    assert cache.get("a") is None
-    assert cache.get("b") == (b"2", "edge")
-    expired = TTSCache(max_items=2, ttl=0)
-    expired.put("k", b"v", "edge")
-    assert expired.get("k") is None
+async def test_cache_hit_skips_cloud(monkeypatch):
+    calls = _patch_cloud(monkeypatch)
+    await synthesize("你好", voice_id="longxing_v3", rate=1.0, conn=_CONN)
+    audio, used, hit = await synthesize("你好", voice_id="longxing_v3", rate=1.0, conn=_CONN)
+    assert hit is True
+    assert calls["n"] == 1  # 第二次命中缓存，不再打云端
+    assert used == "cosyvoice"
+    assert audio == b"MP3"
 
 
 def test_make_key_stable():
-    assert make_key("t", "v", 1.0, 1.0) == make_key("t", "v", 1.0, 1.0)
-    assert make_key("t", "v", 1.0, 1.0) != make_key("t2", "v", 1.0, 1.0)
+    assert make_key("t", "v", 1.0) == make_key("t", "v", 1.0)
+    assert make_key("t", "v", 1.0) != make_key("t2", "v", 1.0)
+    assert make_key("t", "v", 1.0) != make_key("t", "v2", 1.0)
 
 
-def test_voice_catalog():
+def test_cache_lru_and_ttl(monkeypatch):
+    cache = TTSCache(max_items=2, ttl_seconds=100)
+    cache.put("a", b"1", "cosyvoice")
+    cache.put("b", b"2", "cosyvoice")
+    cache.put("c", b"3", "cosyvoice")
+    assert cache.get("a") is None  # LRU 淘汰
+    assert cache.get("b") == (b"2", "cosyvoice")
+
+
+def test_voice_catalog_and_normalize():
     catalog = voice_catalog()
-    assert len(catalog) >= 2
-    assert is_known_voice("zh-CN-XiaoxiaoNeural")
-    assert not is_known_voice("nope")
+    assert len(catalog) >= 30  # v3 全量目录（社交陪伴/助手/客服/方言/童声）
+    assert {v["category"] for v in catalog} >= {
+        "companion",
+        "assistant",
+        "support",
+        "dialect",
+        "child",
+    }
+    assert DEFAULT_VOICE_ID == "longxing_v3"
+    assert all(v.id.startswith(("long", "loong")) for v in VOICES)
+    # 旧 edge 音色映射
+    assert normalize_voice_id("zh-CN-XiaoxiaoNeural") == "longxing_v3"
+    assert normalize_voice_id("zh-CN-YunxiNeural") == "longanyang"
+    # v2 目录（语音重构过渡期）→ v3；同名不同性别的坑（龙华 v2 男 → v3 女）
+    assert normalize_voice_id("longwan_v2") == "longwan_v3"
+    assert normalize_voice_id("longhua_v2") == "longtian_v3"
+    # 未知 id 原样（兼容复刻音色 mix_*），空值回默认
+    assert normalize_voice_id("mix_voice_abc") == "mix_voice_abc"
+    assert normalize_voice_id("") == DEFAULT_VOICE_ID

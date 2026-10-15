@@ -77,3 +77,33 @@ def test_empty_backup_is_not_reported_as_success(client, empty):
     before = client.get("/config").json()
     assert client.post("/config/import", json=empty).status_code == 422
     assert client.get("/config").json() == before
+
+
+def test_export_excludes_voice_connection(client):
+    """导出红线（§3/§8）：语音引擎绑定（connectionId）不进备份。"""
+    client.put("/config/voice", json={"ttsEnabled": True, "volume": 0.6})
+    data = client.get("/config/export").json()
+    assert data["voice"]["volume"] == 0.6
+    assert "connectionId" not in data["voice"]
+
+
+def test_import_maps_legacy_voice_id(client):
+    """旧 snake_case 备份里的 edge 音色 id 导入时映射为 CosyVoice。"""
+    resp = client.post(
+        "/config/import",
+        json={"voice": {"tts_enabled": True, "voice_id": "zh-CN-YunxiNeural", "volume": 0.7}},
+    )
+    assert resp.status_code == 200
+    assert client.get("/config/voice").json()["voiceId"] == "longanyang"
+
+
+def test_import_ignores_unknown_voice_binding(client):
+    """手改备份带本机不存在的 connectionId：忽略绑定，其余语音偏好照常导入。"""
+    resp = client.post(
+        "/config/import",
+        json={"voice": {"tts_enabled": True, "connectionId": "ghost", "rate": 1.5}},
+    )
+    assert resp.status_code == 200
+    voice = client.get("/config/voice").json()
+    assert voice["rate"] == 1.5
+    assert voice["connectionId"] is None

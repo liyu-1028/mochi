@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { useConversation } from "../store/conversation";
+import { useVoiceInput } from "../hooks/useVoiceInput";
 import {
   IDLE_TIMEOUT_MS,
   shouldKeepPanelOpen,
@@ -39,6 +40,18 @@ export function ChatToggle({ open, onOpenChange, onSend, onCancel }: ChatToggleP
   const closeTimerRef = useRef<number | null>(null);
   const status = useConversation((s) => s.status);
   const activeSessionId = useConversation((s) => s.activeSessionId);
+  // 按住说话（ADR-0007-R1）：失败提示借道 placeholder 位置，2s 后回落
+  const [micHint, setMicHint] = useState<string | null>(null);
+  const voice = useVoiceInput((key) => {
+    setMicHint(key);
+    window.setTimeout(() => setMicHint(null), 2000);
+  });
+  useEffect(() => {
+    if (voice.state === "error") {
+      const timer = window.setTimeout(() => voice.cleanup(), 50);
+      return () => window.clearTimeout(timer);
+    }
+  }, [voice.state, voice]);
   useEffect(() => {
     setText("");
   }, [activeSessionId]);
@@ -94,18 +107,22 @@ export function ChatToggle({ open, onOpenChange, onSend, onCancel }: ChatToggleP
     });
   useIdlePanelTimer({ paused, onIdle: handleClose, timeoutMs: IDLE_TIMEOUT_MS });
 
-  // Esc 收起
+  // Esc 收起（录音中优先取消录音并丢弃，不关面板）
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
+        if (voice.state === "recording" || voice.state === "transcribing") {
+          voice.cancel();
+          return;
+        }
         handleClose();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, handleClose]);
+  }, [open, handleClose, voice]);
 
   // 点击外部收起
   useEffect(() => {
@@ -148,13 +165,48 @@ export function ChatToggle({ open, onOpenChange, onSend, onCancel }: ChatToggleP
             type="text"
             className="chat-toggle__input"
             placeholder={
-              status === "connected" ? t("chat.placeholder") : t("chat.placeholderConnecting")
+              micHint !== null
+                ? t(micHint)
+                : voice.state === "recording"
+                  ? t("chat.recordingHint")
+                  : voice.state === "transcribing"
+                    ? t("chat.transcribingHint")
+                    : status === "connected"
+                      ? t("chat.placeholder")
+                      : t("chat.placeholderConnecting")
             }
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={handleKey}
             disabled={status !== "connected"}
           />
+          <button
+            className={`chat-toggle__btn chat-toggle__btn--mic${voice.state === "recording" ? " chat-toggle__btn--mic-active" : ""}`}
+            type="button"
+            title={t("chat.micTitle")}
+            aria-label={t("chat.micTitle")}
+            disabled={status !== "connected" || voice.state === "transcribing"}
+            onContextMenu={(e) => e.preventDefault()}
+            onPointerDown={(e) => {
+              e.preventDefault();
+              void voice.start();
+            }}
+            onPointerUp={() => {
+              if (voice.state !== "recording") return;
+              void voice.stop().then((transcribed) => {
+                if (transcribed) {
+                  setText((prev) => (prev ? `${prev} ${transcribed}` : transcribed));
+                  inputRef.current?.focus();
+                }
+              });
+            }}
+            onPointerLeave={() => {
+              if (voice.state === "recording") void voice.cancel();
+            }}
+            onPointerCancel={() => void voice.cancel()}
+          >
+            {voice.state === "recording" ? "⏺" : voice.state === "transcribing" ? "⋯" : "🎙"}
+          </button>
           {isStreaming ? (
             <button
               className="chat-toggle__btn chat-toggle__btn--stop"

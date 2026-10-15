@@ -48,7 +48,10 @@ export function stopSpeaking(): void {
 /** 合成并播报全文；设置面板试听按钮共用。失败一律静默降级。
  *  M-F：播报前净化文本——剥离全角舞台指示（（眨眨眼）等保留气泡展示、
  *  不进语音）+ markdown 格式符号（**加粗**不再被读成「星号星号」）。 */
-export async function speakText(rawText: string): Promise<void> {
+export async function speakText(
+  rawText: string,
+  overrides: { voiceId?: string; rate?: number } = {},
+): Promise<void> {
   const text = sanitizeSpeechText(rawText);
   if (!text.trim()) return;
   const token = ++session;
@@ -58,7 +61,7 @@ export async function speakText(rawText: string): Promise<void> {
   const voice = await configApi.getVoice().catch(() => null);
   if (!voice || !voice.ttsEnabled || voice.muted || token !== session) return;
 
-  const result = await ttsApi.stream(text).catch(() => null);
+  const result = await ttsApi.stream(text, overrides).catch(() => null);
   if (!result || token !== session) return;
   if (!result.audio) return; // 204：静音/纯文本降级 → 不出声、不报错
 
@@ -69,7 +72,7 @@ export async function speakText(rawText: string): Promise<void> {
   ttsPlayer.onStarted = (d) => {
     durationMs = d;
   };
-  const started = await ttsPlayer.play(result.audio);
+  const started = await ttsPlayer.play(result.audio, voice.volume);
   if (!started || token !== session) {
     if (token === session) stopSpeaking();
     return;

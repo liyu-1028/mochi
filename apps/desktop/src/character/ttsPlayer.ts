@@ -29,8 +29,9 @@ export class TtsPlayer {
     return this.source !== null;
   }
 
-  /** 解码并播放；失败（含 ctx 不可用）返回 false，调用方静默降级。 */
-  async play(blob: Blob): Promise<boolean> {
+  /** 解码并播放；失败（含 ctx 不可用）返回 false，调用方静默降级。
+   * volume 为本地增益（ADR-0007 修订：云引擎不支持音量参数，前移播放器）。 */
+  async play(blob: Blob, volume = 1): Promise<boolean> {
     this.stop();
     const ctx = this.ensureCtx();
     if (!ctx) return false;
@@ -40,8 +41,11 @@ export class TtsPlayer {
       source.buffer = buffer;
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 512;
+      const gain = ctx.createGain();
+      gain.gain.value = volume;
       source.connect(analyser);
-      analyser.connect(ctx.destination);
+      analyser.connect(gain);
+      gain.connect(ctx.destination);
       source.onended = () => {
         if (this.source !== source) return;
         this.source = null;
