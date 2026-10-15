@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import shutil
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -83,6 +84,7 @@ class MotionLibrary:
 
     def __init__(self, defaults_dir: Path | None = None) -> None:
         self._dir = get_motion_library_dir()
+        self._lock = threading.Lock()
         packaged = Path(__file__).parent / "defaults" / "mochi-vrm"
         local = Path(__file__).resolve().parents[4] / "assets/local-motions/mochi-vrm-defaults"
         self._defaults_dir = defaults_dir or Path(
@@ -117,71 +119,74 @@ class MotionLibrary:
     # ------------------------------------------------------------------
 
     def create(self, entry: MotionEntry, content: bytes) -> MotionEntry:
-        index = self._read_index()
-        existing = self.get(entry.id)
-        if existing is not None:
-            purpose = ACTION_LABELS.get(entry.id, "自定义动作")
-            raise ConflictError(
-                f"{purpose}（{entry.id}）已由列表中的「{existing.label}」使用。"
-                + (
-                    "请选择其他用途。"
-                    if existing.source == "builtin"
-                    else "请选择其他用途；如需替换，请先删除原动作再导入。"
+        with self._lock:
+            index = self._read_index()
+            existing = self.get(entry.id)
+            if existing is not None:
+                purpose = ACTION_LABELS.get(entry.id, "自定义动作")
+                raise ConflictError(
+                    f"{purpose}（{entry.id}）已由列表中的「{existing.label}」使用。"
+                    + (
+                        "请选择其他用途。"
+                        if existing.source == "builtin"
+                        else "请选择其他用途；如需替换，请先删除原动作再导入。"
+                    )
                 )
-            )
-        filename = f"{entry.id}{Path(entry.file).suffix.lower()}"
-        stored = entry.model_copy(update={"file": filename})
-        if not stored.created_at:
-            stored = stored.model_copy(
-                update={"created_at": datetime.now(UTC).isoformat(timespec="seconds")}
-            )
-        (self._dir / "motions" / filename).write_bytes(content)
-        index[stored.id] = stored
-        self._write_index(index)
-        logger.info("导入动作：%s（%s，%d 字节）", stored.id, stored.file, len(content))
-        return stored
+            filename = f"{entry.id}{Path(entry.file).suffix.lower()}"
+            stored = entry.model_copy(update={"file": filename})
+            if not stored.created_at:
+                stored = stored.model_copy(
+                    update={"created_at": datetime.now(UTC).isoformat(timespec="seconds")}
+                )
+            (self._dir / "motions" / filename).write_bytes(content)
+            index[stored.id] = stored
+            self._write_index(index)
+            logger.info("导入动作：%s（%s，%d 字节）", stored.id, stored.file, len(content))
+            return stored
 
     def update(self, motion_id: str, patch: dict) -> MotionEntry:
-        index = self._read_index()
-        entry = self.get(motion_id)
-        if entry is None:
-            raise KeyError(motion_id)
-        # id/file 不可改（文件名与 id 绑定；改 id = 删了重导）。
-        # 合并后整体重新校验（model_copy(update) 不走 alias，camelCase 键会静默丢失）
-        editable = {
-            k: v
-            for k, v in patch.items()
-            if k
-            in {
-                "label",
-                "kind",
-                "priority",
-                "cooldownMs",
-                "agentSelectable",
-                "tags",
-                "category",
-                "credit",
+        with self._lock:
+            index = self._read_index()
+            entry = self.get(motion_id)
+            if entry is None:
+                raise KeyError(motion_id)
+            # id/file 不可改（文件名与 id 绑定；改 id = 删了重导）。
+            # 合并后整体重新校验（model_copy(update) 不走 alias，camelCase 键会静默丢失）
+            editable = {
+                k: v
+                for k, v in patch.items()
+                if k
+                in {
+                    "label",
+                    "kind",
+                    "priority",
+                    "cooldownMs",
+                    "agentSelectable",
+                    "tags",
+                    "category",
+                    "credit",
+                }
             }
-        }
-        if entry.source == "builtin":
-            editable.pop("category", None)
-            editable.pop("credit", None)
-        updated = MotionEntry.model_validate({**entry.model_dump(by_alias=True), **editable})
-        index[motion_id] = updated
-        self._write_index(index)
-        return updated
+            if entry.source == "builtin":
+                editable.pop("category", None)
+                editable.pop("credit", None)
+            updated = MotionEntry.model_validate({**entry.model_dump(by_alias=True), **editable})
+            index[motion_id] = updated
+            self._write_index(index)
+            return updated
 
     def delete(self, motion_id: str) -> bool:
-        entry = self.get(motion_id)
-        if entry is not None and entry.source == "builtin":
-            raise ValueError("角色内置动作随应用提供，可调整播放设置，不能删除原始素材。")
-        index = self._read_index()
-        entry = index.pop(motion_id, None)
-        if entry is None:
-            return False
-        self.file_path(entry).unlink(missing_ok=True)
-        self._write_index(index)
-        return True
+        with self._lock:
+            entry = self.get(motion_id)
+            if entry is not None and entry.source == "builtin":
+                raise ValueError("角色内置动作随应用提供，可调整播放设置，不能删除原始素材。")
+            index = self._read_index()
+            entry = index.pop(motion_id, None)
+            if entry is None:
+                return False
+            self.file_path(entry).unlink(missing_ok=True)
+            self._write_index(index)
+            return True
 
     # ------------------------------------------------------------------
     # 内部
@@ -252,9 +257,10 @@ class MotionLibrary:
 
     def _write_index(self, index: dict[str, MotionEntry]) -> None:
         payload = {"motions": [e.model_dump(by_alias=True) for e in index.values()]}
-        (self._dir / "index.json").write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        target = self._dir / "index.json"
+        temporary = target.with_suffix(".tmp")
+        temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        temporary.replace(target)
 
 
 class ConflictError(Exception):
