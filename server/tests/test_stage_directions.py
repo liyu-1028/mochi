@@ -11,6 +11,9 @@
 
 from __future__ import annotations
 
+import pytest
+
+from mochi_server.agent import stage_directions
 from mochi_server.agent.cue_extractor import MAX_CUES_PER_REPLY
 from mochi_server.agent.stage_directions import (
     StageDirectionScanner,
@@ -62,14 +65,27 @@ def test_map_direction_g1_envelope_actions() -> None:
     assert map_direction("噼里啪啦敲键盘") == ("body", "type")
 
 
-def test_map_direction_locomotion() -> None:
-    """容器联动（I3/M-H）：locomotion 通道位置指令。"""
-    assert map_direction("趴在输入框上") == ("locomotion", "peek_dock")
-    assert map_direction("靠墙歇会儿") == ("locomotion", "lean_edge")
-    assert map_direction("靠墙") == ("locomotion", "lean_edge")
-    assert map_direction("靠着气泡") == ("locomotion", "lean_bubble")
-    assert map_direction("探出半个脑袋") == ("locomotion", "peek_out")
-    assert map_direction("回到屏幕中间") == ("locomotion", "come_back")
+@pytest.mark.parametrize(
+    "direction",
+    [
+        "趴在输入框上",
+        "趴到输入框上",
+        "靠墙歇会儿",
+        "靠墙休息",
+        "靠墙",
+        "靠在气泡边",
+        "靠着气泡",
+        "探出半个脑袋",
+        "探出头",
+        "回到中间",
+        "回到屏幕中间",
+    ],
+)
+def test_removed_locomotion_directions_are_unmapped(direction: str) -> None:
+    assert map_direction(direction) is None
+    scanner = StageDirectionScanner("r", "m")
+    assert _feed_all(scanner, f"（{direction}）你好。") == []
+    assert scanner.dropped.get("unmapped") == 1
 
 
 def test_map_direction_unmapped_returns_none() -> None:
@@ -108,6 +124,39 @@ def test_direction_face_cue() -> None:
     assert len(cues) == 1
     assert cues[0].channels.face is not None
     assert cues[0].channels.face.emotion == "sad"
+
+
+def test_registered_locomotion_direction_still_becomes_cue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """仅在测试中注册位置动作，验证位置通道仍可沿原扫描流程发出。"""
+    monkeypatch.setitem(
+        stage_directions.DIRECTION_KEYWORDS, "测试位置动作", ("locomotion", "test_move")
+    )
+    monkeypatch.setattr(stage_directions, "_KEYWORDS_BY_LENGTH", ["测试位置动作"])
+    monkeypatch.setattr(stage_directions, "LOCOMOTION_ACTIONS", ("test_move",))
+    scanner = StageDirectionScanner("r", "m")
+    cues = _feed_all(scanner, "第一句。（测试位置动作）第二句。")
+    assert len(cues) == 1
+    cue = cues[0]
+    assert cue.channels.locomotion is not None
+    assert cue.channels.locomotion.action_id == "test_move"
+    assert cue.channels.body is None
+    assert cue.channels.face is None
+    assert cue.sync == "sentence_boundary"
+    assert cue.sentence_index == 2
+
+
+def test_unregistered_locomotion_direction_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setitem(
+        stage_directions.DIRECTION_KEYWORDS, "测试位置动作", ("locomotion", "test_move")
+    )
+    monkeypatch.setattr(stage_directions, "_KEYWORDS_BY_LENGTH", ["测试位置动作"])
+    scanner = StageDirectionScanner("r", "m")
+    assert _feed_all(scanner, "（测试位置动作）你好。") == []
+    assert scanner.dropped.get("unknown_locomotion") == 1
 
 
 def test_unmapped_direction_dropped_with_counter() -> None:

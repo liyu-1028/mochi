@@ -147,6 +147,17 @@ def test_unknown_action_dropped_with_counter() -> None:
     assert p.dropped.get("unknown_action") == 1
 
 
+@pytest.mark.parametrize(
+    "action_id", ["peek_dock", "lean_edge", "lean_bubble", "peek_out", "come_back"]
+)
+def test_removed_locomotion_tag_dropped_without_leaking(action_id: str) -> None:
+    parser = CueStreamParser("r", "m")
+    outputs = parser.feed(f"正文[[cue:{action_id}]]继续") + parser.flush()
+    assert _texts(outputs) == "正文继续"
+    assert _cues(outputs) == []
+    assert parser.dropped.get("unknown_action") == 1
+
+
 def test_terminal_action_never_selectable() -> None:
     p = CueStreamParser("r", "m")
     outs = p.feed("正文[[cue:idle_neutral]]继续")
@@ -301,6 +312,31 @@ def test_cue_prompt_static_when_no_skin() -> None:
     for aid in ("wink", "nod", "pout"):
         assert aid in section
     assert "不要发明清单外" not in section
+
+
+def test_cue_prompt_does_not_teach_removed_locomotion() -> None:
+    for skin in (None, _skin_with_actions("wink", "nod")):
+        section = cue_prompt_section(skin)
+        assert "容器动作" not in section
+        for removed in (
+            "趴在输入框上",
+            "趴到输入框上",
+            "靠墙歇会儿",
+            "靠墙休息",
+            "靠墙",
+            "靠在气泡边",
+            "靠着气泡",
+            "探出半个脑袋",
+            "探出头",
+            "回到中间",
+            "回到屏幕中间",
+            "peek_dock",
+            "lean_edge",
+            "lean_bubble",
+            "peek_out",
+            "come_back",
+        ):
+            assert removed not in section
 
 
 def test_cue_prompt_dynamic_injection_filters_to_skin() -> None:

@@ -309,6 +309,10 @@ run.finished(reason: "cancelled")   ← 已输出的 delta 前端保留展示
   `stretch` / `doze`；
 - **`ACTION_CHANNELS`**：`face` / `body` / `locomotion` / `voice` / `effect`
   （首版 face/body/effect 可执行，其余预留）；
+- **`LOCOMOTION_ACTIONS`**：当前无内置位置／姿态指令，动作白名单与展示名注册表为空。
+  `locomotion` 通道、括号指示解析分支、`character.cue` 传递及前端消费流程继续保留；
+  未注册指令不触发。默认居中与自动回位使用内部状态，不占用动作 id。
+  后续新增此类动作时，同步注册双端白名单、展示名、触发词和前端姿态目标，并更新共享夹具。
 - 共享夹具 `packages/protocol/testdata/semantic-actions.json`，双端测试各自校验常量与夹具一致
   （TS：`packages/protocol/test/constants.test.ts`；Python：`server/tests/test_protocol_golden.py`）；
 - 白名单铁律：模型永远只能选择皮肤声明为 `agentSelectable: true` 的动作 id；

@@ -125,25 +125,12 @@ ACTION_LABELS: dict[str, str] = {
 # 动作通道（调研报告 §8.3）；M-A 仅 face/body/effect 可执行，其余预留
 ACTION_CHANNELS = ("face", "body", "locomotion", "voice", "effect")
 
-# locomotion 通道动作词表（I3/M-H 容器联动）：角色在自身窗口活动区内的位置
-# 指令；封闭白名单——服务端只产词表内 id，前端未知 id 忽略。center 由
-# come_back 表达（回默认居中位）。
-LOCOMOTION_ACTIONS = (
-    "come_back",
-    "lean_edge",
-    "peek_dock",
-    "lean_bubble",
-    "peek_out",
-)
+# locomotion 位置指令注册表：当前无内置指令，保留通道与触发流程供后续扩展。
+# 服务端只产词表内 id，前端忽略未注册 id；默认居中与自动回位属于内部状态。
+LOCOMOTION_ACTIONS: tuple[str, ...] = ()
 
 # locomotion 展示名（与 ACTION_LABELS 同惯例）
-LOCOMOTION_LABELS = {
-    "come_back": "回到中间",
-    "lean_edge": "靠墙歇会儿",
-    "peek_dock": "趴在输入框上",
-    "lean_bubble": "靠在气泡边",
-    "peek_out": "探出头",
-}
+LOCOMOTION_LABELS: dict[str, str] = {}
 
 
 class ErrorCode(StrEnum):

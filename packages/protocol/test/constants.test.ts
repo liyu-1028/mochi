@@ -73,6 +73,14 @@ describe("语义动作注册表（协议规范 §11）", () => {
     expect({ ...LOCOMOTION_LABELS }).toEqual(fixture.locomotionLabels);
   });
 
+  it("删除旧位置指令后仍保留 locomotion 通道", () => {
+    expect(ACTION_CHANNELS).toContain("locomotion");
+    for (const retired of ["come_back", "lean_edge", "peek_dock", "lean_bubble", "peek_out"]) {
+      expect(LOCOMOTION_ACTIONS).not.toContain(retired);
+      expect(LOCOMOTION_LABELS).not.toHaveProperty(retired);
+    }
+  });
+
   it("词表总数 25 项，且所有中文展示名均为非空可读文本", () => {
     expect(SEMANTIC_ACTIONS.length).toBe(25);
     for (const [id, label] of Object.entries(ACTION_LABELS)) {

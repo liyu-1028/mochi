@@ -295,26 +295,14 @@ export const ACTION_CHANNELS = ["face", "body", "locomotion", "voice", "effect"]
 export type ActionChannel = (typeof ACTION_CHANNELS)[number];
 
 /**
- * locomotion 通道动作词表（I3/M-H 容器联动）：角色在自身窗口活动区内的
- * 位置指令。封闭白名单；服务端只产词表内 id，前端未知 id 忽略。
- * center 由 come_back 表达（回默认居中位）。
+ * locomotion 通道的位置指令注册表。当前无内置指令；保留通道与触发流程，
+ * 新动作须先注册，服务端只产词表内 id，前端忽略未注册 id。
+ * 默认居中与自动回位属于内部状态，不作为动作指令注册。
  */
-export const LOCOMOTION_ACTIONS = [
-  "come_back",
-  "lean_edge",
-  "peek_dock",
-  "lean_bubble",
-  "peek_out",
-] as const;
+export const LOCOMOTION_ACTIONS = [] as const;
 export type LocomotionActionId = (typeof LOCOMOTION_ACTIONS)[number];
 /** locomotion 展示名（与 ACTION_LABELS 同惯例） */
-export const LOCOMOTION_LABELS: Record<LocomotionActionId, string> = {
-  come_back: "回到中间",
-  lean_edge: "靠墙歇会儿",
-  peek_dock: "趴在输入框上",
-  lean_bubble: "靠在气泡边",
-  peek_out: "探出头",
-};
+export const LOCOMOTION_LABELS: Record<LocomotionActionId, string> = {};
 
 /** 标准化错误码（规范文档 §7） */
 export const ERROR_CODES = {
@@ -373,10 +361,11 @@ export interface CueBodyChannel {
   variant?: string;
 }
 
-/** 以下通道 M-C 预留（服务端不产出，前端忽略）；字段形态按调研报告 §8.3 冻结 */
+/** 位置动作通道保留；具体 actionId 必须先加入 LOCOMOTION_ACTIONS。 */
 export interface CueLocomotionChannel {
   actionId: string;
 }
+/** voice/effect 通道预留；字段形态按调研报告 §8.3 冻结。 */
 export interface CueVoiceChannel {
   tone?: string;
   /** 语速倍率，1.0 = 正常 */

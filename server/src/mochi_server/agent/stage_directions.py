@@ -138,18 +138,6 @@ DIRECTION_KEYWORDS: dict[str, tuple[str, str]] = {
     "不解地歪头": ("body", "question"),
     "敲键盘": ("body", "type"),
     "打字": ("body", "type"),
-    # -- locomotion：容器联动（I3/M-H）——位置指令，LOCOMOTION_ACTIONS 白名单内 --
-    "趴在输入框上": ("locomotion", "peek_dock"),
-    "趴到输入框上": ("locomotion", "peek_dock"),
-    "靠墙歇会儿": ("locomotion", "lean_edge"),
-    "靠墙休息": ("locomotion", "lean_edge"),
-    "靠墙": ("locomotion", "lean_edge"),
-    "靠在气泡边": ("locomotion", "lean_bubble"),
-    "靠着气泡": ("locomotion", "lean_bubble"),
-    "探出半个脑袋": ("locomotion", "peek_out"),
-    "探出头": ("locomotion", "peek_out"),
-    "回到中间": ("locomotion", "come_back"),
-    "回到屏幕中间": ("locomotion", "come_back"),
     # -- face：情绪（EMOTIONS 词表内）--
     "微笑": ("face", "happy"),
     "笑了笑": ("face", "happy"),
@@ -312,6 +300,7 @@ class StageDirectionScanner:
         if channel == "face" and action_id not in _FACE_EMOTIONS:  # 双保险
             self._count("unknown_emotion")
             return []
+        # 保留位置通道的白名单校验与 cue 构造，供后续注册新的位置动作。
         if channel == "locomotion" and action_id not in LOCOMOTION_ACTIONS:  # 双保险
             self._count("unknown_locomotion")
             return []

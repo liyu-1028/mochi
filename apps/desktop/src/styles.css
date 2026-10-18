@@ -64,8 +64,7 @@ body {
   cursor: pointer;
   position: relative;
   z-index: 0;
-  /* 容器联动（I3/M-H）：locomotion 位移/缩放的平滑过渡；
-     come_back 回位走同一条过渡，靠墙/探头/趴输入框互切不跳变 */
+  /* 容器联动（I3/M-H）：locomotion 位移/缩放与自动回位共用平滑过渡。 */
   transition: transform 1s cubic-bezier(0.4, 0, 0.2, 1);
 }
 

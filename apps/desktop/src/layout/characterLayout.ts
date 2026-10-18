@@ -23,7 +23,7 @@ export const MIN_WINDOW_WIDTH = 320;
  *  Live2D 不传参（矢量模型任意缩放清晰），仅静态路径生效。 */
 export const MAX_STATIC_UPSCALE = 2;
 /** 活动区宽度比（I3/M-H）：窗口宽 = 角色宽 × 该比例，左右各留约半个身位
- *  余量供容器联动平移（靠墙/探头）；透明余量区由穿透层保证不拦桌面。
+ *  余量供位置动作扩展使用；透明余量区由穿透层保证不拦桌面。
  *  仅在余量有效时生效：窄角色受 MIN_WINDOW_WIDTH 兑底时不额外扩宽。 */
 export const LOCOMOTION_AREA_RATIO = 2.2;
 /** 气泡侧向贴头，无需为角色头顶预留额外窗口高度。 */

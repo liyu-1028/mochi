@@ -180,8 +180,8 @@ export function CharacterStage({
   /** 分区点击反应（2.4，仅 live2d）：点击时刻 + 类型，帧覆写期间消费 */
   const reactionRef = useRef<{ kind: "head" | "body"; startedAt: number } | null>(null);
   // 容器联动位置（I3/M-H）：持久状态，非 idle/超时自动回位；帧闭包读 ref
-  const [locomotion, setLocomotion] = useState<LocomotionActionId>("come_back");
-  const locomotionRef = useRef<LocomotionActionId>("come_back");
+  const [locomotion, setLocomotion] = useState<LocomotionActionId | null>(null);
+  const locomotionRef = useRef<LocomotionActionId | null>(null);
   locomotionRef.current = locomotion;
   const locomotionSinceRef = useRef(0);
   /** 问号贴图（H4）：question 动作触发时头顶浮出，包络时长后消散 */
@@ -328,15 +328,15 @@ export function CharacterStage({
     consumePendingCues(pendingCues.length);
   }, [pendingCues, consumePendingCues]);
 
-  // 自动回位：进入非 idle 状态（说话/思考要回中间）或停留超时 → come_back
+  // 自动回位：进入非 idle 状态（说话/思考要回中间）或停留超时 → 中性状态
   useEffect(() => {
-    if (locomotion === "come_back") return;
+    if (locomotion === null) return;
     const timer = window.setInterval(() => {
       if (
         effectiveState !== "idle" ||
         Date.now() - locomotionSinceRef.current > LOCOMOTION_STAY_MS
       ) {
-        setLocomotion("come_back");
+        setLocomotion(null);
       }
     }, 1000);
     return () => window.clearInterval(timer);
@@ -769,7 +769,7 @@ export function CharacterStage({
       }
 
       // locomotion 姿态叠加（I3/M-H）：位移走 CSS transform（渲染层），
-      // 倚靠/趴伏姿态走参数趋近；写在包络应用之后会被包络覆盖——
+      // 姿态走参数趋近；写在包络应用之后会被包络覆盖——
       // 「包络最优先」顺序不变。容器量测每帧重取太贵，250ms 节流缓存复用。
       const loco = locomotionRef.current;
       const rectNow = stageRectRef.current?.rect;

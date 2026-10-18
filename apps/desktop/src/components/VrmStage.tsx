@@ -102,8 +102,8 @@ export function VrmStage({
   const mouthRef = useRef<MouthState>(MOUTH_CLOSED);
   const gazeTargetRef = useRef<GazeTarget>({ x: 0, y: 0 });
   const gazeCurrentRef = useRef<GazeTarget>({ x: 0, y: 0 });
-  const [locomotion, setLocomotion] = useState<LocomotionActionId>("come_back");
-  const locomotionRef = useRef<LocomotionActionId>("come_back");
+  const [locomotion, setLocomotion] = useState<LocomotionActionId | null>(null);
+  const locomotionRef = useRef<LocomotionActionId | null>(null);
   locomotionRef.current = locomotion;
   const locomotionSinceRef = useRef(0);
   const [questionMark, setQuestionMark] = useState(false);
@@ -299,13 +299,13 @@ export function VrmStage({
 
   // 自动回位（与 Live2D 路径同语义）
   useEffect(() => {
-    if (locomotion === "come_back") return;
+    if (locomotion === null) return;
     const timer = window.setInterval(() => {
       if (
         effectiveState !== "idle" ||
         Date.now() - locomotionSinceRef.current > LOCOMOTION_STAY_MS
       ) {
-        setLocomotion("come_back");
+        setLocomotion(null);
       }
     }, 1000);
     return () => window.clearInterval(timer);
