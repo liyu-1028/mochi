@@ -23,6 +23,7 @@ export const EVENT_PROVIDERS_CHANGED = "mochi:providers-changed";
 export const EVENT_LANGUAGE_CHANGED = "mochi:language-changed";
 /** 2.6 省电模式跨窗口同步（设置面板 ↔ 主窗口渲染层）。 */
 export const EVENT_POWER_SAVE_CHANGED = "mochi:power-save-changed";
+export const EVENT_VOICE_CHANGED = "mochi:voice-changed";
 export const EVENT_SESSION_CHANGED = "mochi:session-changed";
 /** M1-S1：衣橱面板换肤 → 主窗口重建角色舞台（3.3 热切换）。 */
 export const EVENT_SKIN_CHANGED = "mochi:skin-changed";

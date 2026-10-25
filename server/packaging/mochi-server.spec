@@ -25,10 +25,8 @@ hiddenimports = [
 hiddenimports += collect_submodules("keyring.backends")
 # python-multipart 由 FastAPI 运行时按需导入（UploadFile，M1-S1 皮肤导入）
 hiddenimports += ["multipart", "multipart.multipart"]
-# edge-tts（M1-S2 TTS）：aiohttp 按平台动态挑选子模块，静态分析易漏；
-# certifi 的 CA 包是数据文件，不 collect 则 HTTPS 握手失败
-hiddenimports += ["edge_tts", "aiohttp", "certifi"]
-hiddenimports += collect_submodules("aiohttp")
+# 云语音经 httpx / websockets 调用；certifi 的 CA 包需随独立运行时分发。
+hiddenimports += ["certifi"]
 # langchain-openai / tiktoken 动态插件（tiktoken_ext.openai_public）
 hiddenimports += collect_submodules("tiktoken_ext")
 # langgraph（M1-S4，ADR-0008 D7）：checkpointer 后端按字符串参数动态导入，

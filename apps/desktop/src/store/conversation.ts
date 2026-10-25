@@ -254,6 +254,7 @@ export const useConversation = create<ConversationState>()((set, get) => ({
       case EVENT_TYPES.RunStarted:
         set({
           activeRunId: data.runId as string,
+          lastFinishReason: null,
           notice: null,
           toolCalls: [], // 新回合清空上一回合的 chip（M1-S4）
           pendingConfirm: null,
@@ -271,8 +272,8 @@ export const useConversation = create<ConversationState>()((set, get) => ({
           lastFinishReason: (data.reason as string) ?? null,
           toolCalls: finalizeToolCalls(s.toolCalls),
           pendingConfirm: null, // 回合终止（如 cancel）→ 确认框必须消失
-          // 注意：pendingCues 不清——句对齐节拍在 run.finished 后仍随 TTS 播放；
-          // 「迟到」判定在到达时做（CharacterCue 分支），不在终态时做
+          // 正常完成后仍随音频／文字推进；取消时不保留待消费节拍。
+          pendingCues: data.reason === "complete" ? s.pendingCues : [],
         }));
         break;
 
@@ -287,6 +288,7 @@ export const useConversation = create<ConversationState>()((set, get) => ({
           pendingConfirm: null,
           toolCalls: finalizeToolCalls(s.toolCalls),
           pendingCues: [], // 回合异常终止 → 未消费节拍作废
+          lastFinishReason: "error",
         }));
         break;
       }

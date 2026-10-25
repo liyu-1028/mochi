@@ -9,6 +9,8 @@ export class TtsPlayer {
   private ctx: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
   private source: AudioBufferSourceNode | null = null;
+  /** stop／新播放使尚在解码的旧请求失效。 */
+  private request = 0;
   private samples: Float32Array<ArrayBuffer> | null = null;
   /** 自然播完回调（stop() 主动停不触发）。 */
   onEnded: (() => void) | null = null;
@@ -33,10 +35,12 @@ export class TtsPlayer {
    * volume 为本地增益（ADR-0007 修订：云引擎不支持音量参数，前移播放器）。 */
   async play(blob: Blob, volume = 1): Promise<boolean> {
     this.stop();
+    const request = this.request;
     const ctx = this.ensureCtx();
     if (!ctx) return false;
     try {
       const buffer = await ctx.decodeAudioData(await blob.arrayBuffer());
+      if (request !== this.request || ctx.state !== "running") return false;
       const source = ctx.createBufferSource();
       source.buffer = buffer;
       const analyser = ctx.createAnalyser();
@@ -59,13 +63,16 @@ export class TtsPlayer {
       source.start();
       return true;
     } catch {
-      this.source = null;
-      this.analyser = null;
+      if (request === this.request) {
+        this.source = null;
+        this.analyser = null;
+      }
       return false;
     }
   }
 
   stop(): void {
+    this.request += 1;
     if (this.source) {
       this.source.onended = null;
       try {

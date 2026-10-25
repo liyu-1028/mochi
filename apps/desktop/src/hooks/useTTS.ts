@@ -1,10 +1,9 @@
 /**
  * useTTS —— 语音播放编排（M1-S2，功能清单 5.1）。
  *
- * 触发：conversation store lastTextEndAt（回合全文定型）→ 合成播放；
- * 停播：新回合 TextStart（isSpeaking 真）、run 非 complete 终态（cancel/
- * interrupt/error）、静音/关闭翻转（voiceEvents）、新播放取代旧播放。
- * 引擎失败/204 → 静默回纯文本，永不阻塞对话（5.1 红线）。
+ * 文字流开始时选择展示时间轴，全文定型后尝试语音；无语音或准备过慢时，
+ * 节拍随可见文字推进。取消／切换使声音、排队节拍与异步结果一起失效。
+ * 静音只停止声音并切回文字展示，不取消回答本身的表演。
  */
 import { useEffect } from "react";
 import { create } from "zustand";
@@ -12,8 +11,16 @@ import { configApi } from "../api/configClient";
 import { ttsApi } from "../api/ttsClient";
 import { sanitizeSpeechText } from "../cue/speechText";
 import { ttsPlayer } from "../character/ttsPlayer";
-import { useConversation } from "../store/conversation";
+import { useConversation, type ConversationState } from "../store/conversation";
 import { voiceEvents } from "../store/voiceEvents";
+
+export interface ReplyPlayback {
+  messageId: string;
+  runId: string | null;
+  mode: "waiting" | "text" | "audio";
+  text: string;
+  complete: boolean;
+}
 
 interface TTSState {
   playing: boolean;
@@ -22,6 +29,9 @@ interface TTSState {
   speechText: string;
   speechStartedAt: number;
   speechDurationMs: number | null;
+  /** 回复展示独立于声音；epoch 在取消／切换时使旧节拍与异步结果失效。 */
+  reply: ReplyPlayback | null;
+  replyEpoch: number;
 }
 
 const TTS_INITIAL = {
@@ -30,6 +40,8 @@ const TTS_INITIAL = {
   speechText: "",
   speechStartedAt: 0,
   speechDurationMs: null,
+  reply: null,
+  replyEpoch: 0,
 };
 
 /** CharacterStage 据此把播报期角色态视为 talking（服务端 text.end 后即 idle）。 */
@@ -40,88 +52,219 @@ let session = 0;
 
 ttsPlayer.onEnded = () => useTTSState.setState({ playing: false, engine: null });
 
-export function stopSpeaking(): void {
+function stopAudio(): void {
   session += 1;
   ttsPlayer.stop();
   useTTSState.setState({ playing: false, engine: null });
 }
+
+export function stopSpeaking(): void {
+  stopAudio();
+  useTTSState.setState((s) => ({ reply: null, replyEpoch: s.replyEpoch + 1 }));
+}
+
+type SpeechOutcome = "played" | "unavailable" | "cancelled";
 /** 合成并播报全文；设置面板试听按钮共用。失败一律静默降级。
  *  M-F：播报前净化文本——剥离全角舞台指示（（眨眨眼）等保留气泡展示、
  *  不进语音）+ markdown 格式符号（**加粗**不再被读成「星号星号」）。 */
 export async function speakText(
   rawText: string,
   overrides: { voiceId?: string; rate?: number } = {},
-): Promise<void> {
+  signal?: AbortSignal,
+): Promise<SpeechOutcome> {
   const text = sanitizeSpeechText(rawText);
-  if (!text.trim()) return;
-  const token = ++session;
-  ttsPlayer.stop();
-  useTTSState.setState({ playing: false, engine: null });
-
-  const voice = await configApi.getVoice().catch(() => null);
-  if (!voice || !voice.ttsEnabled || voice.muted || token !== session) return;
-
-  const result = await ttsApi.stream(text, overrides).catch(() => null);
-  if (!result || token !== session) return;
-  if (!result.audio) return; // 204：静音/纯文本降级 → 不出声、不报错
-
-  // 播报上下文（M-C）：先记开始时刻与文本；真实时长由 onStarted（解码后）补——
-  // 它在 play() 内部先于返回值触发，故用局部变量中转
-  const startedAt = Date.now();
-  let durationMs: number | null = null;
-  ttsPlayer.onStarted = (d) => {
-    durationMs = d;
+  if (!text.trim()) return "unavailable";
+  if (signal?.aborted) return "cancelled";
+  stopAudio();
+  const token = session;
+  const cancelled = () => token !== session || signal?.aborted;
+  const abort = () => {
+    if (token === session) stopAudio();
   };
-  const started = await ttsPlayer.play(result.audio, voice.volume);
-  if (!started || token !== session) {
-    if (token === session) stopSpeaking();
-    return;
+  signal?.addEventListener("abort", abort, { once: true });
+  try {
+    const voice = await configApi.getVoice().catch(() => null);
+    if (cancelled()) return "cancelled";
+    if (!voice || !voice.ttsEnabled || voice.muted || !voice.connectionId) return "unavailable";
+
+    const result = await ttsApi.stream(text, overrides, signal).catch(() => null);
+    if (cancelled()) return "cancelled";
+    if (!result?.audio) return "unavailable";
+
+    let startedAt = Date.now();
+    let durationMs: number | null = null;
+    ttsPlayer.onStarted = (d) => {
+      startedAt = Date.now();
+      durationMs = d;
+    };
+    const started = await ttsPlayer.play(result.audio, voice.volume);
+    if (cancelled()) return "cancelled";
+    if (!started) return "unavailable";
+    useTTSState.setState({
+      playing: true,
+      engine: result.engine,
+      speechText: text,
+      speechStartedAt: startedAt,
+      speechDurationMs: durationMs,
+    });
+    return "played";
+  } finally {
+    signal?.removeEventListener("abort", abort);
   }
-  useTTSState.setState({
-    playing: true,
-    engine: result.engine,
-    speechText: text,
-    speechStartedAt: startedAt,
-    speechDurationMs: durationMs,
+}
+
+/** 语音准备的表演等待上限；不延长 cue TTL，也不截断仍在合成的有效音频。 */
+export const SPEECH_PREPARE_TIMEOUT_MS = 4000;
+
+/** 同步订阅事件归约，避免 React 批处理漏掉快速回合的开始／终态。 */
+export function connectReplyPlayback(): () => void {
+  let messageId: string | null = null;
+  let preparing = false;
+  let voiceExpected = true;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let controller: AbortController | null = null;
+
+  const clearPreparation = () => {
+    if (timer !== null) clearTimeout(timer);
+    timer = null;
+    controller?.abort();
+    controller = null;
+    preparing = false;
+  };
+  const currentReply = (epoch: number) => {
+    const s = useTTSState.getState();
+    return s.replyEpoch === epoch ? s.reply : null;
+  };
+  const showText = (epoch: number) => {
+    const reply = currentReply(epoch);
+    if (reply) useTTSState.setState({ reply: { ...reply, mode: "text" } });
+  };
+  const fallbackToText = (epoch: number) => {
+    const reply = currentReply(epoch);
+    if (!reply) return;
+    voiceExpected = false;
+    clearPreparation();
+    stopAudio();
+    showText(epoch);
+  };
+
+  const startReply = (id: string) => {
+    if (useTTSState.getState().reply) stopSpeaking();
+    messageId = id;
+    voiceExpected = true;
+    const epoch = useTTSState.getState().replyEpoch;
+    useTTSState.setState({
+      reply: {
+        messageId: id,
+        runId: useConversation.getState().activeRunId,
+        mode: "waiting",
+        text: "",
+        complete: false,
+      },
+    });
+    timer = setTimeout(() => showText(epoch), SPEECH_PREPARE_TIMEOUT_MS);
+    // 尽早判断无语音路径，让长回答中的节拍随文字流执行，而非等全文生成。
+    void configApi
+      .getVoice()
+      .then((voice) => {
+        if (currentReply(epoch)?.mode !== "waiting" || preparing) return;
+        if (!voice.ttsEnabled || voice.muted || !voice.connectionId) fallbackToText(epoch);
+      })
+      .catch(() => {
+        if (currentReply(epoch)?.mode === "waiting" && !preparing) fallbackToText(epoch);
+      });
+  };
+
+  const prepareSpeech = (epoch: number) => {
+    const reply = currentReply(epoch);
+    if (!reply || !voiceExpected) return;
+    clearPreparation();
+    preparing = true;
+    controller = new AbortController();
+    // 软超时只释放动作：慢合成随后仍可播放，但不重建已推进的文字时间轴。
+    timer = setTimeout(() => showText(epoch), SPEECH_PREPARE_TIMEOUT_MS);
+    void speakText(reply.text, {}, controller.signal).then((outcome) => {
+      const current = currentReply(epoch);
+      if (!current) return;
+      clearPreparation();
+      if (outcome === "played" && current.mode === "waiting") {
+        useTTSState.setState({ reply: { ...current, mode: "audio" } });
+      } else if (outcome !== "played") {
+        fallbackToText(epoch);
+      }
+    });
+  };
+
+  const sync = (state: ConversationState, previous: ConversationState) => {
+    if (
+      state.activeSessionId !== previous.activeSessionId ||
+      (state.activeRunId !== null && state.activeRunId !== previous.activeRunId)
+    ) {
+      messageId = null;
+      stopSpeaking();
+    }
+    if (
+      state.lastFinishReason !== previous.lastFinishReason &&
+      state.lastFinishReason !== null &&
+      state.lastFinishReason !== "complete"
+    ) {
+      stopSpeaking();
+      return;
+    }
+    const message = [...state.messages]
+      .reverse()
+      .find((m) => m.role === "assistant" && !m.fromHistory);
+    if (!message) {
+      if (messageId !== null) stopSpeaking();
+      messageId = null;
+      return;
+    }
+    if (message.id !== messageId) {
+      if (!message.streaming && state.lastTextEndAt === previous.lastTextEndAt) return;
+      startReply(message.id);
+    }
+    const { reply, replyEpoch } = useTTSState.getState();
+    if (!reply) return; // 用户主动停止后，同一条消息的后续增量不能复活表演。
+    const text = sanitizeSpeechText(message.text);
+    const complete = !message.streaming;
+    if (reply.text !== text || reply.complete !== complete) {
+      useTTSState.setState({ reply: { ...reply, text, complete } });
+    }
+    if (complete && !reply.complete) prepareSpeech(replyEpoch);
+  };
+
+  const unsubscribePlayback = useTTSState.subscribe((state, previous) => {
+    if (state.replyEpoch !== previous.replyEpoch) clearPreparation();
   });
+  const unsubscribeConversation = useConversation.subscribe(sync);
+  const initial = useConversation.getState();
+  sync(initial, initial);
+
+  let refresh = 0;
+  const voiceChanged = () => {
+    const request = ++refresh;
+    const epoch = useTTSState.getState().replyEpoch;
+    void configApi
+      .getVoice()
+      .then((voice) => {
+        if (request === refresh && (!voice.ttsEnabled || voice.muted || !voice.connectionId))
+          fallbackToText(epoch);
+      })
+      .catch(() => {
+        if (request === refresh) fallbackToText(epoch);
+      });
+  };
+  voiceEvents.addEventListener("voice-changed", voiceChanged);
+  return () => {
+    refresh += 1;
+    unsubscribeConversation();
+    unsubscribePlayback();
+    voiceEvents.removeEventListener("voice-changed", voiceChanged);
+    clearPreparation();
+    stopSpeaking();
+  };
 }
 
 export function useTTS(): void {
-  const activeSessionId = useConversation((s) => s.activeSessionId);
-  const lastTextEndAt = useConversation((s) => s.lastTextEndAt);
-  const lastSpokenText = useConversation((s) => s.lastSpokenText);
-  const isSpeaking = useConversation((s) => s.isSpeaking);
-  const lastFinishReason = useConversation((s) => s.lastFinishReason);
-
-  // 切换会话使在途合成失效，旧对话的语音和表演不进入新会话。
-  useEffect(() => stopSpeaking(), [activeSessionId]);
-
-  // 回合全文定型 → 播报
-  useEffect(() => {
-    if (lastTextEndAt > 0 && lastSpokenText) void speakText(lastSpokenText);
-  }, [lastTextEndAt, lastSpokenText]);
-
-  // 新回合开始（TextStart）→ 停旧播报
-  useEffect(() => {
-    if (isSpeaking) stopSpeaking();
-  }, [isSpeaking]);
-
-  // cancel/interrupt/error 终态 → 停播（complete 不停，刚起的播报要继续）
-  useEffect(() => {
-    if (lastFinishReason && lastFinishReason !== "complete") stopSpeaking();
-  }, [lastFinishReason]);
-
-  // 静音/关闭翻转 → 立即停播
-  useEffect(() => {
-    const refresh = () => {
-      configApi
-        .getVoice()
-        .then((v) => {
-          if (v.muted || !v.ttsEnabled) stopSpeaking();
-        })
-        .catch(() => {});
-    };
-    voiceEvents.addEventListener("voice-changed", refresh);
-    return () => voiceEvents.removeEventListener("voice-changed", refresh);
-  }, []);
+  useEffect(connectReplyPlayback, []);
 }

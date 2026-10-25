@@ -1,7 +1,7 @@
 /**
  * cueScheduler —— character.cue 节拍调度（M-C C3，纯逻辑）。
  *
- * 服务端发来的 reply cue 按 `sync` 与 TTS 播报对齐：
+ * 服务端发来的 reply cue 按 `sync` 与 TTS 播报或可见文字流对齐：
  * - immediate：立即到期；
  * - speech_start：播报开始（beginSpeech）时到期；
  * - sentence_boundary：第 sentenceIndex 句开始播报时到期（句起点按字符占比
@@ -19,7 +19,7 @@
 
 import type { CharacterCueData } from "@mochi/protocol";
 import type { DirectorCue } from "../character/actionDirector";
-import { sentenceStartTimes } from "./sentences";
+import { sentenceStartTimes, splitSentences } from "./sentences";
 
 export type SubmitVerdict = "accepted" | "expired";
 
@@ -33,6 +33,8 @@ interface PendingCue {
 
 export interface CueSchedulerState {
   pending: PendingCue[];
+  /** 无音频时按已展示的文字推进；不为已可见的句子额外等待估算朗读时间。 */
+  text: { content: string; complete: boolean; updatedAt: number } | null;
   /** 播报上下文；null = 未在播报 */
   speech: {
     text: string;
@@ -47,7 +49,18 @@ export interface CueSchedulerState {
 }
 
 export function createCueScheduler(): CueSchedulerState {
-  return { pending: [], speech: null, fired: new Set() };
+  return { pending: [], text: null, speech: null, fired: new Set() };
+}
+
+/** 更新文字进度；切换时间轴保留 fired，避免静音或迟到音频使同一节拍重演。 */
+export function updateTextProgress(
+  state: CueSchedulerState,
+  content: string,
+  complete: boolean,
+  now: number,
+): void {
+  state.text = { content, complete, updatedAt: now };
+  state.speech = null;
 }
 
 /** 提交一条 cue：过期即丢；其余按 sync 排队等 dueCues 到期。 */
@@ -69,6 +82,7 @@ export function beginSpeech(
   durationMs: number | null,
   startedAt: number,
 ): void {
+  state.text = null;
   state.speech = {
     text: fullText,
     startedAt,
@@ -85,6 +99,7 @@ export function endSpeech(state: CueSchedulerState, now: number): void {
 /** 新回合：清空排队、播报上下文与已发记录（旧回合节拍全部作废）。 */
 export function resetCues(state: CueSchedulerState): void {
   state.pending = [];
+  state.text = null;
   state.speech = null;
   state.fired.clear();
 }
@@ -99,6 +114,14 @@ export type CueConverter = (
 function cueDueAt(state: CueSchedulerState, p: PendingCue): number | null {
   const cue = p.cue;
   if (cue.sync === "immediate") return p.receivedAt;
+  if (state.text) {
+    const { content, complete, updatedAt } = state.text;
+    if (cue.sync === "speech_end") return complete ? updatedAt : null;
+    if (!content.trim() && !complete) return null;
+    if (cue.sync === "speech_start") return updatedAt;
+    const sentences = splitSentences(content).length;
+    return complete || sentences >= (cue.sentenceIndex ?? 1) ? updatedAt : null;
+  }
   if (!state.speech) return null; // speech_start/sentence/speech_end 都依赖播报上下文
   if (cue.sync === "speech_start") return state.speech.startedAt;
   if (cue.sync === "sentence_boundary") {

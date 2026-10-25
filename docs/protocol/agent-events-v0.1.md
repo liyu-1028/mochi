@@ -181,7 +181,7 @@ state   ∈ idle | talking | thinking | working | error | sleeping
 
 #### character.cue 负载（M-C）
 
-一次回答中的单个表演节拍；与 `text.*` 同一 run 内关联，与 TTS 分句对齐。
+一次回答中的单个表演节拍；与 `text.*` 同一 run 内关联，语音可用时与 TTS 分句对齐。
 控制信息不进气泡、不进 TTS；模型只能选择 agentSelectable 动作 id，
 服务端白名单强校验（越权/未知 id 丢弃并计数，§11 铁律）。
 
@@ -206,6 +206,10 @@ state   ∈ idle | talking | thinking | working | error | sleeping
 
 约束：
 
+- **文字时序**：关闭、静音、未配置语音或语音失败时，`speech_start` 随正文出现，
+  `sentence_boundary` 随对应句子可见，`speech_end` 随文字生成完成；末尾／纯动作节拍在
+  文字完成时收口。语音准备超过 4 秒可先使用文字时序，同回合迟到音频不重复已演节拍。
+  正常 `run.finished` 不取消已接收节拍；取消、错误、新回合和会话切换会清理旧表演。
 - **不补演**：客户端在 `run.finished` 后到达、或信封 `ts + ttlMs` 已过的 cue 直接丢弃；
 - **互斥**：同一 run 内 `source: "reply"` 的 cue 与 `emotion` 事件互斥——
   收到过 reply cue 的 run，迟到 emotion 分类不覆盖（§5.6 emotion 降级为兑底）；

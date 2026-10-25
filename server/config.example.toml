@@ -2,7 +2,7 @@
 # 实际文件位于用户数据目录：<userData>/config.toml
 # 注意：API Key 等敏感信息【永不】写入本文件，仅存 key_ref 指向系统钥匙串。
 
-config_version = 2
+config_version = 3
 
 [general]
 language = "zh-CN"           # zh-CN | en
@@ -11,7 +11,7 @@ telemetry = false            # 遥测默认关闭（功能清单 7.7）
 power_save = false           # 省电模式（2.6）：角色钉 15fps + 暂停漂浮动画
 
 [character]
-active_skin = "default"      # 当前皮肤包 id
+active_skin = "mochi-vrm"    # 当前角色 id
 
 [model]
 default_profile = "ollama-qwen"  # 必须是 [model.profiles.*] 中已定义的 id，或 trial

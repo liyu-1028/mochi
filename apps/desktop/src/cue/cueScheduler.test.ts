@@ -11,6 +11,7 @@ import {
   endSpeech,
   resetCues,
   submitCue,
+  updateTextProgress,
 } from "./cueScheduler";
 
 function cue(overrides: Partial<CharacterCueData> = {}): CharacterCueData {
@@ -142,5 +143,66 @@ describe("回合切换", () => {
     resetCues(s);
     expect(s.pending).toHaveLength(0);
     expect(s.speech).toBeNull();
+  });
+});
+
+describe("无语音的文字流对齐", () => {
+  it("句首与双通道表情／动作在正文可见时执行，不等待 text.end", () => {
+    const s = createCueScheduler();
+    submitCue(
+      s,
+      cue({
+        sync: "speech_start",
+        channels: { face: { emotion: "happy", intensity: 1 }, body: { actionId: "wave" } },
+      }),
+      0,
+      100,
+    );
+    updateTextProgress(s, "", false, 100);
+    expect(dueCues(s, 100, convert)).toEqual([]);
+    updateTextProgress(s, "你好", false, 200);
+    expect(dueCues(s, 200, convert).map((c) => c.channel)).toEqual(["face", "body"]);
+    updateTextProgress(s, "你好呀。", true, 300);
+    expect(dueCues(s, 300, convert)).toEqual([]);
+  });
+
+  it("后句节拍等待对应文字出现，speech_end 等待生成完成", () => {
+    const s = createCueScheduler();
+    submitCue(s, cue({ cueId: "second", sentenceIndex: 2 }), 0, 100);
+    submitCue(s, cue({ cueId: "end", sync: "speech_end" }), 0, 100);
+    updateTextProgress(s, "第一句。", false, 200);
+    expect(dueCues(s, 200, convert)).toEqual([]);
+    updateTextProgress(s, "第一句。第二句", false, 300);
+    expect(dueCues(s, 300, convert).map((c) => c.cueId)).toEqual(["second:body"]);
+    updateTextProgress(s, "第一句。第二句", true, 400);
+    expect(dueCues(s, 400, convert).map((c) => c.cueId)).toEqual(["end:body"]);
+  });
+
+  it("纯舞台指示与句号后末尾节拍在文本完成时收口", () => {
+    const s = createCueScheduler();
+    submitCue(s, cue({ sentenceIndex: 3 }), 0, 100);
+    updateTextProgress(s, "", true, 200);
+    expect(dueCues(s, 200, convert)).toHaveLength(1);
+  });
+
+  it("文字与音频时间轴切换保留去重记录", () => {
+    const s = createCueScheduler();
+    submitCue(s, cue({ sync: "speech_start" }), 0, 100);
+    updateTextProgress(s, "你好。", true, 200);
+    expect(dueCues(s, 200, convert)).toHaveLength(1);
+    beginSpeech(s, "你好。", 1000, 300);
+    submitCue(s, cue({ sync: "speech_start" }), 0, 300);
+    expect(dueCues(s, 300, convert)).toEqual([]);
+  });
+
+  it("文字回退仍然丢弃已过期节拍，reset 清理全部时间轴", () => {
+    const s = createCueScheduler();
+    submitCue(s, cue(), 0, 100);
+    updateTextProgress(s, "太迟的回复", true, 16_000);
+    expect(dueCues(s, 16_000, convert)).toEqual([]);
+    resetCues(s);
+    expect(s.text).toBeNull();
+    expect(s.speech).toBeNull();
+    expect(s.fired.size).toBe(0);
   });
 });

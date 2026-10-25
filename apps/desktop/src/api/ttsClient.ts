@@ -28,11 +28,13 @@ export const ttsApi = {
   async stream(
     text: string,
     overrides: { voiceId?: string; rate?: number } = {},
+    signal?: AbortSignal,
   ): Promise<TtsSynthesisResult> {
     const resp = await fetch(`${resolveHttpBaseUrl()}/tts/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text, ...overrides }),
+      signal,
     });
     const engine = resp.headers.get("X-TTS-Engine") ?? "text-fallback";
     if (resp.status === 204) return { audio: null, engine, mediaType: null };
@@ -51,12 +53,13 @@ export const ttsApi = {
   },
 
   /** ASR 转写：恒传 audio/wav（16kHz mono PCM16，见 audio/wav.ts）。 */
-  async asrTranscribe(blob: Blob): Promise<{ text: string }> {
+  async asrTranscribe(blob: Blob, signal?: AbortSignal): Promise<{ text: string }> {
     const form = new FormData();
     form.append("file", blob, "speech.wav");
     const resp = await fetch(`${resolveHttpBaseUrl()}/asr/transcribe`, {
       method: "POST",
       body: form,
+      signal,
     });
     if (!resp.ok) {
       const detail = await resp.json().catch(() => null);

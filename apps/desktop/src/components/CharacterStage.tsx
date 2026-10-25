@@ -99,15 +99,7 @@ import {
   TAP_WINDOW_MS,
   HOLD_THRESHOLD_MS,
 } from "../character/reflexRules";
-import {
-  beginSpeech,
-  createCueScheduler,
-  dueCues as dueReplyCues,
-  endSpeech,
-  resetCues as resetReplyCues,
-  submitCue as scheduleReplyCue,
-  type CueConverter,
-} from "../cue/cueScheduler";
+import { dueCues as dueReplyCues, type CueConverter } from "../cue/cueScheduler";
 import { resolveAction } from "../character/live2d/actionRegistry";
 import {
   createSampleWindow,
@@ -117,6 +109,7 @@ import {
   type FpsLevel,
 } from "../character/powerGuard";
 import { useSettings } from "../store/settings";
+import { scheduleReplyCue, useReplyCueScheduler } from "../hooks/useReplyCueScheduler";
 
 /** §8 基线测量钩子：每秒刷新（fps 由窗口均帧耗推得 + 实测帧计数）。 */
 function publishStats(avgFrameMs: number | null, framesLastSecond: number, level: FpsLevel) {
@@ -224,9 +217,6 @@ export function CharacterStage({
   const lastTextDelta = useConversation((s) => s.lastTextDelta);
   // 表演节拍（M-C）：服务端 character.cue 队列 + 播报上下文（句对齐基准）
   const pendingCues = useConversation((s) => s.pendingCues);
-  const speechText = useTTSState((s) => s.speechText);
-  const speechStartedAt = useTTSState((s) => s.speechStartedAt);
-  const speechDurationMs = useTTSState((s) => s.speechDurationMs);
   // 省电模式（2.6）：钉最低档 + 暂停装饰动画；事实源 sidecar，跨窗口同步
   const powerSave = useSettings((s) => s.powerSave);
 
@@ -282,24 +272,9 @@ export function CharacterStage({
   };
 
   // ---------------------------------------------------------------------------
-  // 表演节拍调度（M-C C3）：character.cue → 按 sync 与 TTS 对齐 → director
+  // 表演节拍调度：生命周期与音频／文字时间轴由共享 hook 同步维护。
   // ---------------------------------------------------------------------------
-  const cueSchedulerRef = useRef(createCueScheduler());
-
-  // 新回合开始 → 作废上一回合未到期的节拍（旧 TTS 已被 stopSpeaking 停止）。
-  // 注意：run 结束（activeRunId→null）时【不】作废——句对齐节拍要随 TTS 续播；
-  // 「迟到不补演」在到达时判定（store），已入调度器的随新回合 reset。
-  // 【声明顺序约束】本 effect 必须先于下方 drain effect：run.started 与
-  // character.cue 同批到达时，effects 按声明序执行——先 reset 旧回合，
-  // 再排水新 cue，否则刚入队的 cue 会被误清（实测 2026-09-28）
-  const activeRunId = useConversation((s) => s.activeRunId);
-  const prevRunIdRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (activeRunId !== null && activeRunId !== prevRunIdRef.current) {
-      resetReplyCues(cueSchedulerRef.current);
-    }
-    prevRunIdRef.current = activeRunId;
-  }, [activeRunId]);
+  const cueSchedulerRef = useReplyCueScheduler(directorRef);
 
   // 队列排水：新到达的 cue 提交调度器（ttl 到达即校验，过期丢弃）；
   // 已入调度器的从 store 移除（保持「待消费队列」语义干净）
@@ -341,18 +316,6 @@ export function CharacterStage({
     }, 1000);
     return () => window.clearInterval(timer);
   }, [locomotion, effectiveState]);
-
-  // 播报上下文：开始（含真实/估算时长）→ beginSpeech；结束 → speech_end 提前到期
-  const speechKeyRef = useRef(0);
-  useEffect(() => {
-    if (ttsPlaying && speechStartedAt > 0 && speechStartedAt !== speechKeyRef.current) {
-      speechKeyRef.current = speechStartedAt;
-      beginSpeech(cueSchedulerRef.current, speechText, speechDurationMs, Date.now());
-    } else if (!ttsPlaying && speechKeyRef.current !== 0) {
-      endSpeech(cueSchedulerRef.current, Date.now());
-      speechKeyRef.current = 0;
-    }
-  }, [ttsPlaying, speechStartedAt, speechText, speechDurationMs]);
 
   /** 协议 cue → DirectorCue：经 buildCue 解析皮肤声明（冷却/时长），
    *  覆盖协议定值（cueId/priority/interruptPolicy/ttl）。帧闭包经 ref 读取。 */

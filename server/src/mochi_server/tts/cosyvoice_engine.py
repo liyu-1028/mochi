@@ -71,6 +71,8 @@ def _raise_dashscope_error(resp: httpx.Response) -> None:
     """DashScope 错误体 {"code","message"} → TTSEngineError。"""
     try:
         payload = resp.json()
+        if not isinstance(payload, dict):
+            payload = {}
         code = payload.get("code") or f"HTTP {resp.status_code}"
         message = payload.get("message", "")
     except ValueError:
@@ -90,24 +92,37 @@ async def synthesize(text: str, *, voice_id: str, rate: float, conn: SpeechConne
         "input": {"text": text, "voice": voice_id, "format": "mp3", "rate": rate},
     }
     headers = {"Authorization": f"Bearer {conn.api_key}"}
-    async with _build_http_client() as client:
-        resp = await client.post(TTS_URL, headers=headers, json=payload)
-        if resp.status_code != 200:
-            _raise_dashscope_error(resp)
-        audio = (resp.json().get("output") or {}).get("audio") or {}
-        if not isinstance(audio, dict):
-            audio = {}
-        if audio.get("data"):  # 兼容流式风格的内联 base64 返回
-            return base64.b64decode(audio["data"])
-        url = audio.get("url")
-        if not url:
-            raise TTSEngineError("CosyVoice 合成失败：云端未返回音频")
-        download = await client.get(url)
-        if download.status_code != 200:
-            raise TTSEngineError(f"CosyVoice 音频下载失败（HTTP {download.status_code}）")
-        if not download.content:
-            raise TTSEngineError("CosyVoice 合成失败：音频为空")
-        return download.content
+    try:
+        async with _build_http_client() as client:
+            resp = await client.post(TTS_URL, headers=headers, json=payload)
+            if resp.status_code != 200:
+                _raise_dashscope_error(resp)
+            body = resp.json()
+            if not isinstance(body, dict) or not isinstance(body.get("output"), dict):
+                raise TTSEngineError("CosyVoice 合成失败：云端响应格式错误")
+            audio = body["output"].get("audio") or {}
+            if not isinstance(audio, dict):
+                audio = {}
+            if audio.get("data"):
+                decoded = base64.b64decode(audio["data"], validate=True)
+                if not decoded:
+                    raise TTSEngineError("CosyVoice 合成失败：音频为空")
+                return decoded
+            url = audio.get("url")
+            if not isinstance(url, str) or not url:
+                raise TTSEngineError("CosyVoice 合成失败：云端未返回音频")
+            download = await client.get(url)
+            if download.status_code != 200:
+                raise TTSEngineError(f"CosyVoice 音频下载失败（HTTP {download.status_code}）")
+            if not download.content:
+                raise TTSEngineError("CosyVoice 合成失败：音频为空")
+            return download.content
+    except httpx.TimeoutException as exc:
+        raise TTSEngineError("CosyVoice 合成失败：云端连接超时，请稍后重试") from exc
+    except httpx.HTTPError as exc:
+        raise TTSEngineError("CosyVoice 合成失败：无法连接云端语音服务") from exc
+    except (ValueError, TypeError) as exc:
+        raise TTSEngineError("CosyVoice 合成失败：云端响应格式错误") from exc
 
 
 async def probe(conn: SpeechConnection) -> tuple[bool, str]:

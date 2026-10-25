@@ -12,6 +12,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import urllib.parse
+import urllib.request
 import uuid
 
 import websockets
@@ -29,7 +31,8 @@ router = APIRouter(prefix="/asr", tags=["asr"], dependencies=[Depends(localhost_
 MAX_ASR_FILE_BYTES = 20 * 1024 * 1024
 ASR_MODEL = "paraformer-realtime-v2"
 ASR_TIMEOUT_S = 60.0
-ASR_WS_URL = "wss://dashscope.aliyuncs.com/api/v1/services/audio/asr/recognition"
+# Paraformer 与其他实时语音模型共用 DashScope WebSocket 推理入口。
+ASR_WS_URL = "wss://dashscope.aliyuncs.com/api-ws/v1/inference"
 _CHUNK = 16 * 1024
 
 
@@ -47,11 +50,25 @@ def _event_error(msg: dict) -> str:
     return f"{code}：{header.get('error_message', '')}"
 
 
+def _connection_proxy() -> str | bool | None:
+    """保留绕过列表与显式 wss 代理，优先复用系统 HTTPS 代理。
+
+    websockets 自动选择会把系统 SOCKS 排在 HTTPS 前面；SOCKS 需要安装包
+    未包含的可选扩展。已有 HTTP CONNECT 代理可直接复用，无需额外依赖。
+    """
+    uri = urllib.parse.urlsplit(ASR_WS_URL)
+    port = uri.port or (443 if uri.scheme == "wss" else 80)
+    if urllib.request.proxy_bypass(f"{uri.hostname}:{port}"):
+        return None
+    proxies = urllib.request.getproxies()
+    return proxies.get("wss") or proxies.get("https") or True
+
+
 async def transcribe(audio: bytes, *, conn: SpeechConnection) -> str:
     """一段完整 WAV（前端恒 16kHz mono PCM16）→ 文本。"""
     task_id = uuid.uuid4().hex
     run_task = {
-        "header": {"action": "run-task", "task_id": task_id, "streaming": "out"},
+        "header": {"action": "run-task", "task_id": task_id, "streaming": "duplex"},
         "payload": {
             "model": ASR_MODEL,
             "task_group": "audio",
@@ -67,14 +84,16 @@ async def transcribe(audio: bytes, *, conn: SpeechConnection) -> str:
         },
     }
     finish_task = {
-        "header": {"action": "finish-task", "task_id": task_id, "streaming": "out"},
+        "header": {"action": "finish-task", "task_id": task_id, "streaming": "duplex"},
         "payload": {"input": {}},
     }
     parts: list[str] = []
     pending = ""  # 当前句最新中间结果（收尾时最后一句可能未定稿）
 
     async with websockets.connect(
-        ASR_WS_URL, additional_headers={"Authorization": f"Bearer {conn.api_key}"}
+        ASR_WS_URL,
+        additional_headers={"Authorization": f"Bearer {conn.api_key}"},
+        proxy=_connection_proxy(),
     ) as ws:
         await ws.send(json.dumps(run_task))
         started = json.loads(await asyncio.wait_for(ws.recv(), ASR_TIMEOUT_S))
@@ -126,6 +145,12 @@ async def transcribe_file(file: UploadFile, request: Request) -> AsrResult:
     except ASRError as exc:
         logger.warning("[asr] 识别失败：%s", exc)
         raise HTTPException(status_code=502, detail=f"语音识别失败：{exc}") from exc
+    except ImportError as exc:
+        logger.warning("[asr] 代理组件不可用：%s", exc)
+        raise HTTPException(
+            status_code=502,
+            detail="语音识别失败：当前代理不受支持，请启用 HTTP/HTTPS 代理后重试",
+        ) from exc
     except (websockets.WebSocketException, TimeoutError, OSError) as exc:
         logger.warning("[asr] 连接失败：%s", exc)
         raise HTTPException(status_code=502, detail="语音识别失败：无法连接百炼服务") from exc

@@ -9,7 +9,7 @@ import { configApi, type VoiceConnectionStatus, type VoiceSettings } from "../ap
 import { ttsApi, type TtsVoiceOption } from "../api/ttsClient";
 import { speakText } from "../hooks/useTTS";
 import { useI18n } from "../i18n";
-import { notifyVoiceChanged } from "../store/voiceEvents";
+import { notifyVoiceChanged, voiceEvents } from "../store/voiceEvents";
 
 /** setup 请求参数：复用连接优先，其次新 Key；两者皆空返回 null（按钮禁用兜底）。 */
 export function buildSetupInput(
@@ -71,7 +71,11 @@ export function SettingsVoiceSection() {
       .then(setStatus)
       .catch(() => {});
   };
-  useEffect(reload, []);
+  useEffect(() => {
+    reload();
+    voiceEvents.addEventListener("voice-changed", reload);
+    return () => voiceEvents.removeEventListener("voice-changed", reload);
+  }, []);
 
   async function update(patch: Partial<VoiceSettings>) {
     if (!voice) return;
@@ -100,6 +104,7 @@ export function SettingsVoiceSection() {
         setFeedback({ ok: true, text: t("voice.setupOk") });
         setApiKey("");
         reload();
+        notifyVoiceChanged();
       } else {
         setFeedback({ ok: false, text: t("voice.setupFail") });
       }
@@ -114,8 +119,11 @@ export function SettingsVoiceSection() {
     setBusy(true);
     setFeedback(null);
     try {
-      await speakText(t("voice.testText"));
-      setFeedback({ ok: true, text: t("voice.setupOk") });
+      const outcome = await speakText(t("voice.testText"));
+      setFeedback({
+        ok: outcome === "played",
+        text: t(outcome === "played" ? "voice.setupOk" : "voice.setupFail"),
+      });
     } catch {
       setFeedback({ ok: false, text: t("voice.setupFail") });
     } finally {

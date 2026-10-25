@@ -57,15 +57,7 @@ import {
   TAP_WINDOW_MS,
   HOLD_THRESHOLD_MS,
 } from "../character/reflexRules";
-import {
-  beginSpeech,
-  createCueScheduler,
-  dueCues as dueReplyCues,
-  endSpeech,
-  resetCues as resetReplyCues,
-  submitCue as scheduleReplyCue,
-  type CueConverter,
-} from "../cue/cueScheduler";
+import { dueCues as dueReplyCues, type CueConverter } from "../cue/cueScheduler";
 import {
   createSampleWindow,
   decorationsPaused,
@@ -76,6 +68,7 @@ import {
 import { useConversation } from "../store/conversation";
 import { devHook } from "./CharacterStage";
 import { useTTSState } from "../hooks/useTTS";
+import { scheduleReplyCue, useReplyCueScheduler } from "../hooks/useReplyCueScheduler";
 import { useSettings } from "../store/settings";
 import { CharacterBadge } from "./CharacterBadge";
 
@@ -130,9 +123,6 @@ export function VrmStage({
   const lastTextDeltaAt = useConversation((s) => s.lastTextDeltaAt);
   const lastTextDelta = useConversation((s) => s.lastTextDelta);
   const pendingCues = useConversation((s) => s.pendingCues);
-  const speechText = useTTSState((s) => s.speechText);
-  const speechStartedAt = useTTSState((s) => s.speechStartedAt);
-  const speechDurationMs = useTTSState((s) => s.speechDurationMs);
   const powerSave = useSettings((s) => s.powerSave);
 
   // ------------------------------------------------------------------
@@ -154,9 +144,7 @@ export function VrmStage({
   skinRef.current = skin;
   const bodyHandledRef = useRef<string | null>(null);
   const actionRequestRef = useRef(0);
-  const cueSchedulerRef = useRef(createCueScheduler());
-  const activeRunId = useConversation((s) => s.activeRunId);
-  const prevRunIdRef = useRef<string | null>(null);
+  const cueSchedulerRef = useReplyCueScheduler(directorRef);
   /** 用户动作库（面板增删改）：低频轮询刷新（30s；面板与主窗口是独立 webview） */
   const userMotionsRef = useRef<Map<string, MotionEntry>>(new Map());
   const idleRequestRef = useRef(0);
@@ -267,13 +255,6 @@ export function VrmStage({
     }
   }, []);
 
-  useEffect(() => {
-    if (activeRunId !== null && activeRunId !== prevRunIdRef.current) {
-      resetReplyCues(cueSchedulerRef.current);
-    }
-    prevRunIdRef.current = activeRunId;
-  }, [activeRunId]);
-
   const consumePendingCues = useConversation((s) => s.consumePendingCues);
   useEffect(() => {
     if (pendingCues.length === 0) return;
@@ -310,17 +291,6 @@ export function VrmStage({
     }, 1000);
     return () => window.clearInterval(timer);
   }, [locomotion, effectiveState]);
-
-  const speechKeyRef = useRef(0);
-  useEffect(() => {
-    if (ttsPlaying && speechStartedAt > 0 && speechStartedAt !== speechKeyRef.current) {
-      speechKeyRef.current = speechStartedAt;
-      beginSpeech(cueSchedulerRef.current, speechText, speechDurationMs, Date.now());
-    } else if (!ttsPlaying && speechKeyRef.current !== 0) {
-      endSpeech(cueSchedulerRef.current, Date.now());
-      speechKeyRef.current = 0;
-    }
-  }, [ttsPlaying, speechStartedAt, speechText, speechDurationMs]);
 
   const cueConvertRef = useRef<CueConverter>(() => null);
   cueConvertRef.current = (proto, channel, now) => {

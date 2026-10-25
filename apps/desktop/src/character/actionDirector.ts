@@ -211,3 +211,13 @@ export function tickDirector(state: DirectorState, _ctx: DirectorContext, now: n
 export function activeOn(state: DirectorState, channel: DirectorChannel): ActiveAction | null {
   return state.channels[channel].active;
 }
+
+/** 回合取消／切换时移除回复表演，保留鼠标反射与系统动作。 */
+export function cancelReplyActions(state: DirectorState): void {
+  const isReply = (cue: DirectorCue) => cue.source === "reply" || cue.source === "proactive";
+  for (const channel of DIRECTOR_CHANNELS) {
+    const runtime = state.channels[channel];
+    if (runtime.active && isReply(runtime.active.cue)) runtime.active = null;
+    if (runtime.queued && isReply(runtime.queued)) runtime.queued = null;
+  }
+}

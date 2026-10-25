@@ -158,7 +158,12 @@ fn locate_release_binary<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
     } else {
         "mochi-server"
     };
-    let candidate = app.path().resource_dir().ok()?.join("sidecar").join(exe_name);
+    let candidate = app
+        .path()
+        .resource_dir()
+        .ok()?
+        .join("sidecar")
+        .join(exe_name);
     candidate.exists().then_some(candidate)
 }
 

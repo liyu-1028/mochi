@@ -31,6 +31,7 @@ const zhCN: StringTable = {
   // 输入条
   "chat.micTitle": "按住说话",
   "chat.recordingHint": "松开结束 · Esc 取消",
+  "chat.micStarting": "正在准备麦克风… · 松开或 Esc 取消",
   "chat.transcribingHint": "正在转写…",
   "chat.asrEmpty": "没听清，请再试一次",
   "chat.asrFailed": "语音识别失败",
@@ -325,6 +326,7 @@ const en: StringTable = {
   // Chat input bar
   "chat.micTitle": "Hold to talk",
   "chat.recordingHint": "Release to finish · Esc to cancel",
+  "chat.micStarting": "Preparing microphone… · Release or Esc to cancel",
   "chat.transcribingHint": "Transcribing…",
   "chat.asrEmpty": "Didn't catch that, please try again",
   "chat.asrFailed": "Speech recognition failed",

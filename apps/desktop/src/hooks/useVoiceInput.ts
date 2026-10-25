@@ -3,12 +3,12 @@
  * 定转 WAV → 服务端转写 → 文字回填。60s 上限自动停；cancel() 丢弃。
  */
 
-import { useCallback, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { blobToWav } from "../audio/wav";
 import { ttsApi } from "../api/ttsClient";
 import { stopSpeaking } from "./useTTS";
 
-export type VoiceInputState = "idle" | "recording" | "transcribing" | "error";
+export type VoiceInputState = "idle" | "starting" | "recording" | "transcribing";
 
 /** 录音自动停上限（paraformer 输入足够，16kHz mono PCM16 ≈ 1.9MB）。 */
 export const MAX_RECORD_MS = 60_000;
@@ -22,99 +22,171 @@ export function micErrorKey(err: unknown): string {
     : "chat.asrFailed";
 }
 
-export function useVoiceInput(onErrorKey: (key: string) => void) {
-  const [state, setState] = useState<VoiceInputState>("idle");
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const timerRef = useRef<number | null>(null);
+interface VoiceInputCallbacks {
+  onStateChange: (state: VoiceInputState) => void;
+  onErrorKey: (key: string) => void;
+  onTranscript: (text: string) => void;
+}
 
-  const cleanup = useCallback(() => {
-    if (timerRef.current !== null) {
-      window.clearTimeout(timerRef.current);
-      timerRef.current = null;
+/** 一次按住说话的资源所有者：权限、录音、转写共用代际与取消入口。 */
+export function createVoiceInput(callbacks: VoiceInputCallbacks) {
+  let state: VoiceInputState = "idle";
+  let generation = 0;
+  let recorder: MediaRecorder | null = null;
+  let stream: MediaStream | null = null;
+  let chunks: Blob[] = [];
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let request: AbortController | null = null;
+
+  const setState = (next: VoiceInputState) => {
+    state = next;
+    callbacks.onStateChange(next);
+  };
+  const releaseCapture = () => {
+    if (timer !== null) clearTimeout(timer);
+    timer = null;
+    if (recorder) {
+      recorder.ondataavailable = null;
+      recorder.onstop = null;
+      recorder.onerror = null;
+      if (recorder.state !== "inactive") recorder.stop();
     }
-    recorderRef.current?.stop();
-    recorderRef.current = null;
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
-    chunksRef.current = [];
-  }, []);
+    recorder = null;
+    stream?.getTracks().forEach((track) => track.stop());
+    stream = null;
+    chunks = [];
+  };
+  const cancel = () => {
+    generation += 1;
+    request?.abort();
+    request = null;
+    releaseCapture();
+    setState("idle");
+  };
+  const fail = (key: string) => {
+    cancel();
+    callbacks.onErrorKey(key);
+  };
 
-  const finish = useCallback(
-    async (discard: boolean) => {
-      const recorder = recorderRef.current;
-      if (!recorder) return "idle" as VoiceInputState;
-      const chunks = chunksRef.current;
-      const stopped = new Promise<Blob>((resolve) => {
-        recorder.onstop = () => resolve(new Blob(chunks, { type: recorder.mimeType }));
-        recorder.stop();
-      });
-      recorderRef.current = null;
-      streamRef.current?.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-      chunksRef.current = [];
-      if (timerRef.current !== null) {
-        window.clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
-      if (discard) {
-        setState("idle");
-        return "idle" as VoiceInputState;
-      }
-      setState("transcribing");
-      try {
-        const blob = await stopped;
-        const wav = await blobToWav(blob);
-        const result = await ttsApi.asrTranscribe(wav);
-        if (!result.text) {
-          onErrorKey("chat.asrEmpty");
-          setState("error");
-        } else {
-          setState("idle");
-          return result.text;
-        }
-      } catch {
-        onErrorKey("chat.asrFailed");
-        setState("error");
-      }
+  const stop = async (): Promise<string | null> => {
+    if (state === "starting") {
+      cancel(); // 松手时尚未授权，稍后到达的麦克风流必须立即释放。
       return null;
-    },
-    [onErrorKey],
-  );
+    }
+    if (state !== "recording" || !recorder) return null;
+    const token = generation;
+    const current = recorder;
+    const captured = chunks;
+    recorder = null;
+    if (timer !== null) clearTimeout(timer);
+    timer = null;
+    const stopped = new Promise<Blob>((resolve, reject) => {
+      current.onstop = () => resolve(new Blob(captured, { type: current.mimeType }));
+      current.onerror = reject;
+      current.stop();
+    });
+    stream?.getTracks().forEach((track) => track.stop());
+    stream = null;
+    chunks = [];
+    request = new AbortController();
+    const signal = request.signal;
+    setState("transcribing");
+    try {
+      const blob = await stopped;
+      if (token !== generation) return null;
+      const wav = await blobToWav(blob);
+      if (token !== generation) return null;
+      const result = await ttsApi.asrTranscribe(wav, signal);
+      if (token !== generation) return null;
+      if (!result.text.trim()) {
+        fail("chat.asrEmpty");
+        return null;
+      }
+      setState("idle");
+      callbacks.onTranscript(result.text);
+      return result.text;
+    } catch {
+      if (token === generation) fail("chat.asrFailed");
+      return null;
+    } finally {
+      if (token === generation) request = null;
+    }
+  };
 
-  const start = useCallback(async (): Promise<boolean> => {
+  const start = async (): Promise<boolean> => {
     if (state !== "idle") return false;
+    const token = ++generation;
+    setState("starting");
     if (!navigator.mediaDevices?.getUserMedia) {
-      onErrorKey("chat.micUnsupported");
-      setState("error");
+      fail("chat.micUnsupported");
       return false;
     }
-    stopSpeaking(); // 防播报外放被麦克风收音
+    stopSpeaking();
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const acquired = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (token !== generation) {
+        acquired.getTracks().forEach((track) => track.stop());
+        return false;
+      }
+      stream = acquired;
       const mimeType = MIME_CANDIDATES.find((t) => MediaRecorder.isTypeSupported(t));
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-      chunksRef.current = [];
+      recorder = new MediaRecorder(acquired, mimeType ? { mimeType } : undefined);
+      const captured: Blob[] = [];
+      chunks = captured;
       recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) chunksRef.current.push(event.data);
+        if (event.data.size > 0) captured.push(event.data);
+      };
+      recorder.onerror = () => {
+        if (token === generation) fail("chat.asrFailed");
       };
       recorder.start(250);
-      streamRef.current = stream;
-      recorderRef.current = recorder;
       setState("recording");
-      timerRef.current = window.setTimeout(() => void finish(false), MAX_RECORD_MS);
+      timer = setTimeout(() => void stop(), MAX_RECORD_MS);
       return true;
-    } catch (err) {
-      onErrorKey(micErrorKey(err));
-      setState("error");
+    } catch (error) {
+      if (token === generation) fail(micErrorKey(error));
       return false;
     }
-  }, [state, finish, onErrorKey]);
+  };
+  return {
+    get state() {
+      return state;
+    },
+    start,
+    stop,
+    cancel,
+  };
+}
 
-  /** 返回转写文本（取消/失败返回 null）。 */
-  const stop = useCallback(() => finish(false), [finish]);
-  const cancel = useCallback(() => void finish(true), [finish]);
-
-  return { state, start, stop, cancel, cleanup };
+export function useVoiceInput(
+  onErrorKey: (key: string) => void,
+  onTranscript: (text: string) => void,
+) {
+  const [state, setState] = useState<VoiceInputState>("idle");
+  const callbacks = useRef({ onErrorKey, onTranscript });
+  callbacks.current = { onErrorKey, onTranscript };
+  const mounted = useRef(true);
+  const inputRef = useRef<ReturnType<typeof createVoiceInput> | null>(null);
+  if (inputRef.current === null) {
+    inputRef.current = createVoiceInput({
+      onStateChange: (next) => {
+        if (mounted.current) setState(next);
+      },
+      onErrorKey: (key) => {
+        if (mounted.current) callbacks.current.onErrorKey(key);
+      },
+      onTranscript: (text) => {
+        if (mounted.current) callbacks.current.onTranscript(text);
+      },
+    });
+  }
+  const input = inputRef.current;
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      input.cancel();
+    };
+  }, [input]);
+  return { state, start: input.start, stop: input.stop, cancel: input.cancel };
 }

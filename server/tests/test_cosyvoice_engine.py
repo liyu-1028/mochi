@@ -131,6 +131,35 @@ async def test_probe_ok_and_fail(monkeypatch):
     assert "API Key 无效" in hint
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["timeout", "connection", "json", "shape", "base64"])
+async def test_cloud_failures_use_readable_error_and_text_fallback(monkeypatch, failure):
+    from mochi_server.tts import cache, engine
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if failure == "timeout":
+            raise httpx.ReadTimeout("slow", request=request)
+        if failure == "connection":
+            raise httpx.ConnectError("offline", request=request)
+        if failure == "json":
+            return httpx.Response(200, text="<html>gateway error</html>")
+        if failure == "shape":
+            return httpx.Response(200, json=["unexpected"])
+        return httpx.Response(200, json={"output": {"audio": {"data": "%%%invalid"}}})
+
+    _install(monkeypatch, handler)
+    with pytest.raises(TTSEngineError):
+        await synthesize("audit", voice_id="longxing_v3", rate=1.0, conn=_CONN)
+    ok, hint = await probe(_CONN)
+    assert ok is False
+    assert "CosyVoice 合成失败" in hint
+    monkeypatch.setattr(cache, "CACHE", cache.TTSCache())
+    audio, used, hit = await engine.synthesize(
+        "audit", voice_id="longxing_v3", rate=1.0, conn=_CONN
+    )
+    assert (audio, used, hit) == (b"", "text-fallback", False)
+
+
 def test_resolve_speech_connection_branches():
     store = KeyStore()
     config = AppConfig()
