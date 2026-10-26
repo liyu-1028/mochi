@@ -105,10 +105,20 @@ function fixture() {
       "leftUpperArm",
       "leftLowerArm",
       "leftHand",
+      "leftIndexProximal",
+      "leftIndexIntermediate",
+      "leftIndexDistal",
+      "leftLittleProximal",
+      "leftThumbMetacarpal",
       "rightShoulder",
       "rightUpperArm",
       "rightLowerArm",
       "rightHand",
+      "rightIndexProximal",
+      "rightIndexIntermediate",
+      "rightIndexDistal",
+      "rightLittleProximal",
+      "rightThumbMetacarpal",
     ].map((name) => {
       const node = new THREE.Object3D();
       node.name = name;
@@ -211,7 +221,7 @@ describe("VRM stage rendering", () => {
     stage.driver.playAction(motion, armTracks());
     for (let i = 0; i < 5; i++) frame();
     expect(bones.get("leftUpperArm")!.rotation.z).toBeCloseTo(0.4);
-    expect(bones.get("rightUpperArm")!.rotation.z).toBeCloseTo(1.35);
+    expect(bones.get("rightUpperArm")!.rotation.z).toBeCloseTo(1.4);
     stage.dispose();
   });
 
@@ -220,7 +230,7 @@ describe("VRM stage rendering", () => {
     const stage = await loadVrmStage(host, "/model.vrm");
     stage.driver.playAction(motion, armTracks());
     for (let i = 0; i < 17; i++) frame();
-    expect(bones.get("leftUpperArm")!.rotation.z).toBeCloseTo(-1.35);
+    expect(bones.get("leftUpperArm")!.rotation.z).toBeCloseTo(-1.4);
     stage.dispose();
   });
 
@@ -259,7 +269,7 @@ describe("VRM stage rendering", () => {
     resolve(armTracks());
     await Promise.resolve();
     for (let i = 0; i < 5; i++) frame();
-    expect(bones.get("leftUpperArm")!.rotation.z).toBeCloseTo(-1.35);
+    expect(bones.get("leftUpperArm")!.rotation.z).toBeCloseTo(-1.4);
     stage.dispose();
   });
 
@@ -297,24 +307,42 @@ describe("VRM stage rendering", () => {
     const stage = await loadVrmStage(host, "/model.vrm");
     expect(Math.abs(bones.get("leftUpperArm")!.rotation.z)).toBeGreaterThan(1);
     expect(mocks.motionLoad).not.toHaveBeenCalled();
-    expect(bones.get("leftLowerArm")!.rotation.x).toBeCloseTo(0.12);
-    expect(bones.get("leftHand")!.rotation.x).toBeCloseTo(0);
+    expect(bones.get("leftLowerArm")!.rotation.x).toBeCloseTo(0);
+    expect(bones.get("leftLowerArm")!.rotation.y).toBeLessThan(0);
+    expect(bones.get("rightLowerArm")!.rotation.y).toBeGreaterThan(0);
+    expect(bones.get("leftHand")!.rotation.z).toBeCloseTo(-bones.get("rightHand")!.rotation.z);
+    expect(bones.get("leftIndexProximal")!.rotation.z).toBeLessThan(0);
+    expect(bones.get("leftLittleProximal")!.rotation.z).toBeLessThan(
+      bones.get("leftIndexProximal")!.rotation.z,
+    );
     stage.dispose();
   });
 
   it("loops the imported idle file and restores static rest when it is removed", async () => {
     const { host, frame, bones } = fixture();
     const stage = await loadVrmStage(host, "/model.vrm");
-    stage.driver.setIdleMotion(idleTracks());
+    const tracks = idleTracks();
+    const openFinger = new THREE.QuaternionKeyframeTrack(
+      "leftIndexProximal.quaternion",
+      [0, 2],
+      [0, 0, 0, 1, 0, 0, 0, 1],
+    );
+    tracks.rotation.set("leftIndexProximal", openFinger);
+    stage.driver.setIdleMotion(tracks);
     const elbow = bones.get("leftLowerArm")!;
     const initial = elbow.quaternion.clone();
     for (let i = 0; i < 5; i++) frame();
     expect(elbow.quaternion.angleTo(initial)).toBeGreaterThan(0.03);
     for (let i = 0; i < 15; i++) frame();
     expect(elbow.quaternion.angleTo(initial)).toBeLessThan(0.001);
+    expect(bones.get("leftHand")!.rotation.x).toBeCloseTo(0.1);
+    expect(bones.get("leftIndexProximal")!.rotation.z).toBeCloseTo(0);
+    expect(bones.get("rightIndexProximal")!.rotation.z).toBeGreaterThan(0);
     stage.driver.setIdleMotion(null);
     for (let i = 0; i < 5; i++) frame();
-    expect(elbow.rotation.x).toBeCloseTo(0.12);
+    expect(elbow.rotation.x).toBeCloseTo(0);
+    expect(elbow.rotation.y).toBeLessThan(0);
+    expect(bones.get("leftIndexProximal")!.rotation.z).toBeLessThan(0);
     const resting = elbow.quaternion.clone();
     for (let i = 0; i < 10; i++) frame();
     expect(elbow.quaternion.angleTo(resting)).toBeLessThan(0.001);
@@ -373,7 +401,7 @@ describe("VRM stage rendering", () => {
     stage.driver.playAction(motion);
     for (let i = 0; i < 5; i++) frame();
     expect(mocks.motionLoad).not.toHaveBeenCalled();
-    expect(bones.get("leftUpperArm")!.rotation.z).toBeCloseTo(-1.35);
+    expect(bones.get("leftUpperArm")!.rotation.z).toBeCloseTo(-1.4);
     stage.dispose();
   });
 });

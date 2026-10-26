@@ -132,16 +132,40 @@ export function tracksToClip(
 
 /** Static relaxed rest pose; no animation asset, breathing or authored gesture is bundled. */
 function makeRestClip(vrm: VRM): THREE.AnimationClip {
+  const rotations: Partial<Record<VRMHumanBoneName, THREE.Euler>> = {};
+  // A loose resting curl, increasing towards the little finger; never a fist.
+  const curls = {
+    Index: [0.16, 0.24, 0.12],
+    Middle: [0.22, 0.3, 0.16],
+    Ring: [0.28, 0.34, 0.18],
+    Little: [0.34, 0.38, 0.2],
+  } as const;
+  const joints = ["Proximal", "Intermediate", "Distal"] as const;
+  for (const side of ["left", "right"] as const) {
+    const sign = side === "left" ? -1 : 1;
+    rotations[`${side}UpperArm`] = new THREE.Euler(-0.03, 0, sign * 1.4);
+    // Normalized arms extend along X: mirrored Y bends the elbows forward;
+    // X would only twist the forearms. Keep the wrists nearly in line.
+    rotations[`${side}LowerArm`] = new THREE.Euler(0, sign * 0.12, sign * 0.05);
+    rotations[`${side}Hand`] = new THREE.Euler(0.05, 0, sign * 0.03);
+
+    for (const finger of ["Index", "Middle", "Ring", "Little"] as const) {
+      for (const [index, joint] of joints.entries()) {
+        rotations[`${side}${finger}${joint}`] = new THREE.Euler(0, 0, sign * curls[finger][index]);
+      }
+    }
+    rotations[`${side}ThumbMetacarpal`] = new THREE.Euler(0, -sign * 0.35, sign * 0.08);
+    rotations[`${side}ThumbProximal`] = new THREE.Euler(0, 0, sign * 0.16);
+    rotations[`${side}ThumbDistal`] = new THREE.Euler(0, 0, sign * 0.1);
+  }
+
   const tracks: THREE.KeyframeTrack[] = [];
   for (const bone of Object.values(VRMHumanBoneName)) {
     const node = vrm.humanoid.getNormalizedBoneNode(bone);
     if (!node) continue;
     const q = node.quaternion.clone();
-    if (bone === "leftUpperArm" || bone === "rightUpperArm") {
-      q.setFromEuler(new THREE.Euler(0, 0, bone === "leftUpperArm" ? -1.35 : 1.35));
-    } else if (bone === "leftLowerArm" || bone === "rightLowerArm") {
-      q.setFromEuler(new THREE.Euler(0.12, 0, 0));
-    }
+    const rotation = rotations[bone];
+    if (rotation) q.setFromEuler(rotation);
     tracks.push(
       new THREE.QuaternionKeyframeTrack(
         `${node.name}.quaternion`,
