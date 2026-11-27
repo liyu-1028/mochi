@@ -16,6 +16,8 @@
 
 [快速开始](#-快速开始) · [功能演示](#%EF%B8%8F-功能演示) · [安装使用](#️-安装与使用发行版) · [参与贡献](#-参与贡献)
 
+已收录于 [Agent2048](https://agent2048.com/zh/projects/ipriqjvx2gnh)
+
 </div>
 
 > 🚧 当前阶段：Beta，应用版本为 [v0.16.0](https://github.com/liyu-1028/mochi/releases/tag/v0.16.0)。
